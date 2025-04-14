@@ -110,8 +110,8 @@ def search_web(
     else:  # google
         urls = list(search(query, num_results=num_results))
         # google shit doesnt seem to be working anymore, apparently a lbock they made on browsers without js?
-        print("urls", urls)
-        print(provider)
+        #print("urls", urls)
+        #print(provider)
         for url in urls:
             try:
                 # Fetch the webpage content

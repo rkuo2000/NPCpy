@@ -246,7 +246,6 @@ def get_stream(
     if model is not None and provider is not None:
         pass
     elif model is not None and provider is None:
-        print(provider)
         provider = lookup_provider(model)
     elif npc is not None:
         if npc.provider is not None:
@@ -258,7 +257,6 @@ def get_stream(
     else:
         provider = "ollama"
         model = "llama3.2"
-    # print(model, provider)
 
     return get_litellm_stream(
         messages,
@@ -880,7 +878,6 @@ ReAct choices then will enter reasoning flow
 
 
         """
-    print(api_url, api_key)
 
     action_response = get_llm_response(
         prompt,
@@ -912,6 +909,7 @@ ReAct choices then will enter reasoning flow
 
     action = response_content_parsed.get("action")
     explanation = response_content_parsed.get("explanation")
+
     print(f"action chosen: {action}")
     print(f"explanation given: {explanation}")
 

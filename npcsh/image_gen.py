@@ -81,7 +81,6 @@ def generate_image_litellm(
     if provider == "diffusers":
         return generate_image_diffusers(prompt, model, height=height, width=width)
     else:
-        print(f"{height}x{width}")
 
         if f"{height}x{width}" not in [
             "256x256",
