@@ -447,6 +447,265 @@ class CommandHistory:
 
         return results
 
+    def get_npc_conversation_stats(self, start_date=None, end_date=None):
+        """
+        Get conversation statistics grouped by NPC.
+        Returns metrics like:
+        - Total messages per NPC
+        - Average message length 
+        - Most common conversation topics
+        - Response times
+        - Models/providers used
+        """
+        date_filter = ""
+        params = []
+        if start_date and end_date:
+            date_filter = "WHERE timestamp BETWEEN ? AND ?"
+            params = [start_date, end_date]
+
+        query = f"""
+        SELECT 
+            npc,
+            COUNT(*) as total_messages,
+            AVG(LENGTH(content)) as avg_message_length,
+            COUNT(DISTINCT conversation_id) as total_conversations,
+            COUNT(DISTINCT model) as models_used,
+            COUNT(DISTINCT provider) as providers_used,
+            GROUP_CONCAT(DISTINCT model) as model_list,
+            GROUP_CONCAT(DISTINCT provider) as provider_list,
+            MIN(timestamp) as first_conversation,
+            MAX(timestamp) as last_conversation
+        FROM conversation_history
+        {date_filter}
+        GROUP BY npc
+        ORDER BY total_messages DESC
+        """
+        
+        self.cursor.execute(query, params)
+        return pd.DataFrame(self.cursor.fetchall(), columns=[
+            'npc', 'total_messages', 'avg_message_length', 'total_conversations',
+            'models_used', 'providers_used', 'model_list', 'provider_list',
+            'first_conversation', 'last_conversation'
+        ])
+
+    def get_conversation_topic_analysis(self, npc=None, limit=1000):
+        """
+        Analyze conversation content to extract common topics and patterns.
+        Optionally filter by specific NPC.
+        """
+        query = """
+        WITH message_pairs AS (
+            SELECT 
+                ch1.conversation_id,
+                ch1.content as user_message,
+                ch2.content as assistant_response,
+                ch1.timestamp as msg_time,
+                ch1.npc
+            FROM conversation_history ch1
+            JOIN conversation_history ch2 
+                ON ch1.conversation_id = ch2.conversation_id
+                AND ch1.id < ch2.id
+            WHERE ch1.role = 'user' 
+                AND ch2.role = 'assistant'
+                AND ch2.id = (
+                    SELECT MIN(id) 
+                    FROM conversation_history ch3
+                    WHERE ch3.conversation_id = ch1.conversation_id
+                    AND ch3.id > ch1.id
+                    AND ch3.role = 'assistant'
+                )
+        """
+        
+        if npc:
+            query += f" AND ch1.npc = ?" 
+            params = [npc, limit]
+        else:
+            params = [limit]
+
+        query += """
+            ORDER BY ch1.timestamp DESC
+            LIMIT ?
+        )
+        SELECT 
+            conversation_id,
+            user_message,
+            assistant_response,
+            msg_time,
+            npc
+        FROM message_pairs
+        """
+
+        self.cursor.execute(query, params)
+        return pd.DataFrame(self.cursor.fetchall(), columns=[
+            'conversation_id', 'user_message', 'assistant_response', 
+            'timestamp', 'npc'
+        ])
+
+    def get_command_patterns(self, timeframe='day'):
+        """
+        Analyze command usage patterns over time.
+        Timeframe can be 'hour', 'day', 'week', or 'month'.
+        """
+        time_group = {
+            'hour': "strftime('%Y-%m-%d %H', timestamp)",
+            'day': "strftime('%Y-%m-%d', timestamp)",
+            'week': "strftime('%Y-%W', timestamp)",
+            'month': "strftime('%Y-%m', timestamp)"
+        }[timeframe]
+
+        query = f"""
+        WITH parsed_commands AS (
+            SELECT 
+                {time_group} as time_bucket,
+                CASE 
+                    WHEN command LIKE '/%%' THEN substr(command, 2, instr(substr(command, 2), ' ') - 1)
+                    WHEN command LIKE 'npc %%' THEN substr(command, 5, instr(substr(command, 5), ' ') - 1)
+                    ELSE command
+                END as base_command
+            FROM command_history
+        )
+        SELECT 
+            time_bucket,
+            base_command,
+            COUNT(*) as usage_count
+        FROM parsed_commands
+        GROUP BY time_bucket, base_command
+        ORDER BY time_bucket DESC, usage_count DESC
+        """
+
+        self.cursor.execute(query)
+        return pd.DataFrame(self.cursor.fetchall(), columns=[
+            'time_period', 'command', 'count'
+        ])
+
+    def get_conversation_flows(self, conversation_id=None):
+        """
+        Analyze the flow and structure of conversations.
+        Shows message chains, response patterns, and interaction flows.
+        """
+        where_clause = "WHERE conversation_id = ?" if conversation_id else ""
+        params = [conversation_id] if conversation_id else []
+
+        query = f"""
+        WITH message_sequence AS (
+            SELECT 
+                conversation_id,
+                role,
+                content,
+                timestamp,
+                npc,
+                LAG(role) OVER (PARTITION BY conversation_id ORDER BY timestamp) as prev_role,
+                LAG(content) OVER (PARTITION BY conversation_id ORDER BY timestamp) as prev_content,
+                LEAD(role) OVER (PARTITION BY conversation_id ORDER BY timestamp) as next_role,
+                LEAD(content) OVER (PARTITION BY conversation_id ORDER BY timestamp) as next_content
+            FROM conversation_history
+            {where_clause}
+        )
+        SELECT 
+            conversation_id,
+            role,
+            content,
+            timestamp,
+            npc,
+            prev_role,
+            prev_content,
+            next_role,
+            next_content
+        FROM message_sequence
+        ORDER BY conversation_id, timestamp
+        """
+
+        self.cursor.execute(query, params)
+        return pd.DataFrame(self.cursor.fetchall(), columns=[
+            'conversation_id', 'role', 'content', 'timestamp', 'npc',
+            'prev_role', 'prev_content', 'next_role', 'next_content'
+        ])
+
+    def analyze_npc_performance(self, start_date=None, end_date=None):
+        """
+        Analyze NPC performance metrics including:
+        - Response times
+        - Message completion rates
+        - Error rates
+        - Model/provider effectiveness
+        """
+        date_filter = ""
+        params = []
+        if start_date and end_date:
+            date_filter = "WHERE ch1.timestamp BETWEEN ? AND ?"
+            params = [start_date, end_date]
+
+        query = f"""
+        WITH response_times AS (
+            SELECT 
+                ch1.conversation_id,
+                ch1.npc,
+                ch1.model,
+                ch1.provider,
+                ch1.timestamp as request_time,
+                MIN(ch2.timestamp) as response_time,
+                ch1.content as user_message,
+                ch2.content as assistant_response
+            FROM conversation_history ch1
+            LEFT JOIN conversation_history ch2 
+                ON ch1.conversation_id = ch2.conversation_id
+                AND ch1.id < ch2.id
+                AND ch2.role = 'assistant'
+            {date_filter}
+            WHERE ch1.role = 'user'
+            GROUP BY ch1.id
+        )
+        SELECT 
+            npc,
+            model,
+            provider,
+            COUNT(*) as total_interactions,
+            AVG(julianday(response_time) - julianday(request_time)) * 24 * 60 as avg_response_time_minutes,
+            COUNT(CASE WHEN response_time IS NULL THEN 1 END) as incomplete_responses,
+            COUNT(CASE WHEN lower(assistant_response) LIKE '%error%' 
+                   OR lower(assistant_response) LIKE '%failed%' 
+                   OR lower(assistant_response) LIKE '%invalid%' 
+                   OR lower(assistant_response) LIKE '%exception%' THEN 1 END) as error_count
+        FROM response_times
+        GROUP BY npc, model, provider
+        ORDER BY total_interactions DESC
+        """
+
+        self.cursor.execute(query, params)
+        return pd.DataFrame(self.cursor.fetchall(), columns=[
+            'npc', 'model', 'provider', 'total_interactions', 
+            'avg_response_time_mins', 'incomplete_responses', 'error_count'
+        ])
+
+    def get_conversation_sentiment_trends(self, window='day'):
+        """
+        Track sentiment trends in conversations over time.
+        This provides a base table for sentiment analysis.
+        """
+        time_group = {
+            'hour': "strftime('%Y-%m-%d %H', timestamp)",
+            'day': "strftime('%Y-%m-%d', timestamp)",
+            'week': "strftime('%Y-%W', timestamp)",
+            'month': "strftime('%Y-%m', timestamp)"
+        }[window]
+
+        query = f"""
+        SELECT 
+            {time_group} as time_period,
+            npc,
+            role,
+            GROUP_CONCAT(content, ' ') as messages,
+            COUNT(*) as message_count
+        FROM conversation_history
+        GROUP BY time_period, npc, role
+        ORDER BY time_period DESC, npc, role
+        """
+
+        self.cursor.execute(query)
+        return pd.DataFrame(self.cursor.fetchall(), columns=[
+            'time_period', 'npc', 'role', 'messages', 'message_count'
+        ])
+
 
 def start_new_conversation() -> str:
     """

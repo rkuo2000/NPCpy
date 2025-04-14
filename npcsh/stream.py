@@ -165,7 +165,7 @@ def get_litellm_stream(
         # print(api_params["model"])
 
         if api_key is not None and provider == "openai-like":
-            print(api_key)
+            #print(api_key)
             api_params["api_key"] = api_key
 
         if api_url is not None and provider == "openai-like":

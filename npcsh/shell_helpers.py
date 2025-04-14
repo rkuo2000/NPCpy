@@ -98,6 +98,7 @@ from npcsh.npc_sysenv import (
     NPCSH_IMAGE_GEN_PROVIDER,
     NPCSH_VIDEO_GEN_MODEL,
     NPCSH_VIDEO_GEN_PROVIDER,
+    print_and_process_stream
 )
 from npcsh.command_history import (
     CommandHistory,
@@ -309,15 +310,6 @@ def preprocess_code_block(code_text):
     return "\n".join(line.lstrip() for line in lines)
 
 
-def render_code_block(code_text):
-    """
-    Render code block with no leading spaces.
-    """
-    processed_code = preprocess_code_block(code_text)
-    console = Console()
-    console.print(processed_code, style="")
-
-
 def preprocess_markdown(md_text):
     """
     Preprocess markdown text to handle code blocks separately.
@@ -378,22 +370,6 @@ def render_markdown(text: str) -> None:
         else:
             # Regular markdown
             console.print(Markdown(line))
-
-
-def render_code_block(code: str, language: str = None) -> None:
-    """Render a code block with syntax highlighting using rich, left-justified with no line numbers"""
-    from rich.syntax import Syntax
-    from rich.console import Console
-
-    console = Console(highlight=True)
-    code = code.strip()
-    # If code starts with a language identifier, remove it
-    if code.split("\n", 1)[0].lower() in ["python", "bash", "javascript"]:
-        code = code.split("\n", 1)[1]
-    syntax = Syntax(
-        code, language or "python", theme="monokai", line_numbers=False, padding=0
-    )
-    console.print(syntax)
 
 
 def change_directory(command_parts: list, messages: list) -> dict:
@@ -3800,38 +3776,10 @@ def enter_spool_mode(
                 npc=npc.name if npc else None,
             )
 
-            # Get the conversation
             if stream:
                 conversation_result = ""
                 output = get_stream(spool_context, **kwargs_to_pass)
-                for chunk in output:
-                    if provider == "anthropic":
-                        if chunk.type == "content_block_delta":
-                            chunk_content = chunk.delta.text
-                            if chunk_content:
-                                conversation_result += chunk_content
-                                print(chunk_content, end="")
-
-                    elif (
-                        provider == "openai"
-                        or provider == "deepseek"
-                        or provider == "openai-like"
-                    ):
-                        chunk_content = "".join(
-                            choice.delta.content
-                            for choice in chunk.choices
-                            if choice.delta.content is not None
-                        )
-                        if chunk_content:
-                            conversation_result += chunk_content
-                            print(chunk_content, end="")
-
-                    elif provider == "ollama":
-                        chunk_content = chunk["message"]["content"]
-                        if chunk_content:
-                            conversation_result += chunk_content
-                            print(chunk_content, end="")
-                print("\n")
+                conversation_result = print_and_process_stream(output, model, provider)
                 conversation_result = spool_context + [
                     {"role": "assistant", "content": conversation_result}
                 ]

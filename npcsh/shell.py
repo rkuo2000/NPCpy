@@ -33,6 +33,7 @@ except:
 from npcsh.npc_sysenv import (
     get_system_message,
     lookup_provider,
+    print_and_process_stream_with_markdown,
     NPCSH_STREAM_OUTPUT,
     NPCSH_CHAT_MODEL,
     NPCSH_CHAT_PROVIDER,
@@ -67,7 +68,7 @@ from npcsh.shell_helpers import (
     setup_readline,
     execute_command,
     render_markdown,
-    render_code_block,
+
     orange,  # For colored prompt
 )
 from npcsh.npc_compiler import (
@@ -261,68 +262,10 @@ def main() -> None:
                 isgenerator(output)
                 or (hasattr(output, "__iter__") and hasattr(output, "__next__"))
             ):
-                str_output = ""
-                in_code = False
-                code_buffer = ""
-                text_buffer = ""
+                output = print_and_process_stream_with_markdown(    
+                                                                output, model, provider)
 
-                for chunk in output:
-                    # Get chunk content based on provider
-                    if provider == "anthropic":
-                        chunk_content = (
-                            chunk.delta.text
-                            if chunk.type == "content_block_delta"
-                            else None
-                        )
-                    elif provider in ["openai", "deepseek", "openai-like"]:
-                        chunk_content = "".join(
-                            c.delta.content for c in chunk.choices if c.delta.content
-                        )
-                    elif provider == "ollama":
-                        chunk_content = chunk["message"]["content"]
-                    else:
-                        continue
-
-                    if not chunk_content:
-                        continue
-
-                    str_output += chunk_content
-
-                    # Process chunk
-                    if "```" in chunk_content:
-                        parts = chunk_content.split("```")
-
-                        for i, part in enumerate(parts):
-                            if i == 0:  # First part (before any backticks)
-                                if in_code:
-                                    code_buffer += part
-                                else:
-                                    print(part, end="")
-                            elif i % 2 == 1:  # Inside a code block
-                                if not in_code:  # Starting a new code block
-                                    in_code = True
-                                    code_buffer = part
-                                else:  # Shouldn't happen but handle anyway
-                                    code_buffer += part
-                            else:  # Outside a code block
-                                if in_code:  # Just finished a code block
-                                    in_code = False
-                                    # Render the code block
-                                    render_code_block(code_buffer)
-                                    code_buffer = ""
-                                print(part, end="")
-                    else:
-                        if in_code:
-                            code_buffer += chunk_content
-                        else:
-                            print(chunk_content, end="")
-
-                # Handle any remaining code buffer
-                if in_code and code_buffer:
-                    render_code_block(code_buffer)
-
-                if str_output:
-                    output = str_output
+                    
         save_conversation_message(
             command_history,
             conversation_id,
