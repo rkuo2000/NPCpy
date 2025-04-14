@@ -102,8 +102,8 @@ def get_litellm_stream(
     **kwargs,
 ) -> Generator:
     """Streams responses from OpenAI, supporting images, tools and yielding raw text chunks."""
-    print("model", "provider")
-    print(model, provider)
+    #print("model", "provider")
+    #print(model, provider)
     if "hf.co" in model:
         resp = get_ollama_hf_stream(
             messages,
