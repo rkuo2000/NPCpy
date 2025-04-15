@@ -14,9 +14,6 @@ from jinja2 import Environment, FileSystemLoader, Template, Undefined
 
 import pandas as pd
 import numpy as np
-
-from google.generativeai import types
-import google.generativeai as genai
 from sqlalchemy import create_engine
 
 from npcsh.npc_sysenv import (
