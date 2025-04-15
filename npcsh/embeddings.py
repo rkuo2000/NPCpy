@@ -12,9 +12,11 @@ from npcsh.npc_sysenv import (
     NPCSH_EMBEDDING_PROVIDER,
     chroma_client,
 )
-from openai import OpenAI
-import anthropic
-
+try:
+    from openai import OpenAI
+    import anthropic
+except: 
+    pass
 
 def get_ollama_embeddings(
     texts: List[str], model: str = "nomic-embed-text"
