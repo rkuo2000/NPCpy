@@ -63,6 +63,7 @@ base_requirements = [
     "PyYAML",
     "PyMuPDF",
     "pyautogui",
+    "pydantic", 
     "pygments",
     "sqlalchemy",
     "termcolor",
@@ -102,10 +103,11 @@ local_requirements = [
 
 # Voice/Audio requirements
 voice_requirements = [
-    "openai-whisper",
     "pyaudio",
     "gtts",
     "playsound==1.2.2",
+    "pygame", 
+    "faster_whisper",
     "pyttsx3",
 ]
 

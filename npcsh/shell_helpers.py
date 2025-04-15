@@ -39,7 +39,6 @@ last_speech_time = 0
 
 
 try:
-    import whisper
     from faster_whisper import WhisperModel
     from gtts import gTTS
     import torch
