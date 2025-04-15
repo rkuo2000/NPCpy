@@ -93,7 +93,7 @@ def generate_image_litellm(
             raise ValueError(
                 f"Invalid image size: {height}x{width}. Please use one of the following: 256x256, 512x512, 1024x1024, 1024x1792, 1792x1024"
             )
-        print(model, provider)
+        #print(model, provider)
         return image_generation(
             prompt=prompt,
             model=f"{provider}/{model}",

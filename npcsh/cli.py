@@ -13,6 +13,7 @@ from npcsh.npc_sysenv import (
     NPCSH_DB_PATH,
     NPCSH_STREAM_OUTPUT,
     NPCSH_SEARCH_PROVIDER,
+    print_and_process_stream
 )
 from npcsh.serve import start_flask_server
 from npcsh.npc_compiler import (
@@ -105,35 +106,7 @@ def main():
         )
         provider = args.provider
         model = args.model
-        conversation_result = ""
-        for chunk in response:
-            if provider == "anthropic":
-                if chunk.type == "content_block_delta":
-                    chunk_content = chunk.delta.text
-                    if chunk_content:
-                        conversation_result += chunk_content
-                        print(chunk_content, end="")
-
-            elif (
-                provider == "openai"
-                or provider == "deepseek"
-                or provider == "openai-like"
-            ):
-                chunk_content = "".join(
-                    choice.delta.content
-                    for choice in chunk.choices
-                    if choice.delta.content is not None
-                )
-                if chunk_content:
-                    conversation_result += chunk_content
-                    print(chunk_content, end="")
-
-            elif provider == "ollama":
-                chunk_content = chunk["message"]["content"]
-                if chunk_content:
-                    conversation_result += chunk_content
-                    print(chunk_content, end="")
-        print("\n")
+        conversation_result = print_and_process_stream(response, provider, model)
         return
 
     parser.add_argument(

@@ -6,7 +6,7 @@
 ########
 ########
 
-from typing import Any, Dict, Generator, List
+from typing import Any, Dict, Generator, List, Literal
 import os
 import base64
 import json
@@ -24,8 +24,69 @@ from npcsh.npc_sysenv import (
 
 from litellm import completion
 
+try:
+    import ollama
+except:
+    pass
 # import litellm
 # litellm._turn_on_debug()
+
+
+def get_ollama_hf_stream(
+    messages: List[Dict[str, str]],
+    model: str,
+    npc: Any = None,
+    tools: list = None,
+    images: List[Dict[str, str]] = None,
+    api_key: str = None,
+    api_url: str = None,
+    tool_choice: Dict = None,
+    **kwargs,
+) -> Generator:
+    """Streams responses from ollama in HF cases that arent covered yet by litellm"""
+
+    system_message = get_system_message(npc) if npc else "You are a helpful assistant."
+
+    if not messages:
+        messages = [{"role": "system", "content": system_message}]
+
+    # Add images if provided
+    if images:
+        messages[-1]["images"] = [image["file_path"] for image in images]
+
+    # Prepare API call parameters
+    api_params = {
+        "messages": messages,
+        "stream": True,
+        "model": model,
+    }
+    # Add tools if provided
+    if tools:
+        api_params["tools"] = tools
+    # Add tool choice if specified
+    if tool_choice:
+        api_params["tool_choice"] = tool_choice
+
+    # Add any additional parameters
+    for key, value in kwargs.items():
+        if key in [
+            "stream",
+            "stop",
+            "temperature",
+            "top_p",
+            "max_tokens",
+            "max_completion_tokens",
+            "tools",
+            "tool_choice",
+            "extra_headers",
+            "parallel_tool_calls",
+            "response_format",
+            "user",
+        ]:
+            api_params[key] = value
+    res = ollama.chat(**api_params)
+    for chunk in res:
+        yield chunk
 
 
 def get_litellm_stream(
@@ -41,89 +102,124 @@ def get_litellm_stream(
     **kwargs,
 ) -> Generator:
     """Streams responses from OpenAI, supporting images, tools and yielding raw text chunks."""
-    system_message = get_system_message(npc) if npc else "You are a helpful assistant."
-
-    if not messages:
-        messages = [{"role": "system", "content": system_message}]
-
-    # Add images if provided
-    if images:
-        last_user_message = (
-            messages[-1]
-            if messages and messages[-1]["role"] == "user"
-            else {"role": "user", "content": []}
+    #print("model", "provider")
+    #print(model, provider)
+    if "hf.co" in model:
+        resp = get_ollama_hf_stream(
+            messages,
+            model,
+            npc=npc,
+            tools=tools,
+            images=images,
+            api_key=api_key,
+            api_url=api_url,
+            tool_choice=tool_choice,
+            **kwargs,
+        )
+        for chunk in resp:
+            yield chunk
+    else:
+        system_message = (
+            get_system_message(npc) if npc else "You are a helpful assistant."
         )
 
-        if isinstance(last_user_message["content"], str):
-            last_user_message["content"] = [
-                {"type": "text", "text": last_user_message["content"]}
-            ]
+        if not messages:
+            messages = [{"role": "system", "content": system_message}]
 
-        for image in images:
-            with open(image["file_path"], "rb") as image_file:
-                image_data = base64.b64encode(image_file.read()).decode("utf-8")
-                last_user_message["content"].append(
-                    {
-                        "type": "image_url",
-                        "image_url": {"url": f"data:image/jpeg;base64,{image_data}"},
-                    }
-                )
+        # Add images if provided
+        if images:
+            last_user_message = (
+                messages[-1]
+                if messages and messages[-1]["role"] == "user"
+                else {"role": "user", "content": []}
+            )
 
-        if last_user_message not in messages:
-            messages.append(last_user_message)
+            if isinstance(last_user_message["content"], str):
+                last_user_message["content"] = [
+                    {"type": "text", "text": last_user_message["content"]}
+                ]
 
-    # Prepare API call parameters
-    # print("provider", provider)
-    # print("model", model)
+            for image in images:
+                with open(image["file_path"], "rb") as image_file:
+                    image_data = base64.b64encode(image_file.read()).decode("utf-8")
+                    last_user_message["content"].append(
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/jpeg;base64,{image_data}"
+                            },
+                        }
+                    )
 
-    api_params = {
-        "messages": messages,
-        "stream": True,
-    }
-    # print(api_params["model"])
+            if last_user_message not in messages:
+                messages.append(last_user_message)
 
-    if api_key is not None and provider == "openai-like":
-        print(api_key)
-        api_params["api_key"] = api_key
+        # Prepare API call parameters
+        # print("provider", provider)
+        # print("model", model)
 
-    if api_url is not None and provider == "openai-like":
-        api_params["api_base"] = api_url
-        provider = "openai"
+        api_params = {
+            "messages": messages,
+            "stream": True,
+        }
+        # print(api_params["model"])
 
-    if provider is not None:
-        model_str = f"{provider}/{model}"
-    else:
-        model_str = model
-    api_params["model"] = model_str
-    # Add tools if provided
-    if tools:
-        api_params["tools"] = tools
+        if api_key is not None and provider == "openai-like":
+            #print(api_key)
+            api_params["api_key"] = api_key
 
-    # Add tool choice if specified
-    if tool_choice:
-        api_params["tool_choice"] = tool_choice
-    if kwargs:
-        for key, value in kwargs.items():
-            if key in [
-                "stream",
-                "stop",
-                "temperature",
-                "top_p",
-                "max_tokens",
-                "max_completion_tokens",
-                "tools",
-                "tool_choice",
-                "extra_headers",
-                "parallel_tool_calls",
-                "response_format",
-                "user",
-            ]:
-                api_params[key] = value
-    # print(api_params)
-    stream = completion(**api_params)
+        if api_url is not None and provider == "openai-like":
+            api_params["api_base"] = api_url
+            provider = "openai"
 
-    for chunk in stream:
-        yield chunk
+        if provider is not None:
+            model_str = f"{provider}/{model}"
+        else:
+            model_str = model
+        api_params["model"] = model_str
+        # Add tools if provided
+        if tools:
+            api_params["tools"] = tools
+
+        # Add tool choice if specified
+        if tool_choice:
+            api_params["tool_choice"] = tool_choice
+        if kwargs:
+            for key, value in kwargs.items():
+                if key in [
+                    "stream",
+                    "stop",
+                    "temperature",
+                    "top_p",
+                    "max_tokens",
+                    "max_completion_tokens",
+                    "tools",
+                    "tool_choice",
+                    "extra_headers",
+                    "parallel_tool_calls",
+                    "response_format",
+                    "user",
+                ]:
+                    api_params[key] = value
+        # print(api_params)
+        stream = completion(**api_params)
+
+        for chunk in stream:
+            yield chunk
+
+
+"""
+from ollama import chat
+
+stream = chat(
+    model='hf.co/caug37/TinyTim:latest',
+    messages=[{'role': 'user', 'content': 'Why is the sky blue?'}],
+    stream=True,
+)
+
+for chunk in stream:
+  print(chunk['message']['content'], end='', flush=True)
+"""
 
 
 def process_litellm_tool_stream(stream, tool_map: Dict[str, callable]) -> List[Dict]:
@@ -196,9 +292,6 @@ def process_litellm_tool_stream(stream, tool_map: Dict[str, callable]) -> List[D
     return tool_results
 
 
-from typing import List, Dict, Any, Literal
-
-
 def generate_tool_schema(
     name: str,
     description: str,
@@ -232,3 +325,21 @@ def generate_tool_schema(
             "strict": True,
         },
     }
+
+
+"""
+
+from npcsh.stream import get_litellm_stream
+model = 'hf.co/caug37/TinyTim:latest'
+messages = [{'role': 'user', 'content': 'Why is the sky blue?'}]
+stream = get_litellm_stream(
+    messages=messages,
+    model=model,
+    provider='hf.co',
+    stream=True,
+)
+for chunk in stream:
+    print(chunk['message']['content'], end='', flush=True)
+
+
+"""
