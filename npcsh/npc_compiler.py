@@ -1,487 +1,59 @@
-import subprocess
+import os
+import yaml
+import json
 import sqlite3
 import numpy as np
-import os
-import sqlalchemy
-import yaml
-from jinja2 import Environment, FileSystemLoader, Template, Undefined
 import pandas as pd
-from typing import Dict, Any, Optional, Union, List, Set
 import matplotlib.pyplot as plt
-import json
-import pathlib
-import fnmatch
 import re
 import ast
 import random
 from datetime import datetime
 import hashlib
-from collections import defaultdict, deque
+import pathlib
+import fnmatch
 import traceback
+from collections import defaultdict
+from typing import Dict, Any, Optional, Union, List, Set
+from jinja2 import Environment, FileSystemLoader, Template, Undefined
+from sqlalchemy import create_engine
 
-# Importing functions
-from npcsh.llm_funcs import (
-    get_llm_response,
-    get_stream,
-    process_data_output,
-    get_data_response,
-    generate_image,
-    check_llm_command,
-    handle_tool_call,
-    execute_llm_command,
-)
+# Assumed imports that would be in your package
+from npcsh.llm_funcs import get_llm_response, get_stream, check_llm_command
 from npcsh.helpers import get_npc_path
-from npcsh.search import search_web, rag_search
-from npcsh.image import capture_screenshot, analyze_image_base
 
-
-def create_or_replace_table(db_path: str, table_name: str, data: pd.DataFrame):
-    """
-    Creates or replaces a table in the SQLite database.
-
-    :param db_path: Path to the SQLite database.
-    :param table_name: Name of the table to create/replace.
-    :param data: Pandas DataFrame containing the data to insert.
-    """
-    conn = sqlite3.connect(db_path)
-    try:
-        data.to_sql(table_name, conn, if_exists="replace", index=False)
-        print(f"Table '{table_name}' created/replaced successfully.")
-    except Exception as e:
-        print(f"Error creating/replacing table '{table_name}': {e}")
-    finally:
-        conn.close()
-
-
-def load_npc_team(template_path):
-    """
-    Load an NPC team from a template directory.
-
-    Args:
-        template_path: Path to the NPC team template directory
-
-    Returns:
-        A dictionary containing the NPC team definition with loaded NPCs and tools
-    """
-    template_path = os.path.expanduser(template_path)
-
-    if not os.path.exists(template_path):
-        raise FileNotFoundError(f"Template directory not found: {template_path}")
-
-    # Initialize team structure
-    npc_team = {
-        "name": os.path.basename(template_path),
-        "npcs": [],
-        "tools": [],
-        "assembly_lines": [],
-        "sql_models": [],
-        "jobs": [],
-    }
-
-    # Load NPCs
-    npc_objects = {}
-    db_conn = sqlite3.connect(os.path.expanduser("~/npcsh_history.db"))
-
-    for filename in os.listdir(template_path):
-        if filename.endswith(".npc"):
-            npc_path = os.path.join(template_path, filename)
-
-            with open(npc_path, "r") as f:
-                npc_content = f.read()
-                npc_data = yaml.safe_load(npc_content)
-                npc_team["npcs"].append(npc_data)
-
-                # Load as NPC object
-
-                npc_obj = load_npc_from_file(npc_path, db_conn)
-                npc_name = npc_data.get("name", os.path.splitext(filename)[0])
-                npc_objects[npc_name] = npc_obj
-
-    # Load tools
-    tools_dir = os.path.join(template_path, "tools")
-    tool_objects = {}
-
-    if os.path.exists(tools_dir):
-        for filename in os.listdir(tools_dir):
-            if filename.endswith(".tool"):
-                tool_path = os.path.join(tools_dir, filename)
-                with open(tool_path, "r") as f:
-                    tool_content = f.read()
-                    tool_data = yaml.safe_load(tool_content)
-                    npc_team["tools"].append(tool_data)
-
-                    # Load as Tool object
-                    try:
-                        tool_obj = Tool(tool_data)
-                        tool_name = tool_data.get(
-                            "tool_name", os.path.splitext(filename)[0]
-                        )
-                        tool_objects[tool_name] = tool_obj
-                    except Exception as e:
-                        print(f"Warning: Could not load tool {filename}: {str(e)}")
-
-    # Load assembly lines
-    assembly_lines_dir = os.path.join(template_path, "assembly_lines")
-    if os.path.exists(assembly_lines_dir):
-        for filename in os.listdir(assembly_lines_dir):
-            if filename.endswith(".pipe"):
-                pipe_path = os.path.join(assembly_lines_dir, filename)
-                with open(pipe_path, "r") as f:
-                    pipe_content = f.read()
-                    pipe_data = yaml.safe_load(pipe_content)
-                    npc_team["assembly_lines"].append(pipe_data)
-
-    # Load SQL models
-    sql_models_dir = os.path.join(template_path, "sql_models")
-    if os.path.exists(sql_models_dir):
-        for filename in os.listdir(sql_models_dir):
-            if filename.endswith(".sql"):
-                sql_path = os.path.join(sql_models_dir, filename)
-                with open(sql_path, "r") as f:
-                    sql_content = f.read()
-                    npc_team["sql_models"].append(
-                        {"name": os.path.basename(sql_path), "content": sql_content}
-                    )
-
-    # Load jobs
-    jobs_dir = os.path.join(template_path, "jobs")
-    if os.path.exists(jobs_dir):
-        for filename in os.listdir(jobs_dir):
-            if filename.endswith(".job"):
-                job_path = os.path.join(jobs_dir, filename)
-                with open(job_path, "r") as f:
-                    job_content = f.read()
-                    job_data = yaml.safe_load(job_content)
-                    npc_team["jobs"].append(job_data)
-
-    # Add loaded objects to the team structure
-    npc_team["npc_objects"] = npc_objects
-    npc_team["tool_objects"] = tool_objects
-    npc_team["template_path"] = template_path
-
-    return npc_team
-
-
-def get_template_npc_team(template, template_dir="~/.npcsh/npc_team/templates/"):
-    # get the working directory where the
-
-    npc_team = load_npc_team(template_dir + template)
-    return npc_team
-
-
-def generate_npcs_from_area_of_expertise(
-    areas_of_expertise,
-    context,
-    templates: list = None,
-    model=None,
-    provider=None,
-    npc=None,
-):
-    prompt = f"""
-    Here are the areas of expertise that a user requires a team of agents to be developed for.
-
-    {areas_of_expertise}
-
-    Here is some additional context that may be useful:
-    {context}
-
-    """
-    # print(templates)
-    if templates is not None:
-        prompt += "the user has also provided the following templates to use as a base for the NPC team:\n"
-        for template in templates:
-            prompt += f"{template}\n"
-        prompt += "your output should use these templates and modify them accordingly. Your response must contain the specific named NPCs included in these templates, with their primary directives adjusted accordingly based on the context and the areas of expertise. any other new npcs should complement these template ones and should not overlap."
-
-    prompt += """
-    Now, generate a set of 2-5 NPCs that cover the required areas of expertise and adequatetly incorporate the context provided.
-    according to the following framework and return a json response
-    {"npc_team":    [
-    {
-        "name":"name of npc1",
-        "primary_directive": "a 2-3 sentence description of the NPCs duties and responsibilities in the second person"
-    },
-    {
-        "name":"name of npc2",
-        "primary_directive": "a 2-3 sentence description of the NPCs duties and responsibilities in the second person"
-    }
-    ]}
-
-    Each npc's name should be one word.
-    The npc's primary directive must be essentially an assistant system message, so ensure that when you
-    write it, you are writing it in that way.
-    For example, here is an npc named 'sibiji' with a primary directive:
-    {
-        "name":"sibiji",
-        "primary_directive": "You are sibiji, the foreman of an NPC team. You are a foundational AI assistant. Your role is to provide basic support and information. Respond to queries concisely and accurately."
-    }
-    When writing out your response, you must ensure that the agents have distinct areas of
-    expertise such that they are not redundant in their abilities. Keeping the agent team
-    small is important and we do not wwish to clutter the team with agents that have overlapping
-    areas of expertise or responsibilities that make it difficult to know which agent should be
-    called upon in a specific situation.
-
-
-    do not include any additional markdown formatting or leading ```json tags.
-    """
-
-    response = get_llm_response(
-        prompt, model=model, provider=provider, npc=npc, format="json"
-    )
-    response = response.get("response").get("npc_team")
-    return response
-
-
-def edit_areas(areas):
-    for i, area in enumerate(areas):
-        print(f"{i+1}. {area}")
-
-    index = input("Which area would you like to edit? (number or 'c' to continue):   ")
-    if index.lower() in ["c", "continue"]:
-        return areas
-    else:
-        index = int(index)
-    if 0 <= index < len(areas):
-        new_value = input(f"Current value: {areas[index]}. Enter new value: ")
-        areas[index] = new_value
-    else:
-        print("invalid index, please try again")
-    return edit_areas(areas)
-
-
-def delete_areas(areas):
-    for i, area in enumerate(areas):
-        print(f"{i+1}. {area}")
-
-    index = (
-        int(input("Which area would you like to delete? (number or 'c' to continue): "))
-        - 1
-    )
-
-    if index.lower() in ["c", "continue"]:
-        return areas
-    if 0 <= index < len(areas):
-        del areas[index]
-
-    return delete_areas(areas)
-
-
-def conjure_team(
-    context,
-    templates,
-    npc=None,
-    model=None,
-    provider=None,
-):
-    """
-    Function to generate an NPC team using existing templates and identifying additional areas of expertise.
-
-    Args:
-        templates: List of template names to use as a base
-        context: Description of the project and what the team should do
-        npc: The NPC to use for generating the areas (optional)
-        model: The model to use for generation (optional)
-        provider: The provider to use for generation (optional)
-
-    Returns:
-        Dictionary with identified areas of expertise
-    """
-    teams = []
-    for team in templates:
-        npc_team = get_template_npc_team(team)
-        teams.append(npc_team)
-
-    # Extract existing areas of expertise from templates
-    prompt = f"""
-                The user has provided the following context:
-
-                {context}
-                """
-
-    if templates is not None:
-        prompt += f"""
-        The user has requested to generate an NPC team using the following templates:
-
-        {templates}
-
-        """
-
-    prompt += """
-    Now what is important in generating an NPC team is to ensure that the NPCs are balanced and distinctly necessary.
-    Each NPC should essentially focus on a single area of expertise. This does not mean that they should only focus on a
-    single function, but rather that they have a specific purview.
-
-    To first figure out what NPCs would be necessary in addition to the templates given the combination of the templates
-    and the user-provided context, we will need to generate a list of the abstract areas that the user requires in an NPC team.
-    Now, given that information, consider whether other potential areas of expertise would complement the provided templates and the user context?
-    Try to think carefully about this in a way to determine what other potential issues might arise for a team like this to anticipate whether it may be
-    necessary to cover additional areas of expertise.
-
-    Now, generate a list of 3-5 abstract areas explicitly required.
-    It is actually quite important that you consolidate and abstract away various areas
-        into general forms. Agents will be generated based on these descriptions, and an agentic team is more
-        useful when it is as small as reasonably possible.
-
-    Similarly, generate a list of 2-3 suggested areas of expertise that would complement the existing templates and the user context.
-
-    This will be provided to the user for confirmation and adjustment before the NPC team is generated.
-
-    Return a json response with two lists. It should be formatted like so:
-
-    {
-        "explicit_areas": ["area 1", "area 2"],
-        "suggested_areas": ["area 3", "area 4"]
-    }
-
-    Do not include any additional markdown formatting or leading ```json tags.
-
-    """
-
-    response = get_llm_response(
-        prompt, model=model, provider=provider, npc=npc, format="json"
-    )
-
-    response = response.get("response")
-    explicit_areas = response.get("explicit_areas", [])
-    suggested_areas = response.get("suggested_areas", [])
-    combined_areas = explicit_areas + suggested_areas
-    print("\nExplicit areas of expertise:")
-    for i, area in enumerate(explicit_areas):
-        print(f"{i+1}. {area}")
-
-    print("\nSuggested areas of expertise:")
-    for i, area in enumerate(suggested_areas):
-        print(f"{i+1}. {area}")
-
-    user_input = input(
-        """\n\n
-Above is the generated list of areas of expertise.
-
-Would you like to edit the suggestions, delete any of them, or regenerate the team with revised context?
-Type '(e)dit', '(d)elete', or '(r)egenerate' or '(a)ccept': """
-    )
-    if user_input.lower() in ["e", "edit"]:
-        revised_areas = edit_areas(combined_areas)
-    elif user_input.lower() in ["d", "delete"]:
-        revised_areas = delete_areas(combined_areas)
-    elif user_input.lower() in ["r", "regenerate"]:
-        updated_context = input(
-            f"Here is the context you provided: {context}\nPlease provide a fully revised version: "
-        )
-        print("Beginning again with updated context")
-        return conjure_team(
-            updated_context,
-            templates=templates,
-            npc=npc,
-            model=model,
-            provider=provider,
-        )
-
-    elif user_input.lower() in ["a", "accept"]:
-        # Return the finalized areas of expertise
-        revised_areas = combined_areas
-
-    # proceed now with generation of npc for each revised area
-    npc_out = generate_npcs_from_area_of_expertise(
-        revised_areas,
-        context,
-        templates=[team["npcs"] for team in teams],
-        model=model,
-        provider=provider,
-        npc=npc,
-    )
-    # print(npc_out)
-    # now save all of the npcs to the ./npc_team directory
-
-    for npc in npc_out:
-        # make the npc team dir if not existst
-
-        if isinstance(npc, str):
-            npc = ast.literal_eval(npc)
-
-        npc_team_dir = os.path.join(os.getcwd(), "npc_team")
-        os.makedirs(npc_team_dir, exist_ok=True)
-        # print(npc, type(npc))
-        npc_path = os.path.join(os.getcwd(), "npc_team", f"{npc['name']}.npc")
-        with open(npc_path, "w") as f:
-            f.write(yaml.dump(npc))
-
-    return {
-        "templates": templates,
-        "context": context,
-        "expertise_areas": response,
-        "npcs": npc_out,
-    }
-
-
-def initialize_npc_project(
-    directory=None,
-    templates=None,
-    context=None,
-    model=None,
-    provider=None,
-) -> str:
-    """
-    Function Description:
-        This function initializes an NPC project in the current directory.
-    Args:
-        None
-    Keyword Args:
-        None
-    Returns:
-        A message indicating the success or failure of the operation.
-    """
-    if directory is None:
-        directory = os.getcwd()
-
-    # Create 'npc_team' folder in current directory
-    npc_team_dir = os.path.join(directory, "npc_team")
-    os.makedirs(npc_team_dir, exist_ok=True)
-
-    # Create 'foreman.npc' file in 'npc_team' directory
-    foreman_npc_path = os.path.join(npc_team_dir, "sibiji.npc")
-    if context is not None:
-        team = conjure_team(
-            context, templates=templates, model=model, provider=provider
-        )
-
-    if not os.path.exists(foreman_npc_path):
-        foreman_npc_content = """name: sibiji
-primary_directive: "You are sibiji, the foreman of an NPC team. You are a foundational AI assistant. Your role is to provide basic support and information. Respond to queries concisely and accurately."
-model: llama3.2
-provider: ollama
-"""
-        with open(foreman_npc_path, "w") as f:
-            f.write(foreman_npc_content)
-    else:
-        print(f"{foreman_npc_path} already exists.")
-
-    # Create 'tools' folder within 'npc_team' directory
-    tools_dir = os.path.join(npc_team_dir, "tools")
-    os.makedirs(tools_dir, exist_ok=True)
-
-    # assembly_lines
-    assembly_lines_dir = os.path.join(npc_team_dir, "assembly_lines")
-    os.makedirs(assembly_lines_dir, exist_ok=True)
-    # sql models
-    sql_models_dir = os.path.join(npc_team_dir, "sql_models")
-    os.makedirs(sql_models_dir, exist_ok=True)
-    # jobs
-    jobs_dir = os.path.join(npc_team_dir, "jobs")
-    os.makedirs(jobs_dir, exist_ok=True)
-
-    # just copy all the base npcsh tools and npcs.
-    return f"NPC project initialized in {npc_team_dir}"
-
-
-def init_pipeline_runs(db_path: str = "~/npcsh_history.db"):
-    """
-    Initialize the pipeline runs table in the database.
-    """
-    with sqlite3.connect(os.path.expanduser(db_path)) as conn:
-        cursor = conn.cursor()
-        cursor.execute(
-            """
+# SilentUndefined handles undefined behavior in Jinja2
+class SilentUndefined(Undefined):
+    def _fail_with_undefined_error(self, *args, **kwargs):
+        return ""
+
+# ---------------------------------------------------------------------------
+# Utility Functions
+# ---------------------------------------------------------------------------
+
+def ensure_dirs_exist(*dirs):
+    """Ensure all specified directories exist"""
+    for dir_path in dirs:
+        os.makedirs(os.path.expanduser(dir_path), exist_ok=True)
+
+def init_db_tables(db_path="~/npcsh_history.db"):
+    """Initialize necessary database tables"""
+    db_path = os.path.expanduser(db_path)
+    with sqlite3.connect(db_path) as conn:
+        # NPC log table for storing all kinds of entries
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS npc_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                entity_id TEXT,  
+                entry_type TEXT,
+                content TEXT,
+                metadata TEXT,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        
+        # Pipeline runs table for tracking pipeline executions
+        conn.execute("""
             CREATE TABLE IF NOT EXISTS pipeline_runs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 pipeline_name TEXT,
@@ -489,144 +61,230 @@ def init_pipeline_runs(db_path: str = "~/npcsh_history.db"):
                 output TEXT,
                 timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
             )
-            """
+        """)
+        
+        # Compiled NPCs table for storing compiled NPC content
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS compiled_npcs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT UNIQUE,
+                source_path TEXT,
+                compiled_content TEXT,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        
+        conn.commit()
+
+def log_entry(entity_id, entry_type, content, metadata=None, db_path="~/npcsh_history.db"):
+    """Log an entry for an NPC or team"""
+    db_path = os.path.expanduser(db_path)
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            "INSERT INTO npc_log (entity_id, entry_type, content, metadata) VALUES (?, ?, ?, ?)",
+            (entity_id, entry_type, json.dumps(content), json.dumps(metadata) if metadata else None)
         )
         conn.commit()
 
+def get_log_entries(entity_id, entry_type=None, limit=10, db_path="~/npcsh_history.db"):
+    """Get log entries for an NPC or team"""
+    db_path = os.path.expanduser(db_path)
+    with sqlite3.connect(db_path) as conn:
+        query = "SELECT entry_type, content, metadata, timestamp FROM npc_log WHERE entity_id = ?"
+        params = [entity_id]
+        
+        if entry_type:
+            query += " AND entry_type = ?"
+            params.append(entry_type)
+        
+        query += " ORDER BY timestamp DESC LIMIT ?"
+        params.append(limit)
+        
+        results = conn.execute(query, params).fetchall()
+        
+        return [
+            {
+                "entry_type": r[0],
+                "content": json.loads(r[1]),
+                "metadata": json.loads(r[2]) if r[2] else None,
+                "timestamp": r[3]
+            }
+            for r in results
+        ]
 
-# SilentUndefined handles undefined behavior in Jinja2
-class SilentUndefined(Undefined):
-    def _fail_with_undefined_error(self, *args, **kwargs):
-        return ""
+def search_log(entity_id, search_term, limit=5, db_path="~/npcsh_history.db"):
+    """Search log for relevant information"""
+    db_path = os.path.expanduser(db_path)
+    with sqlite3.connect(db_path) as conn:
+        results = conn.execute(
+            """
+            SELECT entry_type, content, metadata, timestamp FROM npc_log
+            WHERE entity_id = ? AND content LIKE ?
+            ORDER BY timestamp DESC LIMIT ?
+            """,
+            (entity_id, f"%{search_term}%", limit)
+        ).fetchall()
+        
+        return [
+            {
+                "entry_type": r[0],
+                "content": json.loads(r[1]),
+                "metadata": json.loads(r[2]) if r[2] else None,
+                "timestamp": r[3]
+            }
+            for r in results
+        ]
 
+def load_yaml_file(file_path):
+    """Load a YAML file with error handling"""
+    try:
+        with open(os.path.expanduser(file_path), 'r') as f:
+            return yaml.safe_load(f)
+    except Exception as e:
+        print(f"Error loading YAML file {file_path}: {e}")
+        return None
 
-class Context:
-    def __init__(self, context=None, mcp_servers=None, databases=None, files=None):
-        self.context = context
-        self.mcp_servers = mcp_servers
-        self.databases = databases
-        self.files = files
+def write_yaml_file(file_path, data):
+    """Write data to a YAML file"""
+    try:
+        with open(os.path.expanduser(file_path), 'w') as f:
+            yaml.dump(data, f)
+        return True
+    except Exception as e:
+        print(f"Error writing YAML file {file_path}: {e}")
+        return False
 
-    def load_context_file(self, path):
-        with open(path, "r") as f:
-            self.context = yaml.safe_load(f)
+def create_or_replace_table(db_path, table_name, data):
+    """Creates or replaces a table in the SQLite database"""
+    conn = sqlite3.connect(os.path.expanduser(db_path))
+    try:
+        data.to_sql(table_name, conn, if_exists="replace", index=False)
+        print(f"Table '{table_name}' created/replaced successfully.")
+        return True
+    except Exception as e:
+        print(f"Error creating/replacing table '{table_name}': {e}")
+        return False
+    finally:
+        conn.close()
 
+def find_file_path(filename, search_dirs, suffix=None):
+    """Find a file in multiple directories"""
+    if suffix and not filename.endswith(suffix):
+        filename += suffix
+        
+    for dir_path in search_dirs:
+        file_path = os.path.join(os.path.expanduser(dir_path), filename)
+        if os.path.exists(file_path):
+            return file_path
+            
+    return None
+
+# ---------------------------------------------------------------------------
+# Tool Class
+# ---------------------------------------------------------------------------
 
 class Tool:
-    def __init__(self, tool_data: dict):
+    def __init__(self, tool_data=None, tool_path=None):
+        """Initialize a tool from data or file path"""
+        if tool_path:
+            self._load_from_file(tool_path)
+        elif tool_data:
+            self._load_from_data(tool_data)
+        else:
+            raise ValueError("Either tool_data or tool_path must be provided")
+            
+    def _load_from_file(self, path):
+        """Load tool from file"""
+        tool_data = load_yaml_file(path)
+        if not tool_data:
+            raise ValueError(f"Failed to load tool from {path}")
+        self._load_from_data(tool_data)
+            
+    def _load_from_data(self, tool_data):
+        """Load tool from data dictionary"""
         if not tool_data or not isinstance(tool_data, dict):
-            raise ValueError("Invalid tool data provided.")
+            raise ValueError("Invalid tool data provided")
+            
         if "tool_name" not in tool_data:
-            raise KeyError("Missing 'tool_name' in tool definition.")
-
+            raise KeyError("Missing 'tool_name' in tool definition")
+            
         self.tool_name = tool_data.get("tool_name")
         self.inputs = tool_data.get("inputs", [])
         self.description = tool_data.get("description", "")
-        self.steps = self.parse_steps(tool_data.get("steps", []))
-
-    def parse_step(self, step: Union[dict, str]) -> dict:
-        if isinstance(step, dict):
-            return {
-                "engine": step.get("engine", None),
-                "code": step.get("code", ""),
-            }
-        else:
-            raise ValueError("Invalid step format")
-
-    def parse_steps(self, steps: list) -> list:
-        return [self.parse_step(step) for step in steps]
-
-    def to_mcp(self):
-        # turn description into doc string
-        # turn name into function name
-        # create a python function systematically
-        # for natural language we wrap the code as triple quoted material and have "get_llm_response" for that.
-        return
-
-    def execute(
-        self,
-        input_values: dict,
-        tools_dict: dict,
-        jinja_env: Environment,
-        command: str,
-        model: str = None,
-        provider: str = None,
-        npc=None,
-        stream: bool = False,
-        messages: List[Dict[str, str]] = None,
-    ):
-        # Create the context with input values at top level for Jinja access
-        context = npc.shared_context.copy() if npc else {}
-        context.update(input_values)  # Spread input values directly in context
-        context.update(
-            {
-                "tools": tools_dict,
-                "llm_response": None,
-                "output": None,
-                "command": command,
-            }
-        )
-
-        # Process Steps
+        self.steps = self._parse_steps(tool_data.get("steps", []))
+            
+    def _parse_steps(self, steps):
+        """Parse steps from tool definition"""
+        parsed_steps = []
+        for i, step in enumerate(steps):
+            if isinstance(step, dict):
+                parsed_step = {
+                    "name": step.get("name", f"step_{i}"),
+                    "engine": step.get("engine", "natural"),
+                    "code": step.get("code", "")
+                }
+                parsed_steps.append(parsed_step)
+            else:
+                raise ValueError(f"Invalid step format: {step}")
+        return parsed_steps
+        
+    def execute(self, input_values, tools_dict, jinja_env, command="", model=None, provider=None, npc=None, stream=False, messages=None):
+        """Execute the tool with given inputs"""
+        # Create context with input values and tools
+        context = (npc.shared_context.copy() if npc else {})
+        context.update(input_values)
+        context.update({
+            "tools": tools_dict,
+            "command": command,
+            "llm_response": None,
+            "output": None
+        })
+        
+        # Process each step in sequence
         for i, step in enumerate(self.steps):
-            context = self.execute_step(
-                step,
-                context,
-                jinja_env,
-                model=model,
-                provider=provider,
-                npc=npc,
-                stream=stream,
-                messages=messages,
+            context = self._execute_step(
+                step, context, jinja_env, 
+                model=model, provider=provider, npc=npc, 
+                stream=stream, messages=messages
             )
-            # if i is the last step and the user has reuqested a streaming output
-            # then we should return the stream
-            if i == len(self.steps) - 1 and stream:  # this was causing the big issue X:
-                print("tool successful, passing output to stream")
+            
+            # Return immediately for streaming responses in final step
+            if i == len(self.steps) - 1 and stream:
                 return context
-        print("CONTEXT AFTER TOOL CALLS, ", context)
-        if context.get("output") is not None:
-            print("output from tool: ", context.get("output"))
-            if not isinstance(context.get("output"), str):
-                return str(context.get("output"))
-            return context.get("output")
-        elif context.get("llm_response") is not None:
-            print("output from tool: ", context.get("llm_response"))
-            return context.get("llm_response")
-
-    def execute_step(
-        self,
-        step: dict,
-        context: dict,
-        jinja_env: Environment,
-        npc: Any = None,
-        model: str = None,
-        provider: str = None,
-        stream: bool = False,
-        messages: List[Dict[str, str]] = None,
-    ):
+                
+        # Determine the output based on what's available in context
+        if "output" in context and context["output"] is not None:
+            result = context["output"]
+            if not isinstance(result, str):
+                result = str(result)
+            return result
+        elif "llm_response" in context and context["llm_response"] is not None:
+            return context["llm_response"]
+        else:
+            return context
+            
+    def _execute_step(self, step, context, jinja_env, model=None, provider=None, npc=None, stream=False, messages=None):
+        """Execute a single step of the tool"""
         engine = step.get("engine", "natural")
         code = step.get("code", "")
-
-        # Render template with all context variables
+        step_name = step.get("name", "unnamed_step")
+        
+        # Render template and engine with context
         try:
             template = jinja_env.from_string(code)
             rendered_code = template.render(**context)
+            
+            engine_template = jinja_env.from_string(engine)
+            rendered_engine = engine_template.render(**context)
         except Exception as e:
-            print(f"Error rendering template: {e}")
+            print(f"Error rendering templates for step {step_name}: {e}")
             rendered_code = code
-        # render engine if necessary
-        try:
-            template = jinja_env.from_string(engine)
-            rendered_engine = template.render(**context)
-        except:
-            print("error rendering engine")
             rendered_engine = engine
-        # print(f"proceeding with engine: {rendered_engine}")
-        # print("rendered code: ", rendered_code)
+            
+        # Execute based on engine type
         if rendered_engine == "natural":
-            if len(rendered_code.strip()) > 0:
-                # print(f"Executing natural language step: {rendered_code}")
+            if rendered_code.strip():
+                # Handle streaming case
                 if stream:
                     messages = messages.copy() if messages else []
                     messages.append({"role": "user", "content": rendered_code})
@@ -635,25 +293,26 @@ class Tool:
                         model=model,
                         provider=provider,
                         npc=npc,
-                        api_key=npc.api_key,
-                        api_url=npc.api_url,
+                        api_key=npc.api_key if npc else None,
+                        api_url=npc.api_url if npc else None,
                     )
-
-                else:
-                    llm_response = get_llm_response(
-                        rendered_code,
-                        model=model,
-                        provider=provider,
-                        npc=npc,
-                        api_key=npc.api_key,
-                        api_url=npc.api_url,
-                    )
-                    response_text = llm_response.get("response", "")
-                    # Store both in context for reference
-                    context["llm_response"] = response_text
-                    context["results"] = response_text
-
+                    
+                # Handle normal LLM case
+                llm_response = get_llm_response(
+                    rendered_code,
+                    model=model,
+                    provider=provider,
+                    npc=npc,
+                    api_key=npc.api_key if npc else None,
+                    api_url=npc.api_url if npc else None,
+                )
+                response_text = llm_response.get("response", "")
+                context["llm_response"] = response_text
+                context["results"] = response_text
+                context[step_name] = response_text
+                
         elif rendered_engine == "python":
+            # Setup execution environment
             exec_globals = {
                 "__builtins__": __builtins__,
                 "npc": npc,
@@ -662,193 +321,250 @@ class Tool:
                 "plt": plt,
                 "np": np,
                 "os": os,
-                "get_llm_response": get_llm_response,
-                "generate_image": generate_image,
-                "search_web": search_web,
                 "json": json,
-                "sklearn": __import__("sklearn"),
-                "TfidfVectorizer": __import__(
-                    "sklearn.feature_extraction.text"
-                ).feature_extraction.text.TfidfVectorizer,
-                "cosine_similarity": __import__(
-                    "sklearn.metrics.pairwise"
-                ).metrics.pairwise.cosine_similarity,
-                "Path": __import__("pathlib").Path,
+                "Path": pathlib.Path,
                 "fnmatch": fnmatch,
                 "pathlib": pathlib,
                 "subprocess": subprocess,
-                "sqlalchemy": sqlalchemy,
+                # Include LLM response functions if needed
+                "get_llm_response": get_llm_response if 'get_llm_response' in globals() else lambda x: {"response": f"Mock response to {x}"}
             }
-            new_locals = {}
-            exec_env = context.copy()
-            # try:
-            exec(rendered_code, exec_globals, new_locals)
-            exec_env.update(new_locals)
-
-            context.update(exec_env)
-
-            exec_env.update(new_locals)
-            context.update(exec_env)
-            # Add this line to explicitly copy the output
-            if "output" in new_locals:
-                context["output"] = new_locals["output"]
-
-            # Then your existing code
-            if "output" in exec_env:
-                if exec_env["output"] is not None:
-                    context["results"] = exec_env["output"]
-                    print("result from code execution: ", exec_env["output"])
-            # else:
-            #    context["output"] = str(exec_env)
-
-            """
-            except NameError as e:
-                tb_lines = traceback.format_exc().splitlines()
-                limited_tb = (
-                    "\n".join(tb_lines[:100])
-                    if len(tb_lines) > 100
-                    else "\n".join(tb_lines)
-                )
-                print(f"NameError: {e}")
-                print(f"Limited traceback:\n{limited_tb}")
-                print("Tool code:")
-                print(rendered_code)
-                return {
-                    "output": f"Error executing Python code : {e} with traceback: {limited_tb}"
-                }
-            except SyntaxError as e:
-                tb_lines = traceback.format_exc().splitlines()
-                limited_tb = (
-                    "\n".join(tb_lines[:100])
-                    if len(tb_lines) > 100
-                    else "\n".join(tb_lines)
-                )
-                print(f"SyntaxError: {e}")
-                print(f"Limited traceback:\n{limited_tb}")
-                print("Tool code:")
-                print(rendered_code)
-                return {
-                    "output": f"Error executing Python code : {e} with traceback: {limited_tb}"
-                }
+            
+            try:
+                # Execute the code
+                exec_locals = {}
+                exec(rendered_code, exec_globals, exec_locals)
+                
+                # Update context with results
+                context.update(exec_locals)
+                
+                # Handle explicit output
+                if "output" in exec_locals:
+                    context["output"] = exec_locals["output"]
+                    context[step_name] = exec_locals["output"]
             except Exception as e:
-                tb_lines = traceback.format_exc().splitlines()
-                limited_tb = (
-                    "\n".join(tb_lines[:100])
-                    if len(tb_lines) > 100
-                    else "\n".join(tb_lines)
-                )
-                print(f"Error executing Python code:")
-                print(f"Limited traceback:\n{limited_tb}")
-                print("Tool code:")
-                print(rendered_code)
-                return {
-                    "output": f"Error executing Python code : {e} with traceback: {limited_tb}"
-                }
-            """
+                # Simplified error handling
+                tb_str = traceback.format_exc()
+                error_msg = f"Error in Python step {step_name}: {str(e)}\n{tb_str}"
+                print(error_msg)
+                context[step_name] = {"error": error_msg}
+                
+        else:
+            # Handle unknown engine
+            context[step_name] = {"error": f"Unsupported engine: {rendered_engine}"}
+            
         return context
-
+        
     def to_dict(self):
+        """Convert to dictionary representation"""
         return {
             "tool_name": self.tool_name,
             "description": self.description,
             "inputs": self.inputs,
-            "steps": [self.step_to_dict(step) for step in self.steps],
+            "steps": [
+                {
+                    "name": step.get("name", f"step_{i}"),
+                    "engine": step.get("engine"),
+                    "code": step.get("code")
+                }
+                for i, step in enumerate(self.steps)
+            ]
         }
-
-    def step_to_dict(self, step):
-        return {
-            "engine": step.get("engine"),
-            "code": step.get("code"),
+        
+    def save(self, directory):
+        """Save tool to file"""
+        tool_path = os.path.join(directory, f"{self.tool_name}.tool")
+        ensure_dirs_exist(os.path.dirname(tool_path))
+        return write_yaml_file(tool_path, self.to_dict())
+        
+    @classmethod
+    def from_mcp(cls, mcp_tool):
+        """Convert an MCP tool to NPC tool format"""
+        # Extract function info from MCP tool
+        import inspect
+        
+        # Get basic info
+        doc = mcp_tool.__doc__ or ""
+        name = mcp_tool.__name__
+        signature = inspect.signature(mcp_tool)
+        
+        # Extract inputs from signature
+        inputs = []
+        for param_name, param in signature.parameters.items():
+            if param_name != 'self':  # Skip self for methods
+                param_type = param.annotation if param.annotation != inspect.Parameter.empty else None
+                param_default = None if param.default == inspect.Parameter.empty else param.default
+                
+                inputs.append({
+                    "name": param_name,
+                    "type": str(param_type),
+                    "default": param_default
+                })
+        
+        # Create tool data
+        tool_data = {
+            "tool_name": name,
+            "description": doc.strip(),
+            "inputs": inputs,
+            "steps": [
+                {
+                    "name": "mcp_function_call",
+                    "engine": "python",
+                    "code": f"""
+# Call the MCP function
+import {mcp_tool.__module__}
+output = {mcp_tool.__module__}.{name}(
+    {', '.join([f'{inp["name"]}=context.get("{inp["name"]}")' for inp in inputs])}
+)
+"""
+                }
+            ]
         }
+        
+        return cls(tool_data=tool_data)
 
-
-def load_tools_from_directory(directory) -> list:
+def load_tools_from_directory(directory):
+    """Load all tools from a directory"""
     tools = []
-    if os.path.exists(directory):
-        for filename in os.listdir(directory):
-            if filename.endswith(".tool"):
-                full_path = os.path.join(directory, filename)
-                with open(full_path, "r") as f:
-                    tool_content = f.read()
-                    try:
-                        if not tool_content.strip():
-                            print(f"Tool file {filename} is empty. Skipping.")
-                            continue
-                        tool_data = yaml.safe_load(tool_content)
-                        if tool_data is None:
-                            print(
-                                f"Tool file {filename} is invalid or empty. Skipping."
-                            )
-                            continue
-                        tool = Tool(tool_data)
-                        tools.append(tool)
-                    except yaml.YAMLError as e:
-                        print(f"Error parsing tool {filename}: {e}")
+    directory = os.path.expanduser(directory)
+    
+    if not os.path.exists(directory):
+        return tools
+        
+    for filename in os.listdir(directory):
+        if filename.endswith(".tool"):
+            try:
+                tool_path = os.path.join(directory, filename)
+                tool = Tool(tool_path=tool_path)
+                tools.append(tool)
+            except Exception as e:
+                print(f"Error loading tool {filename}: {e}")
+                
     return tools
 
+# ---------------------------------------------------------------------------
+# NPC Class
+# ---------------------------------------------------------------------------
 
 class NPC:
     def __init__(
         self,
-        name: str,
+        npc_file: str,
         primary_directive: str = None,
-        tools: list = None,  # from the npc profile
+        tools: list = None,
         model: str = None,
         provider: str = None,
         api_url: str = None,
         api_key: str = None,
         db_conn=None,
-        all_tools: list = None,  # all available tools in global and project, this is an anti pattern i need to solve eventually but for now it works
-        use_global_tools: bool = False,
-        use_npc_network: bool = False,
-        global_npc_directory: str = None,
-        project_npc_directory: str = None,
-        global_tools_directory: str = None,
-        project_tools_directory: str = None,
-        context: dict = None,
+        use_global_tools: bool = True,
+        **kwargs
     ):
-        # 2. Load global tools from ~/.npcsh/npc_team/tools
-        if global_tools_directory is None:
-            user_home = os.path.expanduser("~")
-            self.global_tools_directory = os.path.join(
-                user_home, ".npcsh", "npc_team", "tools"
-            )
+        """
+        Initialize an NPC from a file path or with explicit parameters
+        
+        Args:
+            npc_file: Path to .npc file or name for the NPC
+            primary_directive: System prompt/directive for the NPC
+            tools: List of tools available to the NPC
+            model: LLM model to use
+            provider: LLM provider to use
+            api_url: API URL for LLM
+            api_key: API key for LLM
+            db_conn: Database connection
+            use_global_tools: Whether to use global tools
+        """
+        # Set up standard paths
+        self.user_home = os.path.expanduser("~")
+        self.global_tools_directory = os.path.join(self.user_home, ".npcsh", "npc_team", "tools")
+        self.project_tools_directory = os.path.abspath("./npc_team/tools")
+        self.global_npc_directory = os.path.join(self.user_home, ".npcsh", "npc_team")
+        self.project_npc_directory = os.path.abspath("./npc_team")
+        
+        # Determine if loading from file or direct parameters
+        if npc_file.endswith(".npc"):
+            self._load_from_file(npc_file)
         else:
-            self.global_tools_directory = global_tools_directory
-
-        if project_tools_directory is None:
-            self.project_tools_directory = os.path.abspath("./npc_team/tools")
-        else:
-            self.project_tools_directory = project_tools_directory
-
-        if global_npc_directory is None:
-            self.global_npc_directory = os.path.join(user_home, ".npcsh", "npc_team")
-        else:
-            self.global_npc_directory = global_npc_directory
-
-        if project_npc_directory is None:
-            self.project_npc_directory = os.path.abspath("./npc_team")
-
+            # Use provided parameters
+            self.name = npc_file  # Use npc_file as name
+            self.primary_directive = primary_directive
+            self.model = model or os.environ.get("NPCSH_CHAT_MODEL", "llama3.2")
+            self.provider = provider or os.environ.get("NPCSH_CHAT_PROVIDER", "ollama")
+            self.api_url = api_url or os.environ.get("NPCSH_API_URL")
+            self.api_key = api_key
+            self.tools = tools or []
+            self.use_global_tools = use_global_tools
+            
+        # Set up Jinja environment for template rendering
         self.jinja_env = Environment(
-            loader=FileSystemLoader(
-                [
-                    self.project_npc_directory,
-                    self.global_npc_directory,
-                    self.global_tools_directory,
-                    self.project_tools_directory,
-                ]
-            ),
+            loader=FileSystemLoader([
+                self.project_npc_directory,
+                self.global_npc_directory,
+                self.project_tools_directory,
+                self.global_tools_directory,
+            ]),
             undefined=SilentUndefined,
         )
-
-        self.name = name
-        self.primary_directive = primary_directive
-        self.tools = tools or []
-
-        self.model = model
+        
+        # Set up database connection
         self.db_conn = db_conn
-        if self.db_conn is not None:
-            # Determine database type
+        if self.db_conn:
+            self._setup_db()
+            
+        # Load tools
+        self.all_tools = []
+        if self.use_global_tools:
+            self.all_tools.extend(load_tools_from_directory(self.global_tools_directory))
+            self.all_tools.extend(load_tools_from_directory(self.project_tools_directory))
+            
+        # Process and load NPC-specific tools
+        self._load_npc_tools()
+        
+        # Set up shared context for NPC
+        self.shared_context = {
+            "dataframes": {},
+            "current_data": None,
+            "computation_results": {},
+        }
+        
+        # Add any additional attributes
+        for key, value in kwargs.items():
+            setattr(self, key, value)
+            
+        # Initialize logging
+        init_db_tables()
+        
+    def _load_from_file(self, npc_file):
+        """Load NPC configuration from file"""
+        if "~" in npc_file:
+            npc_file = os.path.expanduser(npc_file)
+        if not os.path.isabs(npc_file):
+            npc_file = os.path.abspath(npc_file)
+            
+        npc_data = load_yaml_file(npc_file)
+        if not npc_data:
+            raise ValueError(f"Failed to load NPC from {npc_file}")
+            
+        # Extract core fields
+        self.name = npc_data.get("name")
+        if not self.name:
+            # Fall back to filename if name not in file
+            self.name = os.path.splitext(os.path.basename(npc_file))[0]
+            
+        self.primary_directive = npc_data.get("primary_directive")
+        self.tools = npc_data.get("tools", [])
+        self.model = npc_data.get("model", os.environ.get("NPCSH_CHAT_MODEL", "llama3.2"))
+        self.provider = npc_data.get("provider", os.environ.get("NPCSH_CHAT_PROVIDER", "ollama"))
+        self.api_url = npc_data.get("api_url", os.environ.get("NPCSH_API_URL"))
+        self.api_key = npc_data.get("api_key")
+        self.use_global_tools = npc_data.get("use_global_tools", True)
+        
+        # Store path for future reference
+        self.npc_path = npc_file
+            
+    def _setup_db(self):
+        """Set up database tables and determine type"""
+        try:
             if "psycopg2" in self.db_conn.__class__.__module__:
                 # PostgreSQL connection
                 cursor = self.db_conn.cursor()
@@ -857,7 +573,7 @@ class NPC:
                     SELECT table_name, obj_description((quote_ident(table_name))::regclass, 'pg_class')
                     FROM information_schema.tables
                     WHERE table_schema='public';
-                """
+                    """
                 )
                 self.tables = cursor.fetchall()
                 self.db_type = "postgres"
@@ -867,121 +583,110 @@ class NPC:
                     "SELECT name, sql FROM sqlite_master WHERE type='table';"
                 ).fetchall()
                 self.db_type = "sqlite"
-        else:
+            else:
+                self.tables = None
+                self.db_type = None
+        except Exception as e:
+            print(f"Error setting up database: {e}")
             self.tables = None
             self.db_type = None
-
-        self.provider = provider
-        self.api_url = api_url
-        self.api_key = api_key
-        self.all_tools = all_tools or []
+    
+    def _load_npc_tools(self):
+        """Load and process NPC-specific tools"""
+        # Initialize tool dictionaries
+        self.tools_dict = {}
         self.all_tools_dict = {tool.tool_name: tool for tool in self.all_tools}
-        if self.tools:
-            tools_to_load = []
-
-            for tool in self.tools:
-                if isinstance(tool, Tool):
+        
+        # Process tools specified for this NPC
+        npc_tools = []
+        for tool in self.tools:
+            if isinstance(tool, Tool):
+                npc_tools.append(tool)
+            elif isinstance(tool, dict):
+                npc_tools.append(Tool(tool_data=tool))
+            elif isinstance(tool, str):
+                # Try to find the tool by name in all_tools first
+                if tool in self.all_tools_dict:
+                    npc_tools.append(self.all_tools_dict[tool])
                     continue
-                if isinstance(tool, str):
-                    tools_to_load.append(tool)
-            if len(tools_to_load) > 0:
-                self.tools = self.load_suggested_tools(
-                    tools,
-                    self.global_tools_directory,
-                    self.project_tools_directory,
-                )
-            self.tools_dict = {tool.tool_name: tool for tool in self.tools}
+                    
+                # Try to load from file
+                tool_path = None
+                tool_name = tool
+                if not tool_name.endswith(".tool"):
+                    tool_name += ".tool"
+                
+                # Check project tools directory first, then global
+                for dir_path in [self.project_tools_directory, self.global_tools_directory]:
+                    candidate_path = os.path.join(dir_path, tool_name)
+                    if os.path.exists(candidate_path):
+                        tool_path = candidate_path
+                        break
+                        
+                if tool_path:
+                    try:
+                        tool_obj = Tool(tool_path=tool_path)
+                        npc_tools.append(tool_obj)
+                    except Exception as e:
+                        print(f"Error loading tool {tool_path}: {e}")
+        
+        # Update tools list and dictionary
+        self.tools = npc_tools
+        self.tools_dict = {tool.tool_name: tool for tool in self.tools}
+    
+    def get_llm_response(self, request, **kwargs):
+        """Get a response from the LLM"""
+        # Log the request
+        log_entry(self.name, "llm_request", {"prompt": request})
+        
+        # Call the LLM
+        response = get_llm_response(
+            request, 
+            model=self.model, 
+            provider=self.provider, 
+            npc=self, 
+            **kwargs
+        )
+        
+        # Log the response
+        log_entry(self.name, "llm_response", {"response": response})
+        
+        return response
+    
+    def execute_tool(self, tool_name, inputs):
+        """Execute a tool by name"""
+        # Find the tool
+        if tool_name in self.tools_dict:
+            tool = self.tools_dict[tool_name]
+        elif tool_name in self.all_tools_dict:
+            tool = self.all_tools_dict[tool_name]
         else:
-            self.tools_dict = {}
-
-        self.shared_context = {
-            "dataframes": {},
-            "current_data": None,
-            "computation_results": {},
-        }
-        self.use_global_tools = use_global_tools
-        self.use_npc_network = use_npc_network
-
-        # Load tools if flag is set
-        if self.use_global_tools:
-            self.default_tools = self.load_tools()
-        else:
-            self.default_tools = []
-        self.npc_cache = {}
-
-        self.resolved_npcs = {}
-
-        # Load NPC dependencies if flag is set
-        if self.use_npc_network:
-            self.parsed_npcs = self.parse_all_npcs()
-            self.resolved_npcs = self.resolve_all_npcs()
-        else:
-            self.parsed_npcs = []
-
-    def execute_query(self, query, params=None):
-        """Execute a query based on database type"""
-        if self.db_type == "postgres":
-            cursor = self.db_conn.cursor()
-            cursor.execute(query, params or ())
-            return cursor.fetchall()
-        else:  # sqlite
-            cursor = self.db_conn.execute(query, params or ())
-            return cursor.fetchall()
-
-    def _determine_db_type(self):
-        """Determine if the connection is PostgreSQL or SQLite"""
-        # Check the connection object's class name
-        conn_type = self.db_conn.__class__.__module__.lower()
-
-        if "psycopg" in conn_type:
-            return "postgres"
-        elif "sqlite" in conn_type:
-            return "sqlite"
-        else:
-            raise ValueError(f"Unsupported database type: {conn_type}")
-
-    def _get_tables(self):
-        """Get table information based on database type"""
-        if self.db_type == "postgres":
-            cursor = self.db_conn.cursor()
-            cursor.execute(
-                """
-                SELECT table_name, obj_description((quote_ident(table_name))::regclass, 'pg_class') as description
-                FROM information_schema.tables
-                WHERE table_schema='public';
-            """
-            )
-            return cursor.fetchall()
-        else:  # sqlite
-            return self.db_conn.execute(
-                "SELECT name, sql FROM sqlite_master WHERE type='table';"
-            ).fetchall()
-
-    def get_memory(self):
-        return
-
-    def to_dict(self):
-        return {
-            "name": self.name,
-            "primary_directive": self.primary_directive,
-            "model": self.model,
-            "provider": self.provider,
-            "tools": [tool.to_dict() for tool in self.tools],
-            "use_global_tools": self.use_global_tools,
-            "api_url": self.api_url,
-        }
-
-    def _check_llm_command(
-        self,
-        command,
-        retrieved_docs=None,
-        messages=None,
-        n_docs=5,
-        context=None,
-        shared_context=None,
-    ):
+            return {"error": f"Tool '{tool_name}' not found"}
+        
+        # Log the tool execution
+        log_entry(self.name, "tool_execution", {"tool": tool_name, "inputs": inputs})
+        
+        # Execute the tool
+        result = tool.execute(
+            input_values=inputs,
+            tools_dict=self.tools_dict,
+            jinja_env=self.jinja_env,
+            model=self.model,
+            provider=self.provider,
+            npc=self
+        )
+        
+        # Log the result
+        log_entry(self.name, "tool_result", {"tool": tool_name, "result": result})
+        
+        return result
+    
+    def _check_llm_command(self, command, retrieved_docs=None, messages=None, n_docs=5, context=None, shared_context=None):
+        """Check if a command is for the LLM"""
         if shared_context is not None:
             self.shared_context = shared_context
+            
+        # Call the LLM command checker
         return check_llm_command(
             command,
             model=self.model,
@@ -994,1911 +699,686 @@ class NPC:
             n_docs=n_docs,
             context=context,
         )
-
-    def handle_agent_pass(
-        self,
-        npc_to_pass: Any,
-        command: str,
-        messages: List[Dict[str, str]] = None,
-        retrieved_docs=None,
-        n_docs: int = 5,
-        context=None,
-        shared_context=None,
-    ) -> Union[str, Dict[str, Any]]:
-        """
-        Function Description:
-            This function handles an agent pass.
-        Args:
-            command (str): The command.
-
-        Keyword Args:
-            model (str): The model to use for handling the agent pass.
-            provider (str): The provider to use for handling the agent pass.
-            messages (List[Dict[str, str]]): The list of messages.
-            npc (Any): The NPC object.
-            retrieved_docs (Any): The retrieved documents.
-            n_docs (int): The number of documents.
-        Returns:
-            Union[str, Dict[str, Any]]: The result of handling the agent pass.
-        """
-        # print(npc_to_pass, command)
-
+    
+    def handle_agent_pass(self, npc_to_pass, command, messages=None, retrieved_docs=None, n_docs=5, context=None, shared_context=None):
+        """Pass a command to another NPC"""
+        # Handle case where npc_to_pass is already an NPC object
         if isinstance(npc_to_pass, NPC):
-            npc_to_pass_init = npc_to_pass
+            target_npc = npc_to_pass
         else:
-            # assume just a string name?
-            target_npc = self.get_npc(npc_to_pass)
-            if target_npc is None:
-                return "NPC not found."
-
-            # initialize them as an actual NPC
-            npc_to_pass_init = NPC(self.db_conn, **target_npc)
-        # print(npc_to_pass_init, command)
-        print(npc_to_pass, npc_to_pass.tools)
+            # Try to find the NPC by name
+            try:
+                npc_path = get_npc_path(npc_to_pass, "~/npcsh_history.db")
+                if not npc_path:
+                    return {"error": f"NPC '{npc_to_pass}' not found"}
+                    
+                target_npc = NPC(npc_path, db_conn=self.db_conn)
+            except Exception as e:
+                return {"error": f"Error loading NPC '{npc_to_pass}': {e}"}
+        
+        # Update shared context
         if shared_context is not None:
             self.shared_context = shared_context
+            
+        # Add a note that this command was passed from another NPC
         updated_command = (
             command
-            + "/n"
-            + f"""
-
-            NOTE: THIS COMMAND HAS ALREADY BEEN PASSED FROM ANOTHER NPC
-            TO YOU, {npc_to_pass}.
-
-            THUS YOU WILL LIKELY NOT NEED TO PASS IT AGAIN TO YOURSELF
-            OR TO ANOTHER NPC. pLEASE CHOOSE ONE OF THE OTHER OPTIONS WHEN
-            RESPONDING.
-
-
-        """
+            + "\n\n"
+            + f"NOTE: THIS COMMAND HAS BEEN PASSED FROM {self.name} TO YOU, {target_npc.name}.\n"
+            + "PLEASE CHOOSE ONE OF THE OTHER OPTIONS WHEN RESPONDING."
         )
-        return npc_to_pass_init._check_llm_command(
+        
+        # Log the pass
+        log_entry(
+            self.name, 
+            "agent_pass", 
+            {"to": target_npc.name, "command": command}
+        )
+        
+        # Pass to the target NPC
+        return target_npc._check_llm_command(
             updated_command,
             retrieved_docs=retrieved_docs,
             messages=messages,
             n_docs=n_docs,
             shared_context=self.shared_context,
         )
-
-    def get_npc(self, npc_name: str):
-        if npc_name + ".npc" in self.npc_cache:
-            return self.npc_cache[npc_name + ".npc"]
-
-    def load_suggested_tools(
-        self,
-        tools: list,
-        global_tools_directory: str,
-        project_tools_directory: str,
-    ) -> List[Tool]:
-        suggested_tools = []
-        for tool_name in tools:
-            # load tool from file
-            if not tool_name.endswith(".tool"):
-                tool_name += ".tool"
-            if (
-                global_tools_directory not in tool_name
-                and project_tools_directory not in tool_name
-            ):
-                # try to load from global tools directory
-                try:
-                    tool_data = self.load_tool_from_file(
-                        os.path.join(global_tools_directory, tool_name)
-                    )
-                    if tool_data is None:
-                        raise ValueError(f"Tool {tool_name} not found.")
-
-                    print(f"Tool {tool_name} loaded from global directory.")
-
-                except ValueError as e:
-                    print(f"Error loading tool from global directory: {e}")
-                    # trying to load from project tools directory
-                    try:
-                        tool_data = self.load_tool_from_file(
-                            os.path.join(project_tools_directory, tool_name)
-                        )
-                        if tool_data is None:
-                            raise ValueError(f"Tool {tool_name} not found.")
-                        print(f"Tool {tool_name} loaded from project directory.")
-                    except ValueError as e:
-                        print(f"Error loading tool from project directory: {e}")
-                        continue
-
-            # print(tool_name)
-            # print(tool_data)
-            tool = Tool(tool_data)
-            self.all_tools.append(tool)
-            self.all_tools_dict[tool.tool_name] = tool
-            suggested_tools.append(tool)
-        return suggested_tools
-
+    
+    def to_dict(self):
+        """Convert NPC to dictionary representation"""
+        return {
+            "name": self.name,
+            "primary_directive": self.primary_directive,
+            "model": self.model,
+            "provider": self.provider,
+            "api_url": self.api_url,
+            "api_key": self.api_key,
+            "tools": [tool.to_dict() if isinstance(tool, Tool) else tool for tool in self.tools],
+            "use_global_tools": self.use_global_tools
+        }
+        
+    def save(self, directory=None):
+        """Save NPC to file"""
+        if directory is None:
+            directory = self.project_npc_directory
+            
+        ensure_dirs_exist(directory)
+        npc_path = os.path.join(directory, f"{self.name}.npc")
+        
+        return write_yaml_file(npc_path, self.to_dict())
+    
     def __str__(self):
+        """String representation of NPC"""
         return f"NPC: {self.name}\nDirective: {self.primary_directive}\nModel: {self.model}"
 
-    def analyze_db_data(self, request: str):
-        if self.db_conn is None:
-            print("please specify a database connection when initiating the NPC")
-            raise Exception("No database connection found")
-        return get_data_response(
-            request,
-            self.db_conn,
-            self.tables,
-            model=self.model,
-            provider=self.provider,
-            npc=self,
-        )
-
-    def get_llm_response(self, request: str, **kwargs):
-        return get_llm_response(
-            request, model=self.model, provider=self.provider, npc=self, **kwargs
-        )
-
-    def load_tool_from_file(self, tool_path: str) -> Union[dict, None]:
-        try:
-            with open(tool_path, "r") as f:
-                tool_content = f.read()
-            if not tool_content.strip():
-                print(f"Tool file {tool_path} is empty. Skipping.")
-                return None
-            tool_data = yaml.safe_load(tool_content)
-            if tool_data is None:
-                print(f"Tool file {tool_path} is invalid or empty. Skipping.")
-                return None
-            return tool_data
-        except yaml.YAMLError as e:
-            print(f"Error parsing tool {tool_path}: {e}")
-            return None
-        except Exception as e:
-            print(f"Error loading tool {tool_path}: {e}")
-            return None
-
-    def compile(self, npc_file: str):
-        self.npc_cache.clear()  # Clear the cache
-        self.resolved_npcs.clear()
-
-        if isinstance(npc_file, NPC):
-            npc_file = npc_file.name + ".npc"
-        if not npc_file.endswith(".npc"):
-            raise ValueError("File must have .npc extension")
-        # get the absolute path
-        npc_file = os.path.abspath(npc_file)
-
-        try:
-            # Parse NPCs from both global and project directories
-            self.parse_all_npcs()
-
-            # Resolve NPCs
-            self.resolve_all_npcs()
-
-            # Finalize NPC profile
-            # print(npc_file)
-            parsed_content = self.finalize_npc_profile(npc_file)
-
-            # Load tools from both global and project directories
-            tools = self.load_tools()
-            parsed_content["tools"] = [tool.to_dict() for tool in tools]
-
-            self.update_compiled_npcs_table(npc_file, parsed_content)
-            return parsed_content
-        except Exception as e:
-            raise e  # Re-raise exception for debugging
-
-    def load_tools(self):
-        tools = []
-        # Load tools from global and project directories
-        tool_paths = []
-
-        if os.path.exists(self.global_tools_directory):
-            for filename in os.listdir(self.global_tools_directory):
-                if filename.endswith(".tool"):
-                    tool_paths.append(
-                        os.path.join(self.global_tools_directory, filename)
-                    )
-
-        if os.path.exists(self.project_tools_directory):
-            for filename in os.listdir(self.project_tools_directory):
-                if filename.endswith(".tool"):
-                    tool_paths.append(
-                        os.path.join(self.project_tools_directory, filename)
-                    )
-
-        tool_dict = {}
-        for tool_path in tool_paths:
-            tool_data = self.load_tool_from_file(tool_path)
-            if tool_data:
-                tool = Tool(tool_data)
-                # Project tools override global tools
-                tool_dict[tool.tool_name] = tool
-
-        return list(tool_dict.values())
-
-    def parse_all_npcs(self) -> None:
-        directories = [self.global_npc_directory, self.project_npc_directory]
-        for directory in directories:
-            if os.path.exists(directory):
-                for filename in os.listdir(directory):
-                    if filename.endswith(".npc"):
-                        npc_path = os.path.join(directory, filename)
-                        self.parse_npc_file(npc_path)
-
-    def parse_npc_file(self, npc_file_path: str) -> dict:
-        npc_file = os.path.basename(npc_file_path)
-        if npc_file in self.npc_cache:
-            # Project NPCs override global NPCs
-            if npc_file_path.startswith(self.project_npc_directory):
-                print(f"Overriding NPC {npc_file} with project version.")
-            else:
-                # Skip if already loaded from project directory
-                return self.npc_cache[npc_file]
-
-        try:
-            with open(npc_file_path, "r") as f:
-                npc_content = f.read()
-            # Parse YAML without resolving Jinja templates
-            profile = yaml.safe_load(npc_content)
-            self.npc_cache[npc_file] = profile
-            return profile
-        except yaml.YAMLError as e:
-            raise ValueError(f"Invalid YAML in NPC profile {npc_file}: {str(e)}")
-
-    def resolve_all_npcs(self):
-        resolved_npcs = []
-        for npc_file in self.npc_cache:
-            npc = self.resolve_npc_profile(npc_file)
-            resolved_npcs.append(npc)
-            # print(npc)
-        return resolved_npcs
-
-    def resolve_npc_profile(self, npc_file: str) -> dict:
-        if npc_file in self.resolved_npcs:
-            return self.resolved_npcs[npc_file]
-
-        profile = self.npc_cache[npc_file].copy()
-
-        # Resolve Jinja templates
-        for key, value in profile.items():
-            if isinstance(value, str):
-                template = self.jinja_env.from_string(value)
-                profile[key] = template.render(self.npc_cache)
-
-        # Handle inheritance
-        if "inherits_from" in profile:
-            parent_profile = self.resolve_npc_profile(profile["inherits_from"] + ".npc")
-            profile = self.merge_profiles(parent_profile, profile)
-
-        self.resolved_npcs[npc_file] = profile
-        return profile
-
-    def finalize_npc_profile(self, npc_file: str) -> dict:
-        profile = self.resolved_npcs.get(os.path.basename(npc_file))
-        if not profile:
-            # try to resolve it with load_npc_from_file
-            profile = load_npc_from_file(npc_file, self.db_conn).to_dict()
-
-        #    raise ValueError(f"NPC {npc_file} has not been resolved.")
-
-        # Resolve any remaining references
-        # Log the profile content before processing
-        # print(f"Initial profile for {npc_file}: {profile}")
-
-        for key, value in profile.items():
-            if isinstance(value, str):
-                template = self.jinja_env.from_string(value)
-                profile[key] = template.render(self.resolved_npcs)
-
-        required_keys = ["name", "primary_directive"]
-        for key in required_keys:
-            if key not in profile:
-                raise ValueError(f"Missing required key in NPC profile: {key}")
-
-        return profile
-
-
-class SilentUndefined(Undefined):
-    def _fail_with_undefined_error(self, *args, **kwargs):
-        return ""
-
-
 class NPCTeam:
-    def __init__(self, npcs: list, foreman: NPC, db_conn=None, context: dict = None):
-        self.npcs = npcs
-        self.foreman = foreman
-        self.foreman.resolved_npcs = [{npc.name: npc} for npc in self.npcs]
+    def __init__(self, team_path=None, npcs=None, db_conn=None):
+        """
+        Initialize an NPC team from directory or list of NPCs
+        
+        Args:
+            team_path: Path to team directory
+            npcs: List of NPC objects
+            db_conn: Database connection
+        """
+        # Initialize basic attributes
+        self.npcs = {}
+        self.sub_teams = {}
+        self.tools = {}
         self.db_conn = db_conn
-        self.context = context
+        self.team_path = os.path.expanduser(team_path) if team_path else None
+        
+        # Set team name from path or default
+        if team_path:
+            self.team_name = os.path.basename(os.path.abspath(team_path))
+        else:
+            self.team_name = "custom_team"
+        
+        # Load team from directory or list of NPCs
+        if team_path:
+            self._load_from_directory()
+        elif npcs:
+            # Add NPCs directly
+            for npc in npcs:
+                self.npcs[npc.name] = npc
+            
+        # Set up shared context
         self.shared_context = {
             "intermediate_results": {},  # Store results each NPC produces
-            "data": {},  # Active data being analyzed
+            "data": {},                  # Active data being analyzed
+            "execution_history": [],     # Track execution
+            "npc_messages": {}           # Track messages by NPC
         }
-
-    def to_dict(self):
-        return {
-            "foreman": self.foreman.to_dict(),
-            "npcs": [npc.to_dict() for npc in self.npcs],
-            "context": self.context,
-        }
-
-    def orchestrate(self, request: str):
-        # Initial check with foreman
-        result = self.foreman._check_llm_command(
+        
+        # Set up Jinja environment
+        self.jinja_env = Environment(undefined=SilentUndefined)
+        
+        # Initialize logging
+        init_db_tables()
+        
+    def _load_from_directory(self):
+        """Load team from directory"""
+        if not os.path.exists(self.team_path):
+            raise ValueError(f"Team directory not found: {self.team_path}")
+        
+        # Load team context if available
+        self.context = self._load_team_context()
+        
+        # Load NPCs
+        for filename in os.listdir(self.team_path):
+            if filename.endswith(".npc"):
+                try:
+                    npc_path = os.path.join(self.team_path, filename)
+                    npc = NPC(npc_path, db_conn=self.db_conn)
+                    self.npcs[npc.name] = npc
+                except Exception as e:
+                    print(f"Error loading NPC {filename}: {e}")
+        
+        # Load tools from tools directory
+        tools_dir = os.path.join(self.team_path, "tools")
+        if os.path.exists(tools_dir):
+            for tool in load_tools_from_directory(tools_dir):
+                self.tools[tool.tool_name] = tool
+        
+        # Load sub-teams (subfolders)
+        self._load_sub_teams()
+        
+    def _load_team_context(self):
+        """Load team context from .ctx file"""
+        ctx_path = os.path.join(self.team_path, "team.ctx")
+        if os.path.exists(ctx_path):
+            try:
+                ctx_data = load_yaml_file(ctx_path)
+                
+                # Add to Jinja environment
+                if ctx_data:
+                    self.jinja_env.globals['ctx'] = ctx_data
+                    
+                return ctx_data
+            except Exception as e:
+                print(f"Error loading team context: {e}")
+        
+        return {}
+        
+    def _load_sub_teams(self):
+        """Load sub-teams from subdirectories"""
+        for item in os.listdir(self.team_path):
+            item_path = os.path.join(self.team_path, item)
+            if (os.path.isdir(item_path) and 
+                not item.startswith('.') and 
+                item != "tools"):
+                
+                # Check if directory contains NPCs
+                if any(f.endswith(".npc") for f in os.listdir(item_path) 
+                      if os.path.isfile(os.path.join(item_path, f))):
+                    try:
+                        sub_team = NPCTeam(team_path=item_path, db_conn=self.db_conn)
+                        self.sub_teams[item] = sub_team
+                    except Exception as e:
+                        print(f"Error loading sub-team {item}: {e}")
+        
+    def get_foreman(self):
+        """
+        Get the foreman (coordinator) for this team.
+        The foreman is determined by:
+        1. Explicitly defined foreman in team.ctx
+        2. First NPC in the team as a fallback
+        """
+        # Check for explicit foreman in context
+        if hasattr(self, 'context') and self.context and 'foreman' in self.context:
+            foreman_ref = self.context['foreman']
+            
+            # Handle Jinja template references
+            if '{{ref(' in foreman_ref:
+                # Extract NPC name from {{ref('npc_name')}}
+                match = re.search(r"{{\s*ref\('([^']+)'\)\s*}}", foreman_ref)
+                if match:
+                    foreman_name = match.group(1)
+                    if foreman_name in self.npcs:
+                        return self.npcs[foreman_name]
+            elif foreman_ref in self.npcs:
+                return self.npcs[foreman_ref]
+        
+        # Default to first NPC
+        if self.npcs:
+            return list(self.npcs.values())[0]
+        
+        return None
+    
+    def get_npc(self, npc_ref):
+        """
+        Get an NPC by reference, handling hierarchical references
+        Example: "analysis_team.data_scientist" gets the data_scientist 
+        from the analysis_team sub-team
+        """
+        if '.' in npc_ref:
+            # Handle hierarchical reference
+            team_name, npc_name = npc_ref.split('.', 1)
+            if team_name in self.sub_teams:
+                return self.sub_teams[team_name].get_npc(npc_name)
+        elif npc_ref in self.npcs:
+            return self.npcs[npc_ref]
+        
+        return None
+    
+    def orchestrate(self, request):
+        """Orchestrate a request through the team"""
+        foreman = self.get_foreman()
+        if not foreman:
+            return {"error": "No foreman available to coordinate the team"}
+        
+        # Log the orchestration start
+        log_entry(
+            self.team_name,
+            "orchestration_start",
+            {"request": request}
+        )
+        
+        # Initial request goes to foreman
+        result = foreman._check_llm_command(
             request,
-            context=self.context,
+            context=getattr(self, 'context', {}),
             shared_context=self.shared_context,
         )
-        # try:
+        
+        # Track execution until complete
         while True:
-            try:
-                result = self.foreman._check_llm_command(
-                    request,
-                    context=self.context,
-                    shared_context=self.shared_context,
-                )
-                print(result)
+            # Save the result
+            if isinstance(result, dict):
+                self.shared_context["execution_history"].append(result)
+                
+                # Track messages by NPC
+                if result.get("messages") and result.get("npc_name"):
+                    if result["npc_name"] not in self.shared_context["npc_messages"]:
+                        self.shared_context["npc_messages"][result["npc_name"]] = []
+                    self.shared_context["npc_messages"][result["npc_name"]].extend(
+                        result["messages"]
+                    )
+            
+            # Check if the result is complete
+            completion_check = get_llm_response(
+                f"""Context: User request '{request}' returned:
+                {result}
 
-                # Track execution history and init npc messages if needed
-                if "execution_history" not in self.shared_context:
-                    self.shared_context["execution_history"] = []
-                if "npc_messages" not in self.shared_context:
-                    self.shared_context["npc_messages"] = {}
+                Instructions:
+                Analyze if this result fully addresses the request. 
+                A result is complete if it satisfies the bare minimum requirements
+                and provides a good starting point for further refinement.
 
-                # Save result and maintain NPC message history
-                if isinstance(result, dict):
-                    self.shared_context["execution_history"].append(result)
-                    if result.get("messages") and result.get("npc_name"):
-                        if (
-                            result["npc_name"]
-                            not in self.shared_context["npc_messages"]
-                        ):
-                            self.shared_context["npc_messages"][result["npc_name"]] = []
-                        self.shared_context["npc_messages"][result["npc_name"]].extend(
-                            result["messages"]
-                        )
-
-                # Check if complete
-                follow_up = get_llm_response(
-                    f"""Context: User request '{request}' returned:
-                    {result}
+                Return a JSON object with:
+                    -'complete' with boolean value
+                    -'explanation' for incompleteness
+                Return only the JSON object.""",
+                model=foreman.model,
+                provider=foreman.provider,
+                api_key=foreman.api_key,
+                api_url=foreman.api_url,
+                npc=foreman,
+                format="json"
+            )
+            
+            # Extract completion status
+            if isinstance(completion_check.get("response"), dict):
+                complete = completion_check["response"].get("complete", False)
+                explanation = completion_check["response"].get("explanation", "")
+            else:
+                # Default to incomplete if format is wrong
+                complete = False
+                explanation = "Could not determine completion status"
+            
+            if complete:
+                # Generate summary
+                debrief = get_llm_response(
+                    f"""Context:
+                    Original request: {request}
+                    Execution history: {self.shared_context['execution_history']}
 
                     Instructions:
-                    Analyze if this result fully addresses the request. In your evaluation you must not be
-                    too harsh. While there may be numerous refinements that can be made to improve the output
-                    to "fully address" the request, it will be typically better for the user to
-                    have a higher rate of interactive feedback such that we will not lose track of the
-                    real aim and get stuck in a rut hyper-fixating.
-                        Thus it is better to consider results as complete if they satisfy the bare minimum
-                        of the request and provide a good starting point for further refinement.
-
-                    Return a JSON object with two fields:
-                        -'complete' with boolean value.
-                        -'explanation' for incompleteness
-                    Do not include markdown formatting or ```json tags.
+                    Provide summary of actions taken and recommendations.
+                    Return a JSON object with:
+                    - 'summary': Overview of what was accomplished
+                    - 'recommendations': Suggested next steps
                     Return only the JSON object.""",
-                    model=self.foreman.model,
-                    provider=self.foreman.provider,
-                    api_key=self.foreman.api_key,
-                    api_url=self.foreman.api_url,
-                    npc=self.foreman,
-                    format="json",
+                    model=foreman.model,
+                    provider=foreman.provider,
+                    api_key=foreman.api_key,
+                    api_url=foreman.api_url,
+                    npc=foreman,
+                    format="json"
                 )
-
-                if isinstance(follow_up, dict) and isinstance(
-                    follow_up.get("response"), dict
-                ):
-                    print(
-                        "response finished? ",
-                        follow_up.get("response", {}).get("complete", False),
-                    )
-                    print(
-                        "explanation provided",
-                        follow_up.get("response", {}).get("explanation", ""),
-                    )
-
-                    if not follow_up["response"].get("complete", False):
-                        return self.orchestrate(
-                            request
-                            + " /n The request has not yet been fully completed."
-                            + follow_up["response"]["explanation"]
-                            + " /n"
-                            + "please ensure that you tackle only the remaining parts of the request"
-                        )
-                    else:
-                        # Get final summary and recommendations
-                        debrief = get_llm_response(
-                            f"""Context:
-                            Original request: {request}
-
-                            Execution history: {self.shared_context['execution_history']}
-
-                            Instructions:
-                            Provide summary of actions taken and any recommendations.
-                            Return a JSON object with fields:
-                            - 'summary': Overview of what was accomplished
-                            - 'recommendations': Suggested next steps
-                            Do not include markdown formatting or ```json tags.
-                            Return only the JSON object.""",
-                            model=self.foreman.model,
-                            provider=self.foreman.provider,
-                            api_key=self.foreman.api_key,
-                            api_url=self.foreman.api_url,
-                            npc=self.foreman,
-                            format="json",
-                        )
-
-                        return {
-                            "debrief": debrief.get("response"),
-                            "execution_history": self.shared_context[
-                                "execution_history"
-                            ],
-                        }
-
-                return result
-
-            except KeyboardInterrupt:
-                print("\nExecution interrupted. Options:")
-                print("1. Provide additional context")
-                print("2. Skip this step")
-                print("3. Resume execution")
-
-                choice = input("Enter choice (1-3): ")
-
-                if choice == "1":
-                    new_context = input("Enter additional context: ")
-                    self.context["additional_context"] = new_context
-                    continue
-                elif choice == "2":
-                    return {"response": "Step skipped by user"}
-                elif choice == "3":
-                    continue
-                else:
-                    print("Invalid choice, resuming...")
-                    continue
-
-        # except Exception as e:
-        # Get the full traceback
-        # tb_lines = traceback.format_exc().splitlines()
-
-        # Keep first 2 lines and last 3 lines
-        # if len(tb_lines) > 5:
-        #    limited_tb = "\n".join(tb_lines[:2] + ["..."] + tb_lines[-3:])
-        # else:
-        #    limited_tb = "\n".join(tb_lines)
-
-        # print(f"Error in orchestration: {str(e)}")
-        # print(f"Limited traceback:\n{limited_tb}")
-        # return {"error": f"{str(e)}\n{limited_tb}"}
-
-
-# perhaps the npc compiling is more than just for jinja reasons.
-# we can turn each agent into a referenceable program executable.
-# finish testing out a python based version rather than jinja only
-class NPCCompiler:
-    def __init__(
-        self,
-        npc_directory,
-        db_path,
-    ):
-        self.npc_directory = npc_directory
-        self.dirs = [self.npc_directory]
-        # import pdb
-        self.is_global_dir = self.npc_directory == os.path.expanduser(
-            "~/.npcsh/npc_team/"
-        )
-
-        # pdb.set_trace()
-        if self.is_global_dir:
-            self.project_npc_directory = None
-            self.project_tools_directory = None
-        else:
-            self.project_npc_directory = npc_directory
-            self.project_tools_directory = os.path.join(
-                self.project_npc_directory, "tools"
-            )
-            self.dirs.append(self.project_npc_directory)
-
-        self.db_path = db_path
-        self.npc_cache = {}
-        self.resolved_npcs = {}
-        self.pipe_cache = {}
-
-        # Set tools directories
-        self.global_tools_directory = os.path.join(
-            os.path.expanduser("~/.npcsh/npc_team/"), "tools"
-        )
-
-        # Initialize Jinja environment with multiple loaders
-        self.jinja_env = Environment(
-            loader=FileSystemLoader(self.dirs),
-            undefined=SilentUndefined,
-        )
-
-        self.all_tools_dict = self.load_tools()
-        self.all_tools = list(self.all_tools_dict.values())
-
-    def generate_tool_script(self, tool: Tool):
-        script_content = f"""
-    # Auto-generated script for tool: {tool.tool_name}
-
-    def {tool.tool_name}_execute(inputs):
-        # Preprocess steps
-    """
-        # Add preprocess steps
-        for step in tool.preprocess:
-            script_content += f"    # Preprocess: {step}\n"
-
-        # Add prompt rendering
-        script_content += f"""
-        # Render prompt
-        prompt = '''{tool.prompt}'''
-        # You might need to render the prompt with inputs
-
-        # Call the LLM (this is simplified)
-        llm_response = get_llm_response(prompt)
-
-        # Postprocess steps
-    """
-        for step in tool.postprocess:
-            script_content += f"    # Postprocess: {step}\n"
-
-        script_content += f"    return llm_response\n"
-
-        # Write the script to a file
-        script_filename = f"{tool.tool_name}_script.py"
-        with open(script_filename, "w") as script_file:
-            script_file.write(script_content)
-
-    def compile(self, npc_file: str):
-        self.npc_cache.clear()  # Clear the cache
-        self.resolved_npcs.clear()
-        if isinstance(npc_file, NPC):
-            npc_file = npc_file.name + ".npc"
-        if not npc_file.endswith(".npc"):
-            raise ValueError("File must have .npc extension")
-        # get the absolute path
-        npc_file = os.path.abspath(npc_file)
-
-        self.parse_all_npcs()
-        # Resolve NPCs
-        self.resolve_all_npcs()
-
-        # Finalize NPC profile
-        # print(npc_file)
-        # print(npc_file, "npc_file")
-        parsed_content = self.finalize_npc_profile(npc_file)
-
-        # Load tools from both global and project directories
-        parsed_content["tools"] = [tool.to_dict() for tool in self.all_tools]
-
-        self.update_compiled_npcs_table(npc_file, parsed_content)
-        return parsed_content
-
-    def load_tools(self):
-        tools = []
-        # Load tools from global and project directories
-        tool_paths = []
-
-        if os.path.exists(self.global_tools_directory):
-            for filename in os.listdir(self.global_tools_directory):
-                if filename.endswith(".tool"):
-                    tool_paths.append(
-                        os.path.join(self.global_tools_directory, filename)
-                    )
-        if self.project_tools_directory is not None:
-            if os.path.exists(self.project_tools_directory):
-                for filename in os.listdir(self.project_tools_directory):
-                    if filename.endswith(".tool"):
-                        tool_paths.append(
-                            os.path.join(self.project_tools_directory, filename)
-                        )
-
-        tool_dict = {}
-        for tool_path in tool_paths:
-            tool_data = self.load_tool_from_file(tool_path)
-            if tool_data:
-                tool = Tool(tool_data)
-                # Project tools override global tools
-                tool_dict[tool.tool_name] = tool
-
-        return tool_dict
-
-    def load_tool_from_file(self, tool_path: str) -> Union[dict, None]:
-        try:
-            with open(tool_path, "r") as f:
-                tool_content = f.read()
-            if not tool_content.strip():
-                print(f"Tool file {tool_path} is empty. Skipping.")
-                return None
-            tool_data = yaml.safe_load(tool_content)
-            if tool_data is None:
-                print(f"Tool file {tool_path} is invalid or empty. Skipping.")
-                return None
-            return tool_data
-        except yaml.YAMLError as e:
-            print(f"Error parsing tool {tool_path}: {e}")
-            return None
-        except Exception as e:
-            print(f"Error loading tool {tool_path}: {e}")
-            return None
-
-    def parse_all_npcs(self) -> None:
-        # print(self.dirs)
-        for directory in self.dirs:
-            if os.path.exists(directory):
-                for filename in os.listdir(directory):
-                    if filename.endswith(".npc"):
-                        npc_path = os.path.join(directory, filename)
-                        self.parse_npc_file(npc_path)
-
-    def parse_npc_file(self, npc_file_path: str) -> dict:
-        npc_file = os.path.basename(npc_file_path)
-        if npc_file in self.npc_cache:
-            # Project NPCs override global NPCs
-            if self.project_npc_directory is not None:
-                if npc_file_path.startswith(self.project_npc_directory):
-                    print(f"Overriding NPC {npc_file} with project version.")
+                
+                # Log the orchestration completion
+                log_entry(
+                    self.team_name,
+                    "orchestration_complete",
+                    {
+                        "request": request,
+                        "debrief": debrief.get("response")
+                    }
+                )
+                
+                return {
+                    "debrief": debrief.get("response"),
+                    "execution_history": self.shared_context["execution_history"],
+                }
             else:
-                # Skip if already loaded from project directory
-                return self.npc_cache[npc_file]
-
-        try:
-            with open(npc_file_path, "r") as f:
-                npc_content = f.read()
-            # Parse YAML without resolving Jinja templates
-            profile = yaml.safe_load(npc_content)
-            self.npc_cache[npc_file] = profile
-            return profile
-        except yaml.YAMLError as e:
-            raise ValueError(f"Invalid YAML in NPC profile {npc_file}: {str(e)}")
-
-    def resolve_all_npcs(self):
-        for npc_file in self.npc_cache:
-            npc = self.resolve_npc_profile(npc_file)
-            # print(npc)
-
-    def resolve_npc_profile(self, npc_file: str) -> dict:
-        if npc_file in self.resolved_npcs:
-            return self.resolved_npcs[npc_file]
-
-        profile = self.npc_cache[npc_file].copy()
-
-        # Resolve Jinja templates
-        for key, value in profile.items():
-            if isinstance(value, str):
-                template = self.jinja_env.from_string(value)
-                profile[key] = template.render(self.npc_cache)
-
-        # Handle inheritance
-        if "inherits_from" in profile:
-            parent_profile = self.resolve_npc_profile(profile["inherits_from"] + ".npc")
-            profile = self.merge_profiles(parent_profile, profile)
-
-        self.resolved_npcs[npc_file] = profile
-        return profile
-
-    def finalize_npc_profile(self, npc_file: str) -> dict:
-        profile = self.resolved_npcs.get(os.path.basename(npc_file))
-        if not profile:
-            # try to resolve it with load_npc_from_file
-            profile = load_npc_from_file(
-                npc_file, sqlite3.connect(self.db_path)
-            ).to_dict()
-
-        # Resolve any remaining references
-        # Log the profile content before processing
-        # print(f"Initial profile for {npc_file}: {profile}")
-
-        for key, value in profile.items():
-            if isinstance(value, str):
-                template = self.jinja_env.from_string(value)
-                profile[key] = template.render(self.resolved_npcs)
-
-        required_keys = ["name", "primary_directive"]
-        for key in required_keys:
-            if key not in profile:
-                raise ValueError(f"Missing required key in NPC profile: {key}")
-
-        return profile
-
-    def execute_stage(self, stage, context, jinja_env):
-        step_name = stage["step_name"]
-        npc_name = stage["npc"]
-        npc_name = jinja_env.from_string(npc_name).render(context)
-        # print("npc name: ", npc_name)
-        npc_path = get_npc_path(npc_name, self.db_path)
-        # print("npc path: ", npc_path)
-        prompt_template = stage["task"]
-        num_samples = stage.get("num_samples", 1)
-
-        step_results = []
-        for sample_index in range(num_samples):
-            # Load the NPC
-            npc = load_npc_from_file(npc_path, sqlite3.connect(self.db_path))
-
-            # Render the prompt using Jinja2
-            prompt_template = jinja_env.from_string(prompt_template)
-            prompt = prompt_template.render(context, sample_index=sample_index)
-
-            response = npc.get_llm_response(prompt)
-            # print(response)
-            step_results.append({"npc": npc_name, "response": response["response"]})
-
-            # Update context with the response for the next step
-            context[f"{step_name}_{sample_index}"] = response[
-                "response"
-            ]  # Update context with step's response
-
-        return step_results
-
-    def aggregate_step_results(self, step_results, aggregation_strategy):
-        responses = [result["response"] for result in step_results]
-        if len(responses) == 1:
-            return responses[0]
-        if aggregation_strategy == "concat":
-            return "\n".join(responses)
-        elif aggregation_strategy == "summary":
-            # Use the LLM to generate a summary of the responses
-            response_text = "\n".join(responses)
-            summary_prompt = (
-                f"Please provide a concise summary of the following responses: "
-                + response_text
-            )
-
-            summary = self.get_llm_response(summary_prompt)["response"]
-            return summary
-        elif aggregation_strategy == "pessimistic_critique":
-            # Use the LLM to provide a pessimistic critique of the responses
-            response_text = "\n".join(responses)
-            critique_prompt = f"Please provide a pessimistic critique of the following responses:\n\n{response_text}"
-
-            critique = self.get_llm_response(critique_prompt)["response"]
-            return critique
-        elif aggregation_strategy == "optimistic_view":
-            # Use the LLM to provide an optimistic view of the responses
-            response_text = "\n".join(responses)
-            optimistic_prompt = f"Please provide an optimistic view of the following responses:\n\n{response_text}"
-            optimistic_view = self.get_llm_response(optimistic_prompt)["response"]
-            return optimistic_view
-        elif aggregation_strategy == "balanced_analysis":
-            # Use the LLM to provide a balanced analysis of the responses
-            response = "\n".join(responses)
-            analysis_prompt = f"Please provide a balanced analysis of the following responses:\n\n{response}"
-
-            balanced_analysis = self.get_llm_response(analysis_prompt)["response"]
-            return balanced_analysis
-        elif aggregation_strategy == "first":
-            return responses[0]
-        elif aggregation_strategy == "last":
-            return responses[-1]
-        else:
-            raise ValueError(f"Invalid aggregation strategy: {aggregation_strategy}")
-
-    def compile_pipe(self, pipe_file: str, initial_input=None) -> dict:
-        if pipe_file in self.pipe_cache:
-            return self.pipe_cache[pipe_file]
-
-        if not pipe_file.endswith(".pipe"):
-            raise ValueError("Pipeline file must have .pipe extension")
-
-        # print(pipe_file)
-
-        with open(pipe_file, "r") as f:
-            pipeline_data = yaml.safe_load(f)
-
-        final_output = {}
-        jinja_env = Environment(loader=FileSystemLoader("."), undefined=SilentUndefined)
-
-        context = {"input": initial_input, **self.npc_cache}
-
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.cursor()
-            pipeline_name = os.path.basename(pipe_file).replace(".pipe", "")
-
-            for stage in pipeline_data["steps"]:
-                step_results = self.execute_stage(stage, context, jinja_env)
-                aggregated_result = self.aggregate_step_results(
-                    step_results, stage.get("aggregation_strategy", "first")
+                # Continue with updated request
+                updated_request = (
+                    request
+                    + "\n\nThe request has not yet been fully completed. "
+                    + explanation
+                    + "\nPlease address only the remaining parts of the request."
                 )
-
-                # Store in database
-                cursor.execute(
-                    "INSERT INTO pipeline_runs (pipeline_name, step_name, output) VALUES (?, ?, ?)",
-                    (pipeline_name, stage["step_name"], str(aggregated_result)),
+                
+                # Call foreman again
+                result = foreman._check_llm_command(
+                    updated_request,
+                    context=getattr(self, 'context', {}),
+                    shared_context=self.shared_context,
                 )
-
-                final_output[stage["step_name"]] = aggregated_result
-                context[stage["step_name"]] = aggregated_result
-
-            conn.commit()
-
-        self.pipe_cache[pipe_file] = final_output  # Cache the results
-
-        return final_output
-
-    def merge_profiles(self, parent, child) -> dict:
-        merged = parent.copy()
-        for key, value in child.items():
-            if isinstance(value, list) and key in merged:
-                merged[key] = merged[key] + value
-            elif isinstance(value, dict) and key in merged:
-                merged[key] = self.merge_profiles(merged[key], value)
-            else:
-                merged[key] = value
-        return merged
-
-    def update_compiled_npcs_table(self, npc_file, parsed_content) -> None:
-        try:
-            with sqlite3.connect(self.db_path) as conn:
-                cursor = conn.cursor()
-                npc_name = parsed_content["name"]
-                source_path = npc_file
-
-                cursor.execute(
-                    "INSERT OR REPLACE INTO compiled_npcs (name, source_path, compiled_content) VALUES (?, ?, ?)",  # Correct column name
-                    (npc_name, source_path, yaml.dump(parsed_content)),
-                )
-                conn.commit()
-        except Exception as e:
-            print(
-                f"Error updating compiled_npcs table: {str(e)}"
-            )  # Print the full error
-
-
-def load_npc_from_file(npc_file: str, db_conn: sqlite3.Connection) -> NPC:
-    if not npc_file.endswith(".npc"):
-        # append it just incase
-        name += ".npc"
-
-    try:
-        if "~" in npc_file:
-            npc_file = os.path.expanduser(npc_file)
-        if not os.path.isabs(npc_file):
-            npc_file = os.path.abspath(npc_file)
-
-        with open(npc_file, "r") as f:
-            npc_data = yaml.safe_load(f)
-
-        # Extract fields from YAML
-        name = npc_data["name"]
-
-        primary_directive = npc_data.get("primary_directive")
-        tools = npc_data.get("tools")
-        model = npc_data.get("model", os.environ.get("NPCSH_CHAT_MODEL", "llama3.2"))
-        provider = npc_data.get(
-            "provider", os.environ.get("NPCSH_CHAT_PROVIDER", "ollama")
-        )
-        api_url = npc_data.get("api_url", os.environ.get("NPCSH_API_URL", None))
-        use_global_tools = npc_data.get("use_global_tools", True)
-        # print(use_global_tools)
-        # Load tools from global and project-specific directories
-        all_tools = []
-        # 1. Load tools defined within the NPC profile
-        if "tools" in npc_data:
-            for tool_data in npc_data["tools"]:
-                tool = Tool(tool_data)
-                tools.append(tool)
-        # 2. Load global tools from ~/.npcsh/npc_team/tools
-        user_home = os.path.expanduser("~")
-        global_tools_directory = os.path.join(user_home, ".npcsh", "npc_team", "tools")
-        all_tools.extend(load_tools_from_directory(global_tools_directory))
-        # 3. Load project-specific tools from ./npc_team/tools
-        project_tools_directory = os.path.abspath("./npc_team/tools")
-        all_tools.extend(load_tools_from_directory(project_tools_directory))
-
-        # Remove duplicates, giving precedence to project-specific tools
-        tool_dict = {}
-        for tool in all_tools:
-            tool_dict[tool.tool_name] = tool  # Project tools overwrite global tools
-
-        all_tools = list(tool_dict.values())
-
-        # Initialize and return the NPC object
-        return NPC(
-            name,
-            db_conn=db_conn,
-            primary_directive=primary_directive,
-            tools=tools,
-            use_global_tools=use_global_tools,
-            model=model,
-            provider=provider,
-            api_url=api_url,
-            all_tools=all_tools,  # Pass the tools
-        )
-
-    except FileNotFoundError:
-        raise ValueError(f"NPC file not found: {npc_file}")
-    except yaml.YAMLError as e:
-        raise ValueError(f"Error parsing YAML in NPC file {npc_file}: {str(e)}")
-    except KeyError as e:
-        raise ValueError(f"Missing required key in NPC file {npc_file}: {str(e)}")
-    except Exception as e:
-        raise ValueError(f"Error loading NPC from file {npc_file}: {str(e)}")
-
-
-import os
-import yaml
-import hashlib
-import sqlite3
-from sqlalchemy import create_engine
-import pandas as pd
-import json
-from datetime import datetime
-from jinja2 import Template
-import re
-
-
-###
-###
-###
-###
-### What is a pipeline file?
-"""
-
-steps:
-  - step_name: "step_name"
-    npc: npc_name
-    task: "task"
-    tools: ['tool1', 'tool2']
-
-
-# results within the pipeline need to be referenceable by the shared context through the step name
-#
-# so if step name is review_email and a tool is called we can refer to the intermediate objects
-# as review_email['tool1']['{var_name_in_tool_definition'}]
-
-so in step 2 i can do in the task
- task: "sort the emails by tone by reviewing the outputs from the email review tool: {{ review_email['email_review']['tone'] }}"
-"""
-
-
-"""
-adding in context and fabs
-"""
-
-
-class PipelineRunner:
-    def __init__(
-        self,
-        pipeline_file: str,
-        db_path: str = "~/npcsh_history.db",
-        npc_root_dir: str = "../",
-    ):
-        self.pipeline_file = pipeline_file
-        self.pipeline_data = self.load_pipeline()
-        self.db_path = os.path.expanduser(db_path)
-        self.npc_root_dir = npc_root_dir
-        self.npc_cache = {}
-        self.db_engine = create_engine(f"sqlite:///{self.db_path}")
-
-    def load_pipeline(self):
-        with open(self.pipeline_file, "r") as f:
-            return yaml.safe_load(f)
-
-    def compute_pipeline_hash(self):
-        with open(self.pipeline_file, "r") as f:
-            content = f.read()
-        return hashlib.sha256(content.encode()).hexdigest()
-
-    def execute_pipeline(self):
-        context = {
-            "npc": self.npc_ref,
-            "ref": lambda step_name: step_name,  # Directly use step name
-            "source": self.fetch_data_from_source,
+                
+    def to_dict(self):
+        """Convert team to dictionary representation"""
+        return {
+            "team_name": self.team_name,
+            "npcs": {name: npc.to_dict() for name, npc in self.npcs.items()},
+            "sub_teams": {name: team.to_dict() for name, team in self.sub_teams.items()},
+            "tools": {name: tool.to_dict() for name, tool in self.tools.items()},
+            "context": getattr(self, 'context', {})
         }
+    
+    def save(self, directory=None):
+        """Save team to directory"""
+        if directory is None:
+            directory = self.team_path
+            
+        if not directory:
+            raise ValueError("No directory specified for saving team")
+            
+        # Create team directory
+        ensure_dirs_exist(directory)
+        
+        # Save context
+        if hasattr(self, 'context') and self.context:
+            ctx_path = os.path.join(directory, "team.ctx")
+            write_yaml_file(ctx_path, self.context)
+            
+        # Save NPCs
+        for npc in self.npcs.values():
+            npc.save(directory)
+            
+        # Create tools directory
+        tools_dir = os.path.join(directory, "tools")
+        ensure_dirs_exist(tools_dir)
+        
+        # Save tools
+        for tool in self.tools.values():
+            tool.save(tools_dir)
+            
+        # Save sub-teams
+        for team_name, team in self.sub_teams.items():
+            team_dir = os.path.join(directory, team_name)
+            team.save(team_dir)
+            
+        return True
 
-        pipeline_hash = self.compute_pipeline_hash()
-        pipeline_name = os.path.splitext(os.path.basename(self.pipeline_file))[0]
-        results_table_name = f"{pipeline_name}_results"
-        self.ensure_tables_exist(results_table_name)
-        run_id = self.create_run_entry(pipeline_hash)
+# ---------------------------------------------------------------------------
+# Pipeline Runner
+# ---------------------------------------------------------------------------
 
-        for step in self.pipeline_data["steps"]:
-            self.execute_step(step, context, run_id, results_table_name)
-
-    def npc_ref(self, npc_name: str):
-        clean_name = npc_name.replace("MISSING_REF_", "")
-        try:
-            npc_path = self.find_npc_path(clean_name)
-            return clean_name if npc_path else f"MISSING_REF_{clean_name}"
-        except Exception:
-            return f"MISSING_REF_{clean_name}"
-
-    def execute_step(
-        self, step: dict, context: dict, run_id: int, results_table_name: str
-    ):
-        """Execute pipeline step and store results in the database."""
-        print("\nStarting step execution...")
-
-        mixa = step.get("mixa", False)
-        mixa_turns = step.get("mixa_turns", 5 if mixa else None)
-
-        npc_name = Template(step.get("npc", "")).render(context)
-        npc = self.load_npc(npc_name)
-        model = step.get("model", npc.model)
-        provider = step.get("provider", npc.provider)
-
-        response_text = ""
-
-        if mixa:
-            print("Executing mixture of agents strategy...")
-            response_text = self.execute_mixture_of_agents(
-                step,
-                context,
-                run_id,
-                results_table_name,
-                npc,
-                model,
-                provider,
-                mixa_turns,
-            )
+class Pipeline:
+    def __init__(self, pipeline_data=None, pipeline_path=None, npc_team=None):
+        """Initialize a pipeline from data or file path"""
+        self.npc_team = npc_team
+        self.steps = []
+        
+        if pipeline_path:
+            self._load_from_path(pipeline_path)
+        elif pipeline_data:
+            self.name = pipeline_data.get("name", "unnamed_pipeline")
+            self.steps = pipeline_data.get("steps", [])
         else:
-            source_matches = re.findall(
-                r"{{\s*source\('([^']+)'\)\s*}}", step.get("task", "")
-            )
-            print(f"Found source matches: {source_matches}")
-
-            if not source_matches:
-                rendered_task = Template(step.get("task", "")).render(context)
-                response = get_llm_response(
-                    rendered_task, model=model, provider=provider, npc=npc
-                )
-                response_text = response.get("response", "")
+            raise ValueError("Either pipeline_data or pipeline_path must be provided")
+            
+    def _load_from_path(self, path):
+        """Load pipeline from file"""
+        pipeline_data = load_yaml_file(path)
+        if not pipeline_data:
+            raise ValueError(f"Failed to load pipeline from {path}")
+            
+        self.name = os.path.splitext(os.path.basename(path))[0]
+        self.steps = pipeline_data.get("steps", [])
+        self.pipeline_path = path
+        
+    def execute(self, initial_context=None):
+        """Execute the pipeline with given context"""
+        context = initial_context or {}
+        results = {}
+        
+        # Initialize database tables
+        init_db_tables()
+        
+        # Generate pipeline hash for tracking
+        pipeline_hash = self._generate_hash()
+        
+        # Create results table specific to this pipeline
+        results_table = f"{self.name}_results"
+        self._ensure_results_table(results_table)
+        
+        # Create run entry
+        run_id = self._create_run_entry(pipeline_hash)
+        
+        # Add utility functions to context
+        context.update({
+            "ref": lambda step_name: results.get(step_name),
+            "source": self._fetch_data_from_source,
+        })
+        
+        # Execute each step
+        for step in self.steps:
+            step_name = step.get("step_name")
+            if not step_name:
+                raise ValueError(f"Missing step_name in step: {step}")
+                
+            # Get NPC for this step
+            npc_name = self._render_template(step.get("npc", ""), context)
+            npc = self._get_npc(npc_name)
+            if not npc:
+                raise ValueError(f"NPC {npc_name} not found for step {step_name}")
+                
+            # Render task template
+            task = self._render_template(step.get("task", ""), context)
+            
+            # Execute with appropriate NPC
+            model = step.get("model", npc.model)
+            provider = step.get("provider", npc.provider)
+            
+            # Check for special mixa (mixture of agents) mode
+            mixa = step.get("mixa", False)
+            if mixa:
+                response = self._execute_mixa_step(step, context, npc, model, provider)
             else:
-                table_name = source_matches[0]
-                df = pd.read_sql(f"SELECT * FROM {table_name}", self.db_engine)
-                print(f"\nQuerying table: {table_name}")
-                print(f"Found {len(df)} rows")
-
-                if step.get("batch_mode", False):
-                    data_str = df.to_json(orient="records")
-                    rendered_task = step.get("task", "").replace(
-                        f"{{{{ source('{table_name}') }}}}", data_str
-                    )
-                    rendered_task = Template(rendered_task).render(context)
-
-                    response = get_llm_response(
-                        rendered_task, model=model, provider=provider, npc=npc
-                    )
-                    response_text = response.get("response", "")
+                # Check for data source
+                source_matches = re.findall(r"{{\s*source\('([^']+)'\)\s*}}", task)
+                if source_matches:
+                    response = self._execute_data_source_step(step, context, source_matches, npc, model, provider)
                 else:
-                    all_responses = []
-                    for idx, row in df.iterrows():
-                        row_data = json.dumps(row.to_dict())
-                        row_task = step.get("task", "").replace(
-                            f"{{{{ source('{table_name}') }}}}", row_data
-                        )
-                        rendered_task = Template(row_task).render(context)
-
-                        response = get_llm_response(
-                            rendered_task, model=model, provider=provider, npc=npc
-                        )
-                        result = response.get("response", "")
-                        all_responses.append(result)
-
-                    response_text = all_responses
-
-        # Storing the final result in the database
-        self.store_result(
-            run_id,
-            step["step_name"],
-            npc_name,
-            model,
-            provider,
-            {"response": response_text},
-            response_text,
-            results_table_name,
-        )
-
-        context[step["step_name"]] = response_text
-        print(f"\nStep complete. Response stored in context[{step['step_name']}]")
-        return response_text
-
-    def store_result(
-        self,
-        run_id,
-        task_name,
-        npc_name,
-        model,
-        provider,
-        inputs,
-        outputs,
-        results_table_name,
-    ):
-        """Store results into the specified results table in the database."""
-        cleaned_inputs = self.clean_for_json(inputs)
-        conn = sqlite3.connect(self.db_path)
+                    # Standard LLM execution
+                    llm_response = get_llm_response(task, model=model, provider=provider, npc=npc)
+                    response = llm_response.get("response", "")
+            
+            # Store result
+            results[step_name] = response
+            context[step_name] = response
+            
+            # Save to database
+            self._store_step_result(run_id, step_name, npc_name, model, provider, 
+                                   {"task": task}, response, results_table)
+            
+        # Return all results
+        return {
+            "results": results,
+            "run_id": run_id
+        }
+        
+    def _render_template(self, template_str, context):
+        """Render a template with the given context"""
+        if not template_str:
+            return ""
+            
         try:
+            template = Template(template_str)
+            return template.render(**context)
+        except Exception as e:
+            print(f"Error rendering template: {e}")
+            return template_str
+            
+    def _get_npc(self, npc_name):
+        """Get NPC by name from team"""
+        if not self.npc_team:
+            raise ValueError("No NPC team available")
+            
+        return self.npc_team.get_npc(npc_name)
+        
+    def _generate_hash(self):
+        """Generate a hash for the pipeline"""
+        if hasattr(self, 'pipeline_path') and self.pipeline_path:
+            with open(self.pipeline_path, 'r') as f:
+                content = f.read()
+            return hashlib.sha256(content.encode()).hexdigest()
+        else:
+            # Generate hash from steps
+            content = json.dumps(self.steps)
+            return hashlib.sha256(content.encode()).hexdigest()
+            
+    def _ensure_results_table(self, table_name):
+        """Ensure results table exists"""
+        db_path = "~/npcsh_history.db"
+        with sqlite3.connect(os.path.expanduser(db_path)) as conn:
+            conn.execute(f"""
+                CREATE TABLE IF NOT EXISTS {table_name} (
+                    result_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    run_id INTEGER,
+                    step_name TEXT,
+                    npc_name TEXT,
+                    model TEXT,
+                    provider TEXT,
+                    inputs TEXT,
+                    outputs TEXT,
+                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY(run_id) REFERENCES pipeline_runs(run_id)
+                )
+            """)
+            conn.commit()
+            
+    def _create_run_entry(self, pipeline_hash):
+        """Create run entry in pipeline_runs table"""
+        db_path = "~/npcsh_history.db"
+        with sqlite3.connect(os.path.expanduser(db_path)) as conn:
+            cursor = conn.execute(
+                "INSERT INTO pipeline_runs (pipeline_name, pipeline_hash, timestamp) VALUES (?, ?, ?)",
+                (self.name, pipeline_hash, datetime.now())
+            )
+            conn.commit()
+            return cursor.lastrowid
+            
+    def _store_step_result(self, run_id, step_name, npc_name, model, provider, inputs, outputs, table_name):
+        """Store step result in database"""
+        db_path = "~/npcsh_history.db"
+        with sqlite3.connect(os.path.expanduser(db_path)) as conn:
             conn.execute(
                 f"""
-                INSERT INTO {results_table_name} (run_id, task_name, npc_name,
-                model, provider, inputs, outputs) VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO {table_name} 
+                (run_id, step_name, npc_name, model, provider, inputs, outputs)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     run_id,
-                    task_name,
+                    step_name,
                     npc_name,
                     model,
                     provider,
-                    json.dumps(cleaned_inputs),
-                    json.dumps(outputs),
-                ),
+                    json.dumps(self._clean_for_json(inputs)),
+                    json.dumps(self._clean_for_json(outputs))
+                )
             )
             conn.commit()
-        except Exception as e:
-            print(f"Error storing result: {e}")
-        finally:
-            conn.close()
-
-    def execute_mixture_of_agents(
-        self,
-        step,
-        context,
-        run_id,
-        results_table_name,
-        npc,
-        model,
-        provider,
-        mixa_turns,
-    ):
-        """Facilitates multi-agent decision-making with feedback for refinement."""
-
-        # Read agent counts from the step configuration
-        num_generating_agents = len(step.get("mixa_agents", []))
-        num_voting_agents = len(step.get("mixa_voters", []))
-        num_voters = step.get("mixa_voter_count", num_voting_agents)
-
-        # Step 1: Initial Response Generation
-        round_responses = []
-        print("\nInitial responses generation:")
-        for agent_index in range(num_generating_agents):
-            task_template = Template(step.get("task", "")).render(context)
-            response = get_llm_response(
-                task_template, model=model, provider=provider, npc=npc
-            )
-            round_responses.append(response.get("response", ""))
-            print(
-                f"Agent {agent_index + 1} generated: " f"{response.get('response', '')}"
-            )
-
-        # Loop for each round of voting and refining
-        for turn in range(1, mixa_turns + 1):
-            print(f"\n--- Round {turn}/{mixa_turns} ---")
-
-            # Step 2: Voting Logic by voting agents
-            votes = self.conduct_voting(round_responses, num_voters)
-
-            # Step 3: Report results to generating agents
-            print("\nVoting Results:")
-            for idx, response in enumerate(round_responses):
-                print(f"Response {idx + 1} received {votes[idx]} votes.")
-
-            # Provide feedback on the responses
-            feedback_message = "Responses and their votes:\n" + "\n".join(
-                f"Response {i + 1}: {resp} - Votes: {votes[i]} "
-                for i, resp in enumerate(round_responses)
-            )
-
-            # Step 4: Refinement feedback to each agent
-            refined_responses = []
-            for agent_index in range(num_generating_agents):
-                refined_task = (
-                    feedback_message
-                    + f"\nRefine your response: {round_responses[agent_index]}"
-                )
-                response = get_llm_response(
-                    refined_task, model=model, provider=provider, npc=npc
-                )
-                refined_responses.append(response.get("response", ""))
-                print(
-                    f"Agent {agent_index + 1} refined response: "
-                    f"{response.get('response', '')}"
-                )
-
-            # Update responses for the next round
-            round_responses = refined_responses
-
-        # Step 5: Final synthesis using the LLM
-        final_synthesis_input = (
-            "Synthesize the following refined responses into a coherent answer:\n"
-            + "\n".join(round_responses)
-        )
-        final_synthesis = get_llm_response(
-            final_synthesis_input, model=model, provider=provider, npc=npc
-        )
-
-        return final_synthesis  # Return synthesized response based on LLM output
-
-    def conduct_voting(self, responses, num_voting_agents):
-        """Conducts voting among agents on the given responses."""
-        votes = [0] * len(responses)
-        for _ in range(num_voting_agents):
-            voted_index = random.choice(range(len(responses)))  # Randomly vote
-            votes[voted_index] += 1
-        return votes
-
-    def synthesize_responses(self, votes):
-        """Synthesizes the responses based on votes."""
-        # Example: Choose the highest voted response
-        max_votes = max(votes)
-        chosen_idx = votes.index(max_votes)
-        return f"Synthesized response based on votes from agents: " f"{chosen_idx + 1}"
-
-    def resolve_sources_in_task(self, task: str, context: dict) -> str:
-        # Use Jinja2 template rendering directly for simplicity
-        template = Template(task)
-        return template.render(context)
-
-    def fetch_data_from_source(self, table_name):
-        query = f"SELECT * FROM {table_name}"
-        try:
-            df = pd.read_sql(query, con=self.db_engine)
-        except Exception as e:
-            raise RuntimeError(f"Error fetching data from '{table_name}': {e}")
-        return self.format_data_as_string(df)
-
-    def format_data_as_string(self, df):
-        return df.to_json(orient="records", lines=True, indent=2)
-
-    def ensure_tables_exist(self, results_table_name):
-        conn = sqlite3.connect(self.db_path)
-        try:
-            conn.execute(
-                "CREATE TABLE IF NOT EXISTS pipeline_runs ("
-                "run_id INTEGER PRIMARY KEY AUTOINCREMENT, "
-                "pipeline_hash TEXT, timestamp DATETIME)"
-            )
-            conn.execute(
-                f"CREATE TABLE IF NOT EXISTS {results_table_name} ("
-                "result_id INTEGER PRIMARY KEY AUTOINCREMENT, "
-                "run_id INTEGER, task_name TEXT, npc_name TEXT, "
-                "model TEXT, provider TEXT, inputs JSON, "
-                "outputs JSON, FOREIGN KEY(run_id) "
-                "REFERENCES pipeline_runs(run_id))"
-            )
-            conn.commit()
-        finally:
-            conn.close()
-
-    def create_run_entry(self, pipeline_hash):
-        conn = sqlite3.connect(self.db_path)
-        try:
-            conn.execute(
-                "INSERT INTO pipeline_runs (pipeline_hash, timestamp) VALUES (?, ?)",
-                (pipeline_hash, datetime.now()),
-            )
-            conn.commit()
-            return conn.execute("SELECT last_insert_rowid()").fetchone()[0]
-        finally:
-            conn.close()
-
-    def clean_for_json(self, obj):
+            
+    def _clean_for_json(self, obj):
+        """Clean an object for JSON serialization"""
         if isinstance(obj, dict):
             return {
-                k: self.clean_for_json(v)
+                k: self._clean_for_json(v)
                 for k, v in obj.items()
                 if not k.startswith("_") and not callable(v)
             }
         elif isinstance(obj, list):
-            return [self.clean_for_json(i) for i in obj]
+            return [self._clean_for_json(i) for i in obj]
         elif isinstance(obj, (str, int, float, bool, type(None))):
             return obj
         else:
             return str(obj)
-
-    def load_npc(self, npc_name: str):
-        if npc_name in self.npc_cache:
-            return self.npc_cache[npc_name]
-
-        npc_path = self.find_npc_path(npc_name)
+            
+    def _fetch_data_from_source(self, table_name):
+        """Fetch data from a database table"""
+        db_path = "~/npcsh_history.db"
         try:
-            if npc_path:
-                connection = sqlite3.connect(self.db_path)
-                npc = load_npc_from_file(npc_path, db_conn=connection)
-                self.npc_cache[npc_name] = npc
-                return npc
-            else:
-                raise FileNotFoundError(f"NPC file not found for {npc_name}")
+            engine = create_engine(f"sqlite:///{os.path.expanduser(db_path)}")
+            df = pd.read_sql(f"SELECT * FROM {table_name}", engine)
+            return df.to_json(orient="records")
         except Exception as e:
-            raise RuntimeError(f"Error loading NPC {npc_name}: {e}")
-
-    def find_npc_path(self, npc_name: str) -> str:
-        for root, _, files in os.walk(self.npc_root_dir):
-            print(f"Checking in directory: {root}")  # Debug output
-            for file in files:
-                if file.startswith(npc_name) and file.endswith(".npc"):
-                    print(f"Found NPC file: {file} at {root}")  # Debug output
-                    return os.path.join(root, file)
-        print(f"NPC file not found for: {npc_name}")  # Debug output
-        return None
-
-
-import pandas as pd
-import yaml
-from typing import List, Dict, Any, Union
-
-
-class NPCSQLOperations(NPCCompiler):
-    def __init__(self, npc_directory, db_path):
-        super().__init__(npc_directory, db_path)
-
-    def _get_context(
-        self, df: pd.DataFrame, context: Union[str, Dict, List[str]]
-    ) -> str:
-        """Resolve context from different sources"""
-        if isinstance(context, str):
-            # Check if it's a column reference
-            if context in df.columns:
-                return df[context].to_string()
-            # Assume it's static text
-            return context
-        elif isinstance(context, list):
-            # List of column names to include
-            return " ".join(df[col].to_string() for col in context if col in df.columns)
-        elif isinstance(context, dict):
-            # YAML-style context
-            return yaml.dump(context)
-        return ""
-
-    # SINGLE PROMPT OPERATIONS
-    def synthesize(
-        self,
-        query,
-        df: pd.DataFrame,
-        columns: List[str],
-        npc: str,
-        context: Union[str, Dict, List[str]],
-        framework: str,
-    ) -> pd.Series:
-        context_text = self._get_context(df, context)
-
-        def apply_synthesis(row):
-            # we have f strings from the query, we want to fill those back in in the request
-            request = query.format(**row[columns])
-            prompt = f"""Framework: {framework}
-                        Context: {context_text}
-                        Text to synthesize: {request}
-                        Synthesize the above text."""
-
-            result = self.execute_stage(
-                {"step_name": "synthesize", "npc": npc, "task": prompt},
-                {},
-                self.jinja_env,
-            )
-
-            return result[0]["response"]
-
-        # columns a list
-        columns_str = "_".join(columns)
-        df_out = df[columns].apply(apply_synthesis, axis=1)
-        return df_out
-
-    # MULTI-PROMPT/PARALLEL OPERATIONS
-    def spread_and_sync(
-        self,
-        df: pd.DataFrame,
-        column: str,
-        npc: str,
-        variations: List[str],
-        sync_strategy: str,
-        context: Union[str, Dict, List[str]],
-    ) -> pd.Series:
-        context_text = self._get_context(df, context)
-
-        def apply_spread_sync(text):
-            results = []
-            for variation in variations:
-                prompt = f"""Variation: {variation}
-                            Context: {context_text}
-                            Text to analyze: {text}
-                            Analyze the above text with {variation} perspective."""
-
-                result = self.execute_stage(
-                    {"step_name": f"spread_{variation}", "npc": npc, "task": prompt},
-                    {},
-                    self.jinja_env,
+            print(f"Error fetching data from {table_name}: {e}")
+            return "[]"
+            
+    def _execute_mixa_step(self, step, context, npc, model, provider):
+        """Execute a mixture of agents step"""
+        # Get task template
+        task = self._render_template(step.get("task", ""), context)
+        
+        # Get configuration
+        mixa_turns = step.get("mixa_turns", 5)
+        num_generating_agents = len(step.get("mixa_agents", []))
+        if num_generating_agents == 0:
+            num_generating_agents = 3  # Default
+            
+        num_voting_agents = len(step.get("mixa_voters", []))
+        if num_voting_agents == 0:
+            num_voting_agents = 3  # Default
+            
+        # Step 1: Initial Response Generation
+        round_responses = []
+        for _ in range(num_generating_agents):
+            response = get_llm_response(task, model=model, provider=provider, npc=npc)
+            round_responses.append(response.get("response", ""))
+            
+        # Loop for each round of voting and refining
+        for turn in range(1, mixa_turns + 1):
+            # Step 2: Voting by agents
+            votes = [0] * len(round_responses)
+            for _ in range(num_voting_agents):
+                voted_index = random.choice(range(len(round_responses)))
+                votes[voted_index] += 1
+                
+            # Step 3: Refinement feedback
+            refined_responses = []
+            for i, resp in enumerate(round_responses):
+                feedback = (
+                    f"Current responses and their votes:\n" + 
+                    "\n".join([f"Response {j+1}: {r[:100]}... - Votes: {votes[j]}" 
+                             for j, r in enumerate(round_responses)]) +
+                    f"\n\nRefine your response #{i+1}: {resp}"
                 )
-
-                results.append(result[0]["response"])
-
-            # Sync results
-            sync_result = self.aggregate_step_results(
-                [{"response": r} for r in results], sync_strategy
-            )
-
-            return sync_result
-
-        return df[column].apply(apply_spread_sync)
-        # COMPARISON OPERATIONS
-
-    def contrast(
-        self,
-        df: pd.DataFrame,
-        col1: str,
-        col2: str,
-        npc: str,
-        context: Union[str, Dict, List[str]],
-        comparison_framework: str,
-    ) -> pd.Series:
-        context_text = self._get_context(df, context)
-
-        def apply_contrast(row):
-            prompt = f"""Framework: {comparison_framework}
-                        Context: {context_text}
-                        Text 1: {row[col1]}
-                        Text 2: {row[col2]}
-                        Compare and contrast the above texts."""
-
-            result = self.execute_stage(
-                {"step_name": "contrast", "npc": npc, "task": prompt},
-                {},
-                self.jinja_env,
-            )
-
-            return result[0]["response"]
-
-        return df.apply(apply_contrast, axis=1)
-
-    def sql_operations(self, sql: str) -> pd.DataFrame:
-        # Execute the SQL query
-
-        """
-        1. delegate(COLUMN, npc, query, context, tools, reviewers)
-        2. dilate(COLUMN, npc, query, context, scope, reviewers)
-        3. erode(COLUMN, npc, query, context, scope, reviewers)
-        4. strategize(COLUMN, npc, query, context, timeline, constraints)
-        5. validate(COLUMN, npc, query, context, criteria)
-        6. synthesize(COLUMN, npc, query, context, framework)
-        7. decompose(COLUMN, npc, query, context, granularity)
-        8. criticize(COLUMN, npc, query, context, framework)
-        9. summarize(COLUMN, npc, query, context, style)
-        10. advocate(COLUMN, npc, query, context, perspective)
-
-        MULTI-PROMPT/PARALLEL OPERATIONS
-        11. spread_and_sync(COLUMN, npc, query, variations, sync_strategy, context)
-        12. bootstrap(COLUMN, npc, query, sample_params, sync_strategy, context)
-        13. resample(COLUMN, npc, query, variation_strategy, sync_strategy, context)
-
-        COMPARISON OPERATIONS
-        14. mediate(COL1, COL2, npc, query, context, resolution_strategy)
-        15. contrast(COL1, COL2, npc, query, context, comparison_framework)
-        16. reconcile(COL1, COL2, npc, query, context, alignment_strategy)
-
-        MULTI-COLUMN INTEGRATION
-        17. integrate(COLS[], npc, query, context, integration_method)
-        18. harmonize(COLS[], npc, query, context, harmony_rules)
-        19. orchestrate(COLS[], npc, query, context, workflow)
-        """
-
-    # Example usage in SQL-like syntax:
-    """
-    def execute_sql(self, sql: str) -> pd.DataFrame:
-        # This would be implemented to parse and execute SQL with our custom functions
-        # Example SQL:
-        '''
-        SELECT
-            customer_id,
-            synthesize(feedback_text,
-                      npc='analyst',
-                      context=customer_segment,
-                      framework='satisfaction') as analysis,
-            spread_and_sync(price_sensitivity,
-                          npc='pricing_agent',
-                          variations=['conservative', 'aggressive'],
-                          sync_strategy='balanced_analysis',
-                          context=market_context) as price_strategy
-        FROM customer_data
-        '''
-        pass
-    """
-
-
-class NPCDBTAdapter:
-    def __init__(self, npc_sql: NPCSQLOperations):
-        self.npc_sql = npc_sql
-        self.models = {}
-
-    def ref(self, model_name: str) -> pd.DataFrame:
-        # Implementation for model referencing
-        return self.models.get(model_name)
-
-    def parse_model(self, model_sql: str) -> pd.DataFrame:
-        # Parse the SQL model and execute with our custom functions
-        pass
-
-
-class AIFunctionParser:
-    """Handles parsing and extraction of AI function calls from SQL"""
-
-    @staticmethod
-    def extract_function_params(sql: str) -> Dict[str, Dict]:
-        """Extract AI function parameters from SQL"""
-        ai_functions = {}
-
-        pattern = r"(\w+)\s*\(((?:[^()]*|\([^()]*\))*)\)"
-        matches = re.finditer(pattern, sql)
-
-        for match in matches:
-            func_name = match.group(1)
-            if func_name in ["synthesize", "spread_and_sync"]:
-                params = match.group(2).split(",")
-                ai_functions[func_name] = {
-                    "query": params[0].strip().strip("\"'"),
-                    "npc": params[1].strip().strip("\"'"),
-                    "context": params[2].strip().strip("\"'"),
-                }
-
-        return ai_functions
-
-
-class SQLModel:
-    def __init__(self, name: str, content: str, path: str, npc_directory: str):
-        self.name = name
-        self.content = content
-        self.path = path
-        self.npc_directory = npc_directory  # This sets the npc_directory attribute
-
-        self.dependencies = self._extract_dependencies()
-        self.has_ai_function = self._check_ai_functions()
-        self.ai_functions = self._extract_ai_functions()
-        print(f"Initializing SQLModel with NPC directory: {npc_directory}")
-
-    def _extract_dependencies(self) -> Set[str]:
-        """Extract model dependencies using ref() calls"""
-        pattern = r"\{\{\s*ref\(['\"]([^'\"]+)['\"]\)\s*\}\}"
-        return set(re.findall(pattern, self.content))
-
-    def _check_ai_functions(self) -> bool:
-        """Check if the model contains AI function calls"""
-        ai_functions = [
-            "synthesize",
-            "spread_and_sync",
-            "delegate",
-            "dilate",
-            "erode",
-            "strategize",
-            "validate",
-            "decompose",
-            "criticize",
-            "summarize",
-            "advocate",
-            "bootstrap",
-            "resample",
-            "mediate",
-            "contrast",
-            "reconcile",
-            "integrate",
-            "harmonize",
-            "orchestrate",
-        ]
-        return any(func in self.content for func in ai_functions)
-
-    def _extract_ai_functions(self) -> Dict[str, Dict]:
-        """Extract all AI functions and their parameters from the SQL content."""
-        ai_functions = {}
-        pattern = r"(\w+)\s*\(((?:[^()]*|\([^()]*\))*)\)"
-        matches = re.finditer(pattern, self.content)
-
-        for match in matches:
-            func_name = match.group(1)
-            if func_name in [
-                "synthesize",
-                "spread_and_sync",
-                "delegate",
-                "dilate",
-                "erode",
-                "strategize",
-                "validate",
-                "decompose",
-                "criticize",
-                "summarize",
-                "advocate",
-                "bootstrap",
-                "resample",
-                "mediate",
-                "contrast",
-                "reconcile",
-                "integrate",
-                "harmonize",
-                "orchestrate",
-            ]:
-                params = [
-                    param.strip().strip("\"'") for param in match.group(2).split(",")
-                ]
-                npc = params[1]
-                if not npc.endswith(".npc"):
-                    npc = npc.replace(".npc", "")
-                if self.npc_directory in npc:
-                    npc = npc.replace(self.npc_directory, "")
-
-                # print(npc)
-                ai_functions[func_name] = {
-                    "column": params[0],
-                    "npc": npc,
-                    "query": params[2],
-                    "context": params[3] if len(params) > 3 else None,
-                }
-        return ai_functions
-
-
-class ModelCompiler:
-    def __init__(self, models_dir: str, db_path: str, npc_directory: str):
-        self.models_dir = Path(models_dir)
-        self.db_path = db_path
-        self.models: Dict[str, SQLModel] = {}
-        self.npc_operations = NPCSQLOperations(npc_directory, db_path)
-        self.npc_directory = npc_directory
-
-    def discover_models(self):
-        """Discover all SQL models in the models directory"""
-        self.models = {}
-        for sql_file in self.models_dir.glob("**/*.sql"):
-            model_name = sql_file.stem
-            with open(sql_file, "r") as f:
-                content = f.read()
-            self.models[model_name] = SQLModel(
-                model_name, content, str(sql_file), self.npc_directory
-            )
-            print(f"Discovered model: {model_name}")
-        return self.models
-
-    def build_dag(self) -> Dict[str, Set[str]]:
-        """Build dependency graph"""
-        dag = {}
-        for model_name, model in self.models.items():
-            dag[model_name] = model.dependencies
-        print(f"Built DAG: {dag}")
-        return dag
-
-    def topological_sort(self) -> List[str]:
-        """Generate execution order using topological sort"""
-        dag = self.build_dag()
-        in_degree = defaultdict(int)
-
-        for node, deps in dag.items():
-            for dep in deps:
-                in_degree[dep] += 1
-                if dep not in dag:
-                    dag[dep] = set()
-
-        queue = deque([node for node in dag.keys() if len(dag[node]) == 0])
-        result = []
-
-        while queue:
-            node = queue.popleft()
-            result.append(node)
-
-            for dependent, deps in dag.items():
-                if node in deps:
-                    deps.remove(node)
-                    if len(deps) == 0:
-                        queue.append(dependent)
-
-        if len(result) != len(dag):
-            raise ValueError("Circular dependency detected")
-
-        print(f"Execution order: {result}")
-        return result
-
-    def _replace_model_references(self, sql: str) -> str:
-        ref_pattern = r"\{\{\s*ref\s*\(\s*['\"]([^'\"]+)['\"]\s*\)\s*\}\}"
-
-        def replace_ref(match):
-            model_name = match.group(1)
-            if model_name not in self.models:
-                raise ValueError(
-                    f"Model '{model_name}' not found during ref replacement."
-                )
-            return model_name
-
-        replaced_sql = re.sub(ref_pattern, replace_ref, sql)
-        return replaced_sql
-
-    def compile_model(self, model_name: str) -> str:
-        """Compile a single model, resolving refs."""
-        model = self.models[model_name]
-        compiled_sql = model.content
-        compiled_sql = self._replace_model_references(compiled_sql)
-        print(f"Compiled SQL for {model_name}:\n{compiled_sql}")
-        return compiled_sql
-
-    def _extract_base_query(self, sql: str) -> str:
-        for dep in self.models[self.current_model].dependencies:
-            sql = sql.replace(f"{{{{ ref('{dep}') }}}}", dep)
-
-        parts = sql.split("FROM", 1)
-        if len(parts) != 2:
-            raise ValueError("Invalid SQL syntax")
-
-        select_part = parts[0].replace("SELECT", "").strip()
-        from_part = "FROM" + parts[1]
-
-        columns = re.split(r",\s*(?![^()]*\))", select_part.strip())
-
-        final_columns = []
-        for col in columns:
-            if "synthesize(" not in col:
-                final_columns.append(col)
-            else:
-                alias_match = re.search(r"as\s+(\w+)\s*$", col, re.IGNORECASE)
-                if alias_match:
-                    final_columns.append(f"NULL as {alias_match.group(1)}")
-
-        final_sql = f"SELECT {', '.join(final_columns)} {from_part}"
-        print(f"Extracted base query:\n{final_sql}")
-
-        return final_sql
-
-    def execute_model(self, model_name: str) -> pd.DataFrame:
-        """Execute a model and materialize it to the database"""
-        self.current_model = model_name
-        model = self.models[model_name]
-        compiled_sql = self.compile_model(model_name)
-
-        try:
-            if model.has_ai_function:
-                df = self._execute_ai_model(compiled_sql, model)
-            else:
-                df = self._execute_standard_sql(compiled_sql)
-
-            self._materialize_to_db(model_name, df)
-            return df
-
-        except Exception as e:
-            print(f"Error executing model {model_name}: {str(e)}")
-            raise
-
-    def _execute_standard_sql(self, sql: str) -> pd.DataFrame:
-        with sqlite3.connect(self.db_path) as conn:
-            try:
-                sql = re.sub(r"--.*?\n", "\n", sql)
-                sql = re.sub(r"\s+", " ", sql).strip()
-                return pd.read_sql(sql, conn)
-            except Exception as e:
-                print(f"Failed to execute SQL: {sql}")
-                print(f"Error: {str(e)}")
-                raise
-
-    def execute_ai_function(self, query, npc, column_value, context):
-        """Execute a specific AI function logic - placeholder"""
-        print(f"Executing AI function on value: {column_value}")
-        synthesized_value = (
-            f"Processed({query}): {column_value} in context {context} with npc {npc}"
+                
+                response = get_llm_response(feedback, model=model, provider=provider, npc=npc)
+                refined_responses.append(response.get("response", ""))
+                
+            # Update responses for next round
+            round_responses = refined_responses
+            
+        # Final synthesis
+        synthesis_prompt = (
+            "Synthesize these responses into a coherent answer:\n" +
+            "\n".join(round_responses)
         )
-        return synthesized_value
-
-    def _execute_ai_model(self, sql: str, model: SQLModel) -> pd.DataFrame:
+        final_response = get_llm_response(synthesis_prompt, model=model, provider=provider, npc=npc)
+        
+        return final_response.get("response", "")
+        
+    def _execute_data_source_step(self, step, context, source_matches, npc, model, provider):
+        """Execute a step with data source"""
+        task_template = step.get("task", "")
+        table_name = source_matches[0]
+        
         try:
-            base_sql = self._extract_base_query(sql)
-            print(f"Executing base SQL:\n{base_sql}")
-            df = self._execute_standard_sql(base_sql)
-
-            # extract the columns they are between {} pairs
-            columns = re.findall(r"\{([^}]+)\}", sql)
-
-            # Handle AI function a
-            for func_name, params in model.ai_functions.items():
-                if func_name == "synthesize":
-                    query_template = params["query"]
-
-                    npc = params["npc"]
-                    # only take the after the split "/"
-                    npc = npc.split("/")[-1]
-                    context = params["context"]
-                    # Call the synthesize method using DataFrame directly
-                    synthesized_df = self.npc_operations.synthesize(
-                        query=query_template,  # The raw query to format
-                        df=df,  # The DataFrame containing the data
-                        columns=columns,  # The column(s) used to format the query
-                        npc=npc,  # NPC parameter
-                        context=context,  # Context parameter
-                        framework="default_framework",  # Adjust this as per your needs
-                    )
-
-                    # Optionally pull the synthesized data into a new column
-                    df[
-                        "ai_analysis"
-                    ] = synthesized_df  # Adjust as per what synthesize returns
-
-            return df
-
+            # Fetch data
+            db_path = "~/npcsh_history.db"
+            engine = create_engine(f"sqlite:///{os.path.expanduser(db_path)}")
+            df = pd.read_sql(f"SELECT * FROM {table_name}", engine)
+            
+            # Handle batch mode vs. individual processing
+            if step.get("batch_mode", False):
+                # Replace source reference with all data
+                data_str = df.to_json(orient="records")
+                task = task_template.replace(f"{{{{ source('{table_name}') }}}}", data_str)
+                task = self._render_template(task, context)
+                
+                # Process all at once
+                response = get_llm_response(task, model=model, provider=provider, npc=npc)
+                return response.get("response", "")
+            else:
+                # Process each row individually
+                results = []
+                for _, row in df.iterrows():
+                    # Replace source reference with row data
+                    row_data = json.dumps(row.to_dict())
+                    row_task = task_template.replace(f"{{{{ source('{table_name}') }}}}", row_data)
+                    row_task = self._render_template(row_task, context)
+                    
+                    # Process row
+                    response = get_llm_response(row_task, model=model, provider=provider, npc=npc)
+                    results.append(response.get("response", ""))
+                    
+                return results
         except Exception as e:
-            print(f"Error in AI model execution: {str(e)}")
-            raise
-
-    def _materialize_to_db(self, model_name: str, df: pd.DataFrame):
-        with sqlite3.connect(self.db_path) as conn:
-            conn.execute(f"DROP TABLE IF EXISTS {model_name}")
-            df.to_sql(model_name, conn, index=False)
-            print(f"Materialized model {model_name} to database")
-
-    def _table_exists(self, table_name: str) -> bool:
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                """
-                SELECT name FROM sqlite_master
-                WHERE type='table' AND name=?;
-            """,
-                (table_name,),
-            )
-            return cursor.fetchone() is not None
-
-    def run_all_models(self):
-        """Execute all models in dependency order"""
-        self.discover_models()
-        execution_order = self.topological_sort()
-        print(f"Running models in order: {execution_order}")
-
-        results = {}
-        for model_name in execution_order:
-            print(f"\nExecuting model: {model_name}")
-
-            model = self.models[model_name]
-            for dep in model.dependencies:
-                if not self._table_exists(dep):
-                    raise ValueError(
-                        f"Dependency {dep} not found in database for model {model_name}"
-                    )
-
-            results[model_name] = self.execute_model(model_name)
-
-        return results
-
-
-def create_example_models(
-    models_dir: str = os.path.abspath("./npc_team/factory/models/"),
-    db_path: str = "~/npcsh_history.db",
-    npc_directory: str = "./npc_team/",
-):
-    """Create example SQL model files"""
-    os.makedirs(os.path.abspath("./npc_team/factory/"), exist_ok=True)
-    os.makedirs(models_dir, exist_ok=True)
-    db_path = os.path.expanduser(db_path)
-    conn = sqlite3.connect(db_path)
-    df = pd.DataFrame(
-        {
-            "feedback": ["Great product!", "Could be better", "Amazing service"],
-            "customer_id": [1, 2, 3],
-            "timestamp": pd.to_datetime(["2024-01-01", "2024-01-02", "2024-01-03"]),
-        }
-    )
-
-    df.to_sql("raw_customer_feedback", conn, index=False, if_exists="replace")
-    print("Created raw_customer_feedback table")
-
-    compiler = ModelCompiler(models_dir, db_path, npc_directory)
-    results = compiler.run_all_models()
-
-    for model_name, df in results.items():
-        print(f"\nResults for {model_name}:")
-        print(df.head())
-
-    customer_feedback = """
-    SELECT
-        feedback,
-        customer_id,
-        timestamp
-    FROM raw_customer_feedback
-    WHERE LENGTH(feedback) > 10;
-    """
-
-    customer_insights = """
-    SELECT
-        customer_id,
-        feedback,
-        timestamp,
-        synthesize(
-            "feedback text: {feedback}",
-            "analyst",
-            "feedback_analysis"
-        ) as ai_analysis
-    FROM {{ ref('customer_feedback') }};
-    """
-
-    models = {
-        "customer_feedback.sql": customer_feedback,
-        "customer_insights.sql": customer_insights,
-    }
-
-    for name, content in models.items():
-        path = os.path.join(models_dir, name)
-        with open(path, "w") as f:
-            f.write(content)
-        print(f"Created model: {name}")
+            print(f"Error processing data source {table_name}: {e}")
+            return f"Error: {str(e)}"
