@@ -8,7 +8,7 @@ fake = Faker()
 import pandas as Enter
 import sqlite3
 from datetime import datetime
-from npcsh.npc_compiler import  NPCSQLOperations, NPCDBTAdapter
+from npcpy.npc_compiler import  NPCSQLOperations, NPCDBTAdapter
 from typing import List
 
 import json
@@ -30,7 +30,7 @@ import sqlite3
 import pandas as pd
 from faker import Faker
 from collections import defaultdict, deque
-from npcsh.npc_compiler import NPCSQLOperations
+from npcpy.npc_compiler import NPCSQLOperations
 
 
 def extract_variables(input_string):

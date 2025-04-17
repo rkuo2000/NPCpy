@@ -3,7 +3,7 @@ import os
 import tempfile
 import sqlite3
 from unittest.mock import patch, MagicMock
-from npcsh.npc_compiler import  NPC, Tool, conjure_team
+from npcpy.npc_compiler import  NPC, Tool, conjure_team
 
 
 
@@ -196,7 +196,7 @@ Include:
     viz_tool.save(tools_dir)
     
     # Load the team
-    team = NPCTeam(team_path=team_dir)
+    team = Team(team_path=team_dir)
     
     # Test the team with a request
     request = "I have sales data for the last quarter and want to understand the trends and patterns. The data shows increasing sales in the first month, a plateau in the second month, and a decline in the third month."
@@ -309,7 +309,7 @@ and include clear recommendations for action.
     write_yaml_file(pipeline_path, pipeline_def)
     
     # Load the team
-    team = NPCTeam(team_path=team_dir)
+    team = Team(team_path=team_dir)
     
     # Create and run the pipeline
     pipeline = Pipeline(pipeline_path=pipeline_path, npc_team=team)
@@ -426,7 +426,7 @@ def example_4_hierarchical_teams():
     marketing_analyst.save(marketing_dept_dir)
     
     # Load the hierarchical team
-    main_team = NPCTeam(team_path=main_team_dir)
+    main_team = Team(team_path=main_team_dir)
     
     # Test the hierarchical team
     print("\nTeam structure:")

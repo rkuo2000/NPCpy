@@ -1,6 +1,6 @@
 # LLM Functions
 
-::: npcsh.llm_funcs
+::: npcpy.llm_funcs
     options:
       show_source: true
       members: true

@@ -46,7 +46,7 @@ try:
     import wave
     import queue
 
-    from npcsh.audio import (
+    from npcpy.audio import (
         cleanup_temp_files,
         FORMAT,
         CHANNELS,
@@ -75,7 +75,7 @@ except:
         "Could not load the sentence-transformers package. If you want to use it or other local AI features, please run `pip install npcsh[local]` ."
     )
 
-from npcsh.load_data import (
+from npcpy.load_data import (
     load_pdf,
     load_csv,
     load_json,
@@ -83,7 +83,7 @@ from npcsh.load_data import (
     load_txt,
     load_image,
 )
-from npcsh.npc_sysenv import (
+from npcpy.npc_sysenv import (
     get_model_and_provider,
     get_available_models,
     get_system_message,
@@ -99,15 +99,15 @@ from npcsh.npc_sysenv import (
     NPCSH_VIDEO_GEN_PROVIDER,
     print_and_process_stream
 )
-from npcsh.command_history import (
+from npcpy.command_history import (
     CommandHistory,
     save_attachment_to_message,
     save_conversation_message,
     start_new_conversation,
 )
-from npcsh.embeddings import search_similar_texts, chroma_client
+from npcpy.embeddings import search_similar_texts, chroma_client
 
-from npcsh.llm_funcs import (
+from npcpy.llm_funcs import (
     execute_llm_command,
     execute_llm_question,
     get_stream,
@@ -119,22 +119,20 @@ from npcsh.llm_funcs import (
     get_embeddings,
     get_stream,
 )
-from npcsh.plonk import plonk, action_space
-from npcsh.helpers import get_db_npcs, get_npc_path
+from npcpy.plonk import plonk, action_space
+from npcpy.helpers import get_db_npcs, get_npc_path
 
-from npcsh.npc_compiler import (
+from npcpy.npc_compiler import (
     NPC,
-    load_npc_from_file,
-    PipelineRunner,
     Tool,
-    initialize_npc_project,
+    
 )
 
 
-from npcsh.search import rag_search, search_web
-from npcsh.image import capture_screenshot, analyze_image
+from npcpy.search import rag_search, search_web
+from npcpy.image import capture_screenshot, analyze_image
 
-# from npcsh.audio import calibrate_silence, record_audio, speak_text
+# from npcpy.audio import calibrate_silence, record_audio, speak_text
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.syntax import Syntax
@@ -1752,8 +1750,6 @@ def execute_tool_command(
 
     tool_output = tool.execute(
         input_values,
-        npc_compiler.all_tools_dict,
-        npc_compiler.jinja_env,
         tool.tool_name,
         npc=npc,
     )
@@ -1799,7 +1795,6 @@ def execute_slash_command(
     Returns:
         dict : dict : Dictionary
     """
-    tools = npc_compiler.all_tools
 
     command = command[1:]
 
@@ -1812,14 +1807,15 @@ def execute_slash_command(
     current_npc = npc
     if command_name in valid_npcs:
         npc_path = get_npc_path(command_name, db_path)
-        current_npc = load_npc_from_file(npc_path, db_conn)
+        current_npc = NPC(npc_file=npc_path, db_conn=db_conn)
         output = f"Switched to NPC: {current_npc.name}"
         # print(output)
 
         return {"messages": messages, "output": output, "current_npc": current_npc}
-
     if command_name == "compile" or command_name == "com":
         try:
+            """ 
+
             if len(args) > 0:  # Specific NPC file(s) provided
                 for npc_file in args:
                     # differentiate between .npc and .pipe
@@ -1856,7 +1852,7 @@ def execute_slash_command(
                             )
                         except Exception as e:
                             output += f"Error compiling {filename}: {str(e)}\n"
-
+             """
         except Exception as e:
             import traceback
 
@@ -1925,6 +1921,7 @@ def execute_slash_command(
         return rehash_result  # Return the result of rehashing last message
 
     elif command_name == "pipe":
+        # need to fix
         if len(args) > 0:  # Specific NPC file(s) provided
             for npc_file in args:
                 # differentiate between .npc and .pipe
@@ -2421,7 +2418,7 @@ def execute_command(
                 npc_name = "sibiji"  # Default NPC
             npc_path = get_npc_path(npc_name, db_path)
 
-            npc = load_npc_from_file(npc_path, db_conn)
+            npc = NPC(file=npc_path, db_conn= db_conn)
             current_npc = npc
         else:
             valid_npcs = [current_npc]
@@ -2739,7 +2736,7 @@ def execute_command_stream(
             if npc_name is None:
                 npc_name = "sibiji"  # Default NPC
             npc_path = get_npc_path(npc_name, db_path)
-            npc = load_npc_from_file(npc_path, db_conn)
+            npc = NPC(file=npc_path, db_conn= db_conn)
         else:
             npc = current_npc
         # print(single_command.startswith("/"))

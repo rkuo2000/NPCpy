@@ -8,7 +8,7 @@ from typing import Any, Dict, Generator, List
 import os
 
 from litellm import completion
-from npcsh.npc_sysenv import get_system_message
+from npcpy.npc_sysenv import get_system_message
 
 
 def get_litellm_conversation(

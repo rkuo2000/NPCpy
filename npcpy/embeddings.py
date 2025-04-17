@@ -6,7 +6,7 @@
 #######
 from typing import List, Dict, Optional
 import numpy as np
-from npcsh.npc_sysenv import (
+from npcpy.npc_sysenv import (
     NPCSH_VECTOR_DB_PATH,
     NPCSH_EMBEDDING_MODEL,
     NPCSH_EMBEDDING_PROVIDER,

@@ -2,37 +2,9 @@ import os
 import sys
 import readline
 import atexit
-import re
-import pty
-import select
-import termios
-import tty
-import shlex
-import json
-
-from datetime import datetime
 from inspect import isgenerator
-
-
-# Third-party imports
-import pandas as pd
-import sqlite3
-import numpy as np
 from termcolor import colored
-from dotenv import load_dotenv
-import subprocess
-from typing import Dict, Any, List, Optional
-
-
-try:
-    from sentence_transformers import SentenceTransformer
-except:
-    print("Could not load the sentence-transformers package.")
-# Local imports
-
-from npcsh.npc_sysenv import (
-    get_system_message,
-    lookup_provider,
+from npcpy.npc_sysenv import (
     print_and_process_stream_with_markdown,
     NPCSH_STREAM_OUTPUT,
     NPCSH_CHAT_MODEL,
@@ -40,56 +12,37 @@ from npcsh.npc_sysenv import (
     NPCSH_API_URL,
 )
 
-from npcsh.command_history import (
+from npcpy.command_history import (
     CommandHistory,
     start_new_conversation,
     save_conversation_message,
-    save_attachment_to_message,
 )
-from npcsh.llm_funcs import (
-    execute_llm_command,
-    execute_llm_question,
-    generate_image,
-    check_llm_command,
-    get_conversation,
-    get_system_message,
-)
-from npcsh.search import rag_search, search_web
-from npcsh.helpers import (
-    load_all_files,
+from npcpy.helpers import (
     setup_npcsh_config,
     is_npcsh_initialized,
     initialize_base_npcs_if_needed,
 )
-from npcsh.shell_helpers import (
+from npcpy.shell_helpers import (
     complete,  # For command completion
     readline_safe_prompt,
     get_multiline_input,
     setup_readline,
     execute_command,
-    render_markdown,
 
     orange,  # For colored prompt
 )
-from npcsh.npc_compiler import (
-    load_tools_from_directory,
+from npcpy.npc_compiler import (
     NPC,
-    initialize_npc_project,
 )
 
 import argparse
-from npcsh.serve import (
-    start_flask_server,
-)
-import importlib.metadata  # Python 3.8+
-
-# Fetch the version from the package metadata
+import importlib.metadata  
 try:
     VERSION = importlib.metadata.version(
-        "npcsh"
-    )  # Replace "npcsh" with your package name
+        "npcpy"
+    )  
 except importlib.metadata.PackageNotFoundError:
-    VERSION = "unknown"  # Fallback if the package is not installed
+    VERSION = "unknown"  
 
 
 def main() -> None:
@@ -157,7 +110,7 @@ def main() -> None:
 
 
     os.makedirs(npc_directory, exist_ok=True)
-
+    """ 
     # Compile all NPCs in the user's npc_team directory
     for filename in os.listdir(npc_directory):
         if filename.endswith(".npc"):
@@ -169,7 +122,7 @@ def main() -> None:
         for filename in os.listdir(npc_directory):
             if filename.endswith(".npc"):
                 npc_file_path = os.path.join(npc_directory, filename)
-                npc_compiler.compile(npc_file_path)
+                npc_compiler.compile(npc_file_path) """
 
     if not is_npcsh_initialized():
         print("Initializing NPCSH...")
@@ -219,7 +172,6 @@ def main() -> None:
             result = execute_command(
                 user_input,
                 db_path,
-                npc_compiler,
                 current_npc,
                 model=NPCSH_CHAT_MODEL,
                 provider=NPCSH_CHAT_PROVIDER,
@@ -299,7 +251,6 @@ def main() -> None:
             result = execute_command(
                 user_input,
                 db_path,
-                npc_compiler,
                 current_npc=current_npc,
                 model=NPCSH_CHAT_MODEL,
                 provider=NPCSH_CHAT_PROVIDER,

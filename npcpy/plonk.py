@@ -6,8 +6,8 @@ try:
 except KeyError as e:
     print(f"Could not load pyautogui due to the following error: {e}")
 
-from npcsh.image import capture_screenshot
-from npcsh.llm_funcs import get_llm_response
+from npcpy.image import capture_screenshot
+from npcpy.llm_funcs import get_llm_response
 
 import subprocess
 import os
@@ -243,7 +243,7 @@ def generate_plonk(
     Answer:
     "{{'plonk plan': ```
 
-from npcsh.llm_funcs import get_llm_response
+from npcpy.llm_funcs import get_llm_response
 
 automation_script = get_llm_response( '''
     Write a python script that will request input from a user about what bank they use. Then use selenium to open the browser and navigate to the bank's website.

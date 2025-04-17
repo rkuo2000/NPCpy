@@ -11,7 +11,7 @@ import os
 
 
 from litellm import image_generation
-from npcsh.npc_sysenv import (
+from npcpy.npc_sysenv import (
     NPCSH_IMAGE_GEN_MODEL,
     NPCSH_IMAGE_GEN_PROVIDER,
 )

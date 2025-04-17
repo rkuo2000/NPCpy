@@ -1,7 +1,7 @@
 import pysqlite3 as sqlite3
 import sqlite_vec
 
-from npcsh.llm_funcs import (
+from npcpy.llm_funcs import (
     get_anthropic_embeddings,
     get_ollama_embeddings,
     get_openai_embeddings,

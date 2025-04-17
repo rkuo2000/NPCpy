@@ -15,12 +15,12 @@ import yaml
 from PIL import Image
 from PIL import ImageFile
 
-from npcsh.command_history import (
+from npcpy.command_history import (
     CommandHistory,
     save_conversation_message,
 )
-from npcsh.npc_compiler import  Tool, NPC
-from npcsh.npc_sysenv import (
+from npcpy.npc_compiler import  Tool, NPC
+from npcpy.npc_sysenv import (
     get_model_and_provider,
     get_available_models,
     get_system_message,
@@ -28,15 +28,15 @@ from npcsh.npc_sysenv import (
 )
 
 
-from npcsh.llm_funcs import (
+from npcpy.llm_funcs import (
     check_llm_command,
     get_llm_response,
     get_stream,
     get_conversation,
 )
-from npcsh.helpers import get_directory_npcs, get_db_npcs, get_npc_path
-from npcsh.npc_compiler import load_npc_from_file
-from npcsh.shell_helpers import execute_command, execute_command_stream
+from npcpy.helpers import get_directory_npcs, get_db_npcs, get_npc_path
+from npcpy.npc_compiler import NPC
+from npcpy.shell_helpers import execute_command, execute_command_stream
 import base64
 
 import json
@@ -689,10 +689,10 @@ def get_npc_team_global():
         npc_data = []
 
         # Use existing helper to get NPCs from the global directory
-        for npc_file in os.listdir(global_npc_directory):
-            if npc_file.endswith(".npc"):
-                npc_path = os.path.join(global_npc_directory, npc_file)
-                npc = load_npc_from_file(npc_path, db_conn)
+        for file in os.listdir(global_npc_directory):
+            if file.endswith(".npc"):
+                npc_path = os.path.join(global_npc_directory, file)
+                npc = NPC(file=npc_path, db_conn= db_conn)
 
                 # Serialize the NPC data
                 serialized_npc = {
@@ -832,8 +832,8 @@ use_global_tools: {str(npc_data.get('use_global_tools', True)).lower()}
 """
 
         # Save the file
-        npc_file_path = os.path.join(npc_directory, f"{npc_data['name']}.npc")
-        with open(npc_file_path, "w") as f:
+        file_path = os.path.join(npc_directory, f"{npc_data['name']}.npc")
+        with open(file_path, "w") as f:
             f.write(yaml_content)
 
         return jsonify({"message": "NPC saved successfully", "error": None})
@@ -854,11 +854,11 @@ def get_npc_team_project():
 
         npc_data = []
 
-        for npc_file in os.listdir(project_npc_directory):
-            print(npc_file)
-            if npc_file.endswith(".npc"):
-                npc_path = os.path.join(project_npc_directory, npc_file)
-                npc = load_npc_from_file(npc_path, db_conn)
+        for file in os.listdir(project_npc_directory):
+            print(file)
+            if file.endswith(".npc"):
+                npc_path = os.path.join(project_npc_directory, file)
+                npc = NPC(file=npc_path, db_conn= db_conn)
 
                 # Serialize the NPC data, including tools
                 serialized_npc = {

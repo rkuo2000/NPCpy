@@ -6,8 +6,8 @@ inputs:
 steps:
   - engine: "python"
     code: |
-      from npcsh.search import search_web
-      from npcsh.npc_sysenv import NPCSH_SEARCH_PROVIDER
+      from npcpy.search import search_web
+      from npcpy.npc_sysenv import NPCSH_SEARCH_PROVIDER
       query = "{{ query }}"
       provider = '{{ provider }}'
       if provider.strip() != '':

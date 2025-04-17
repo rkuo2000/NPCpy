@@ -1,7 +1,7 @@
 import pandas as pd
 import yaml
 from typing import List, Dict, Any, Union
-from npcsh.npc_compiler import 
+from npcpy.npc_compiler import 
 
 class NPCSQLOperations:
     def __init__(self, npc_directory, db_path):

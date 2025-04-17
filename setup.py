@@ -111,10 +111,10 @@ voice_requirements = [
     "pyttsx3",
 ]
 
-extra_files = package_files("npcsh/npc_team/")
+extra_files = package_files("npcpy/npc_team/")
 
 setup(
-    name="npcsh",
+    name="npcpy",
     version="0.3.33",
     packages=find_packages(exclude=["tests*"]),
     install_requires=base_requirements,  # Only install base requirements by default
@@ -126,13 +126,13 @@ setup(
     },
     entry_points={
         "console_scripts": [
-            "npcsh=npcsh.shell:main",
-            "npc=npcsh.cli:main",
+            "npcsh=npcpy.shell:main",
+            "npc=npcpy.cli:main",
         ],
     },
     author="Christopher Agostino",
     author_email="info@npcworldwi.de",
-    description="npcsh is a command line tool for integrating LLMs into everyday workflows and for orchestrating teams of NPCs.",
+    description="npcpy is a python library for orchestrating AI agents.",
     long_description=open("README.md").read(),
     long_description_content_type="text/markdown",
     url="https://github.com/cagostino/npcsh",

@@ -11,7 +11,7 @@ steps:
       import os
       from PIL import Image
       import time
-      from npcsh.image import analyze_image_base, capture_screenshot
+      from npcpy.image import analyze_image_base, capture_screenshot
 
       out = capture_screenshot(npc = npc, full = True)
 

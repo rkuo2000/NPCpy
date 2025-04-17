@@ -2,7 +2,7 @@ import pytest
 import os
 import sqlite3
 import tempfile
-from npcsh.helpers import (
+from npcpy.helpers import (
     ensure_npcshrc_exists,
     add_npcshrc_to_bashrc,
     is_npcsh_initialized,

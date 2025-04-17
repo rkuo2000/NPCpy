@@ -1,4 +1,3 @@
-# Remove duplicate imports
 import subprocess
 import requests
 import os
@@ -16,7 +15,7 @@ import pandas as pd
 import numpy as np
 from sqlalchemy import create_engine
 
-from npcsh.npc_sysenv import (
+from npcpy.npc_sysenv import (
     get_system_message,
     get_available_models,
     get_model_and_provider,
@@ -40,21 +39,21 @@ from npcsh.npc_sysenv import (
     available_chat_models,
 )
 
-from npcsh.stream import get_litellm_stream
-from npcsh.conversation import (
+from npcpy.stream import get_litellm_stream
+from npcpy.conversation import (
     get_litellm_conversation,
 )
-from npcsh.response import (
+from npcpy.response import (
     get_litellm_response,
 )
-from npcsh.image_gen import (
+from npcpy.image_gen import (
     generate_image_litellm,
 )
-from npcsh.video_gen import (
+from npcpy.video_gen import (
     generate_video_diffusers,
 )
 
-from npcsh.embeddings import (
+from npcpy.embeddings import (
     get_ollama_embeddings,
     get_openai_embeddings,
     get_anthropic_embeddings,

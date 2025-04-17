@@ -1,11 +1,11 @@
 #deep_research 
 import numpy as np 
-from npcsh.npc_compiler import NPC 
+from npcpy.npc_compiler import NPC 
 
-from npcsh.knowledge_graph import *
+from npcpy.knowledge_graph import *
 import os
 
-from npcsh.data import sample_primary_directives 
+from npcpy.data import sample_primary_directives 
 
 def generate_random_npcs(num_npcs, model, provider):
     """

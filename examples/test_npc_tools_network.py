@@ -5,7 +5,7 @@ from jinja2 import Environment, FileSystemLoader, Template, Undefined
 import pandas as pd
 from typing import Dict, Any, Optional, Union, List, Set
 from collections import defaultdict, deque
-from npcsh.npc_compiler import NPC, Tool, load_npc_from_file
+from npcpy.npc_compiler import NPC, Tool, Team
 
 import sqlite3
 import unittest
@@ -43,10 +43,11 @@ class TestNPCFunctionality(unittest.TestCase):
     @classmethod
     def create_test_npcs(cls):
         # Create three test NPCs with A/B testing focus
+        # Load NPCs from files
+        npc1 = NPC(file="./npc_team/datacollector.npc", db_conn=db_conn)
+        npc2 = NPC(file="./npc_team/analyzer.npc", db_conn=db_conn)
+        npc3 = NPC(file="./npc_team/presenter.npc", db_conn=db_conn)
 
-        npc1 = load_npc_from_file("./npc_team/datacollector.npc", db_conn)
-        npc2 = load_npc_from_file("./npc_team/analyzer.npc", db_conn)
-        npc3 = load_npc_from_file("./npc_team/presenter.npc", db_conn)
         return [npc1, npc2, npc3]
 
     def test_npc_tool_loading(self):

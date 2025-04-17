@@ -15,7 +15,7 @@ from PIL import Image
 from typing import Any, Dict, Generator, List, Union
 
 from pydantic import BaseModel
-from npcsh.npc_sysenv import (
+from npcpy.npc_sysenv import (
     get_system_message,
     compress_image,
     available_chat_models,
@@ -329,7 +329,7 @@ def generate_tool_schema(
 
 """
 
-from npcsh.stream import get_litellm_stream
+from npcpy.stream import get_litellm_stream
 model = 'hf.co/caug37/TinyTim:latest'
 messages = [{'role': 'user', 'content': 'Why is the sky blue?'}]
 stream = get_litellm_stream(

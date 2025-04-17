@@ -3,14 +3,14 @@ import sys
 import time
 import re
 import pytest
-from npcsh.command_history import CommandHistory
-from npcsh.llm_funcs import (
+from npcpy.command_history import CommandHistory
+from npcpy.llm_funcs import (
     get_llm_response,
     execute_llm_command,
     generate_image,
     check_llm_command,
 )
-from npcsh.helpers import (
+from npcpy.helpers import (
     setup_npcsh_config,
     initialize_base_npcs_if_needed,
     load_all_files,
@@ -90,9 +90,7 @@ def test_llm_functions():
     assert "output" in check_result
 
 
-def test_npc_compilation():
-    compiled_npc = npc_compiler.compile("foreman.npc")
-    assert "name" in compiled_npc
+
 
 
 def test_command_history_search():

@@ -6,23 +6,19 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import re
-import ast
 import random
 from datetime import datetime
 import hashlib
 import pathlib
 import fnmatch
 import traceback
-from collections import defaultdict
-from typing import Dict, Any, Optional, Union, List, Set
+from typing import Any
 from jinja2 import Environment, FileSystemLoader, Template, Undefined
 from sqlalchemy import create_engine
 
-# Assumed imports that would be in your package
-from npcsh.llm_funcs import get_llm_response, get_stream, check_llm_command
-from npcsh.helpers import get_npc_path
+from npcpy.llm_funcs import get_llm_response, get_stream, check_llm_command
+from npcpy.helpers import get_npc_path
 
-# SilentUndefined handles undefined behavior in Jinja2
 class SilentUndefined(Undefined):
     def _fail_with_undefined_error(self, *args, **kwargs):
         return ""
@@ -449,7 +445,7 @@ def load_tools_from_directory(directory):
 class NPC:
     def __init__(
         self,
-        npc_file: str,
+        file: str,
         primary_directive: str = None,
         tools: list = None,
         model: str = None,
@@ -464,7 +460,7 @@ class NPC:
         Initialize an NPC from a file path or with explicit parameters
         
         Args:
-            npc_file: Path to .npc file or name for the NPC
+            file: Path to .npc file or name for the NPC
             primary_directive: System prompt/directive for the NPC
             tools: List of tools available to the NPC
             model: LLM model to use
@@ -482,11 +478,11 @@ class NPC:
         self.project_npc_directory = os.path.abspath("./npc_team")
         
         # Determine if loading from file or direct parameters
-        if npc_file.endswith(".npc"):
-            self._load_from_file(npc_file)
+        if file.endswith(".npc"):
+            self._load_from_file(file)
         else:
             # Use provided parameters
-            self.name = npc_file  # Use npc_file as name
+            self.name = file  # Use file as name
             self.primary_directive = primary_directive
             self.model = model or os.environ.get("NPCSH_CHAT_MODEL", "llama3.2")
             self.provider = provider or os.environ.get("NPCSH_CHAT_PROVIDER", "ollama")
@@ -534,22 +530,22 @@ class NPC:
         # Initialize logging
         init_db_tables()
         
-    def _load_from_file(self, npc_file):
+    def _load_from_file(self, file):
         """Load NPC configuration from file"""
-        if "~" in npc_file:
-            npc_file = os.path.expanduser(npc_file)
-        if not os.path.isabs(npc_file):
-            npc_file = os.path.abspath(npc_file)
+        if "~" in file:
+            file = os.path.expanduser(file)
+        if not os.path.isabs(file):
+            file = os.path.abspath(file)
             
-        npc_data = load_yaml_file(npc_file)
+        npc_data = load_yaml_file(file)
         if not npc_data:
-            raise ValueError(f"Failed to load NPC from {npc_file}")
+            raise ValueError(f"Failed to load NPC from {file}")
             
         # Extract core fields
         self.name = npc_data.get("name")
         if not self.name:
             # Fall back to filename if name not in file
-            self.name = os.path.splitext(os.path.basename(npc_file))[0]
+            self.name = os.path.splitext(os.path.basename(file))[0]
             
         self.primary_directive = npc_data.get("primary_directive")
         self.tools = npc_data.get("tools", [])
@@ -560,7 +556,7 @@ class NPC:
         self.use_global_tools = npc_data.get("use_global_tools", True)
         
         # Store path for future reference
-        self.npc_path = npc_file
+        self.npc_path = file
             
     def _setup_db(self):
         """Set up database tables and determine type"""
@@ -771,7 +767,7 @@ class NPC:
         """String representation of NPC"""
         return f"NPC: {self.name}\nDirective: {self.primary_directive}\nModel: {self.model}"
 
-class NPCTeam:
+class Team:
     def __init__(self, team_path=None, npcs=None, db_conn=None):
         """
         Initialize an NPC team from directory or list of NPCs
@@ -872,7 +868,7 @@ class NPCTeam:
                 if any(f.endswith(".npc") for f in os.listdir(item_path) 
                       if os.path.isfile(os.path.join(item_path, f))):
                     try:
-                        sub_team = NPCTeam(team_path=item_path, db_conn=self.db_conn)
+                        sub_team = Team(team_path=item_path, db_conn=self.db_conn)
                         self.sub_teams[item] = sub_team
                     except Exception as e:
                         print(f"Error loading sub-team {item}: {e}")
@@ -1382,3 +1378,49 @@ class Pipeline:
         except Exception as e:
             print(f"Error processing data source {table_name}: {e}")
             return f"Error: {str(e)}"
+
+
+
+def initialize_npc_project(
+    directory=None,
+    templates=None,
+    context=None,
+    model=None,
+    provider=None,
+) -> str:
+    """Initialize an NPC project"""
+    # Implementation updated to work with new classes
+    if directory is None:
+        directory = os.getcwd()
+
+    # Create required directory structure
+    npc_team_dir = os.path.join(directory, "npc_team")
+    os.makedirs(npc_team_dir, exist_ok=True)
+    
+    # Create subdirs
+    for subdir in ["tools", "assembly_lines", "sql_models", "jobs"]:
+        os.makedirs(os.path.join(npc_team_dir, subdir), exist_ok=True)
+    
+    # Create default NPC if needed 
+    foreman_npc_path = os.path.join(npc_team_dir, "sibiji.npc")
+    
+    # Check if we need to generate a team
+    if context is not None:
+        # This would use your new team generation logic
+        # Maybe call a new implementation that uses your updated classes
+        from .team_generator import conjure_team
+        team = conjure_team(context, templates, model=model, provider=provider)
+    
+    # Always ensure default NPC exists
+    if not os.path.exists(foreman_npc_path):
+        # Use your new NPC class to create sibiji
+        default_npc = {
+            "name": "sibiji",
+            "primary_directive": "You are sibiji, the foreman of an NPC team...",
+            "model": model or "llama3.2",
+            "provider": provider or "ollama"
+        }
+        with open(foreman_npc_path, "w") as f:
+            yaml.dump(default_npc, f)
+            
+    return f"NPC project initialized in {npc_team_dir}"

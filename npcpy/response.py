@@ -6,7 +6,7 @@ from PIL import Image
 from typing import Any, Dict, Generator, List, Union
 
 from pydantic import BaseModel
-from npcsh.npc_sysenv import (
+from npcpy.npc_sysenv import (
     get_system_message,
     compress_image,
     available_chat_models,
