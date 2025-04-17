@@ -5,7 +5,7 @@ from jinja2 import Environment, FileSystemLoader, Template, Undefined
 import pandas as pd
 from typing import Dict, Any, Optional, Union, List, Set
 from collections import defaultdict, deque
-from npcsh.npc_compiler import NPC, Tool, NPCCompiler, load_npc_from_file
+from npcsh.npc_compiler import NPC, Tool, load_npc_from_file
 
 import sqlite3
 import unittest

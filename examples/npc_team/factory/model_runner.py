@@ -1,7 +1,6 @@
 # Usage example:
 def main():
     # Initialize
-    npc_compiler = NPCCompiler("~/.npcsh/npc_team", "~/npcsh_history.db")
     runner = NPCModelRunner(npc_compiler)
 
     # Run first model

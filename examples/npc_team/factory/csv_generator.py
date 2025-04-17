@@ -8,7 +8,7 @@ fake = Faker()
 import pandas as Enter
 import sqlite3
 from datetime import datetime
-from npcsh.npc_compiler import NPCCompiler, NPCSQLOperations, NPCDBTAdapter
+from npcsh.npc_compiler import  NPCSQLOperations, NPCDBTAdapter
 from typing import List
 
 import json
