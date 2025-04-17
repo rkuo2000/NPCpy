@@ -4,7 +4,7 @@ from datetime import datetime
 
 
 class NPCModelRunner:
-    def __init__(self, npc_compiler: NPCCompiler):
+    def __init__(self):
         self.compiler = npc_compiler
         self.sql_ops = NPCSQLOperations(npc_compiler)
         self.history_db = os.path.expanduser("~/npcsh_history.db")
@@ -161,7 +161,7 @@ class NPCModelRunner:
 # Usage example:
 def main():
     # Initialize
-    npc_compiler = NPCCompiler("~/.npcsh/npc_team", "~/npcsh_history.db")
+
     runner = NPCModelRunner(npc_compiler)
 
     # Run first model

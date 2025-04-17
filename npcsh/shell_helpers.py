@@ -123,7 +123,6 @@ from npcsh.plonk import plonk, action_space
 from npcsh.helpers import get_db_npcs, get_npc_path
 
 from npcsh.npc_compiler import (
-    NPCCompiler,
     NPC,
     load_npc_from_file,
     PipelineRunner,
@@ -984,7 +983,7 @@ def execute_search_command(
     Args:
         command : str : Command
         db_path : str : Database path
-        npc_compiler : NPCCompiler : NPC compiler
+
     Keyword Args:
         embedding_model : None : Embedding model
         current_npc : None : Current NPC
@@ -1739,7 +1738,6 @@ Bash commands and other programs can be executed directly. """
 def execute_tool_command(
     tool: Tool,
     args: List[str],
-    npc_compiler: NPCCompiler,
     messages=None,
     npc: NPC = None,
 ) -> Dict[str, Any]:
@@ -1776,7 +1774,6 @@ def execute_slash_command(
     command: str,
     db_path: str,
     db_conn: sqlite3.Connection,
-    npc_compiler: NPCCompiler,
     valid_npcs: list,
     npc: NPC = None,
     messages=None,
@@ -1792,7 +1789,7 @@ def execute_slash_command(
     Args:
         command : str : Command
         db_path : str : Database path
-        npc_compiler : NPCCompiler : NPC compiler
+
     Keyword Args:
         embedding_model : None : Embedding model
         current_npc : None : Current NPC
@@ -2339,7 +2336,6 @@ def replace_pipe_outputs(command: str, piped_outputs: list, cmd_idx: int) -> str
 def execute_command(
     command: str,
     db_path: str,
-    npc_compiler: NPCCompiler,
     current_npc: NPC = None,
     model: str = None,
     provider: str = None,
@@ -2357,7 +2353,7 @@ def execute_command(
         command : str : Command
 
         db_path : str : Database path
-        npc_compiler : NPCCompiler : NPC compiler
+
     Keyword Args:
         embedding_model :  Embedding model
         current_npc : NPC : Current NPC
@@ -2674,7 +2670,7 @@ def execute_command(
 def execute_command_stream(
     command: str,
     db_path: str,
-    npc_compiler: NPCCompiler,
+
     embedding_model=None,
     current_npc: NPC = None,
     model: str = None,
@@ -2689,7 +2685,7 @@ def execute_command_stream(
         command : str : Command
 
         db_path : str : Database path
-        npc_compiler : NPCCompiler : NPC compiler
+
     Keyword Args:
         embedding_model : Union[SentenceTransformer, Any] : Embedding model
         current_npc : NPC : Current NPC

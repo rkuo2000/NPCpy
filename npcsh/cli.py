@@ -19,7 +19,6 @@ from npcsh.serve import start_flask_server
 from npcsh.npc_compiler import (
     initialize_npc_project,
     conjure_team,
-    NPCCompiler,
     NPC,
     load_npc_from_file,
 )
@@ -46,7 +45,7 @@ if os.path.exists("./npc_team"):
 else:
     npc_directory = os.path.expanduser("~/.npcsh/npc_team/")
 
-npc_compiler = NPCCompiler(npc_directory, NPCSH_DB_PATH)
+
 
 
 def main():
@@ -384,7 +383,7 @@ def main():
         )
 
     elif args.command == "compile":
-        npc_compiler = NPCCompiler(npc_directory, NPCSH_DB_PATH)
+
         compiled = npc_compiler.compile(args.path)
         print("NPC compiled to:", compiled)
 

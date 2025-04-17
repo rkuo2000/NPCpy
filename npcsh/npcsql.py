@@ -1,9 +1,9 @@
 import pandas as pd
 import yaml
 from typing import List, Dict, Any, Union
-from npcsh.npc_compiler import NPCCompiler
+from npcsh.npc_compiler import 
 
-class NPCSQLOperations(NPCCompiler):
+class NPCSQLOperations:
     def __init__(self, npc_directory, db_path):
         super().__init__(npc_directory, db_path)
 

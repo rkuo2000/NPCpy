@@ -19,7 +19,7 @@ from npcsh.command_history import (
     CommandHistory,
     save_conversation_message,
 )
-from npcsh.npc_compiler import NPCCompiler, Tool, NPC
+from npcsh.npc_compiler import  Tool, NPC
 from npcsh.npc_sysenv import (
     get_model_and_provider,
     get_available_models,
@@ -52,7 +52,7 @@ user_npc_directory = os.path.expanduser("~/.npcsh/npc_team")
 project_npc_directory = os.path.abspath("./npc_team")
 
 # Initialize components
-npc_compiler = NPCCompiler(user_npc_directory, db_path)
+
 
 app = Flask(__name__)
 app.config["REDIS_URL"] = "redis://localhost:6379"

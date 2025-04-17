@@ -10,7 +10,6 @@ from npcsh.llm_funcs import (
     generate_image,
     check_llm_command,
 )
-from npcsh.npc_compiler import NPCCompiler
 from npcsh.helpers import (
     setup_npcsh_config,
     initialize_base_npcs_if_needed,
@@ -92,7 +91,6 @@ def test_llm_functions():
 
 
 def test_npc_compilation():
-    npc_compiler = NPCCompiler("~/.npcsh/npc_team", ":memory:")
     compiled_npc = npc_compiler.compile("foreman.npc")
     assert "name" in compiled_npc
 

@@ -5,7 +5,6 @@ import tempfile
 from pathlib import Path
 from npcsh.shell_helpers import execute_command
 from npcsh.command_history import CommandHistory
-from npcsh.npc_compiler import NPCCompiler
 from npcsh.npc_sysenv import (
     get_system_message,
     lookup_provider,
@@ -77,7 +76,6 @@ def npc_compiler():
     )
     if not os.path.exists(npc_dir):
         os.makedirs(npc_dir)
-    return NPCCompiler(npc_dir, ":memory:")
 
 
 def test_execute_slash_commands(npc_compiler, test_db):

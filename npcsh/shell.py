@@ -72,7 +72,6 @@ from npcsh.shell_helpers import (
     orange,  # For colored prompt
 )
 from npcsh.npc_compiler import (
-    NPCCompiler,
     load_tools_from_directory,
     NPC,
     initialize_npc_project,
@@ -156,7 +155,6 @@ def main() -> None:
     else:
         npc_directory = os.path.expanduser("~/.npcsh/npc_team/")
 
-    npc_compiler = NPCCompiler(npc_directory, db_path)
 
     os.makedirs(npc_directory, exist_ok=True)
 
