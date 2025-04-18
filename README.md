@@ -1,6 +1,3 @@
-<p align="center">
-  <img src="https://raw.githubusercontent.com/cagostino/npcsh/main/npcsh/npcsh.png" alt="npcsh logo with sibiji the spider">
-</p>
 
 
 # NPC Toolkit
@@ -16,6 +13,12 @@ Read the docs at [npcsh.readthedocs.io](https://npcsh.readthedocs.io/en/latest/)
 There is a graphical user interface that makes use of the NPC Toolkit through the NPC Studio. See the open source code for NPC Studio [here](https://github.com/). Download the executables (soon) at [our website](https://www.npcworldwi.de/npc-studio).
 
 Interested to stay in the loop and to hear the latest and greatest about `npcpy` and `npcsh` ? Be sure to sign up for the [newsletter](https://forms.gle/n1NzQmwjsV4xv1B2A)!
+
+Build with sibiji the spider who will help you weave your agent web! 
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/cagostino/npcsh/main/npcsh/npcsh.png" alt="npcsh logo with sibiji the spider">
+</p>
 
 
 ## Star History
