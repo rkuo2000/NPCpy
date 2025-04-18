@@ -3,28 +3,19 @@
 </p>
 
 
-# npcsh
+# NPC Toolkit
 
 
-- `npcsh` is a python-based AI Agent framework designed to integrate Large Language Models (LLMs) and Agents into one's daily workflow by making them available and easily configurable through a command line shell as well as an extensible python library. It allows users to create custom NPCs (AI agents) with specific personalities and capabilities for complex workflows and to orchestrate them directly or to provide a REST server which can receive HTTP requests.
-
-
-- `npcsh` stores your executed commands, conversations, generated images, captured screenshots, and more in a central database
-
-- `npcsh` is a drop-in replacement for one's bash shell with natural language processing capabilities and a suite of built-in tools (macros) for tasks like voice control, image generation, and web searching.
-
-- `npcsh` is extensible through its python library implementation and offers a simple CLI interface with the `npc` cli.
-
-- `npcsh` integrates with local and enterprise LLM providers like Ollama, LMStudio, OpenAI, Anthropic, Gemini, and Deepseek, making it a versatile tool for both simple commands and sophisticated AI-driven tasks.
+- `npcpy` is a python-based AI Agent framework designed to easily integrate Large Language Models and AI agents into python systems.
+- The NPC Shell `npcsh` provides a drop-in replacement for one's bash shell with natural language processing capabilities and a suite of built-in tools (macros) for tasks like voice control, image generation, and web searching. Through it's simple REPL system, one can interact with agents and orchestrate agent teams.
+- With the `npc` CLI, users can use the same tools and macros of the NPC shell through a CLI and provides a quick and simple way to RESTfully serve an NPC Team to receive HTTP requests.
+- The NPC Toolkit integrates with local and enterprise LLM providers through its LiteLLM integration, allowing users to run inference from Ollama, LMStudio, OpenAI, Anthropic, Gemini, and Deepseek, making it a versatile tool for both simple commands and sophisticated AI-driven tasks. All agentic capabilities are built and tested using small local models (like `llama3.2`) to ensure the agentic capabilities function even at the edge of computing.
 
 Read the docs at [npcsh.readthedocs.io](https://npcsh.readthedocs.io/en/latest/)
 
-`npcsh` can be used in a graphical user interface through the NPC Studio.
-See the open source code for NPC Studio [here](https://github.com/). Download the executables (soon) at [our website](https://www.npcworldwi.de/npc-studio).
+There is a graphical user interface that makes use of the NPC Toolkit through the NPC Studio. See the open source code for NPC Studio [here](https://github.com/). Download the executables (soon) at [our website](https://www.npcworldwi.de/npc-studio).
 
-
-
-Interested to stay in the loop and to hear the latest and greatest about `npcsh` ? Be sure to sign up for the [npcsh newsletter](https://forms.gle/n1NzQmwjsV4xv1B2A)!
+Interested to stay in the loop and to hear the latest and greatest about `npcpy` and `npcsh` ? Be sure to sign up for the [newsletter](https://forms.gle/n1NzQmwjsV4xv1B2A)!
 
 
 ## Star History
@@ -32,10 +23,7 @@ Interested to stay in the loop and to hear the latest and greatest about `npcsh`
 [![Star History Chart](https://api.star-history.com/svg?repos=cagostino/npcsh&type=Date)](https://star-history.com/#cagostino/npcsh&Date)
 
 ## TLDR Cheat Sheet for NPC shell and cli
-Users can take advantage of `npcsh` through its custom shell or through a command-line interface (CLI) tool. Below is a cheat sheet that shows how to use `npcsh` commands in both the shell and the CLI. For the npcsh commands to work, one must activate `npcsh` by typing it in a shell.
-
-
-
+Below is a cheat sheet that shows how to use the NPC Toolkit's macro commands in both the shell and the CLI. For the `npcsh`` commands to work, one must activate `npcsh` by typing it in a shell.
 
 | Task | npc CLI | npcsh |
 |----------|----------|----------|
@@ -54,8 +42,7 @@ Users can take advantage of `npcsh` through its custom shell or through a comman
 
 
 ## Python Examples
-Integrate npcsh into your Python projects for additional flexibility. Below are a few examples of how to use the library programmatically.
-
+Integrate `npcpy` into your Python projects for additional flexibility. Below are a few examples of how to use the library programmatically.
 
 ### Example 1: using npcsh's get_llm_response and get_stream
 
@@ -497,7 +484,7 @@ if __name__ == "__main__":
 
 
 ## Installation
-`npcsh` is available on PyPI and can be installed using pip. Before installing, make sure you have the necessary dependencies installed on your system. Below are the instructions for installing such dependencies on Linux, Mac, and Windows. If you find any other dependencies that are needed, please let us know so we can update the installation instructions to be more accommodating.
+`npcpy` is available on PyPI and can be installed using pip. Before installing, make sure you have the necessary dependencies installed on your system. Below are the instructions for installing such dependencies on Linux, Mac, and Windows. If you find any other dependencies that are needed, please let us know so we can update the installation instructions to be more accommodating.
 
 ### Linux install
 ```bash
@@ -520,16 +507,16 @@ curl -fsSL https://ollama.com/install.sh | sh
 ollama pull llama3.2
 ollama pull llava:7b
 ollama pull nomic-embed-text
-pip install npcsh
+pip install npcpy
 # if you want to install with the API libraries
-pip install npcsh[lite]
+pip install npcpy[lite]
 # if you want the full local package set up (ollama, diffusers, transformers, cuda etc.)
-pip install npcsh[local]
+pip install npcpy[local]
 # if you want to use tts/stt
-pip install npcsh[whisper]
+pip install npcpy[whisper]
 
 # if you want everything:
-pip install npcsh[all]
+pip install npcpy[all]
 
 
 
@@ -552,14 +539,14 @@ ollama pull llava:7b
 ollama pull nomic-embed-text
 pip install npcsh
 # if you want to install with the API libraries
-pip install npcsh[lite]
+pip install npcpy[lite]
 # if you want the full local package set up (ollama, diffusers, transformers, cuda etc.)
-pip install npcsh[local]
+pip install npcpy[local]
 # if you want to use tts/stt
-pip install npcsh[whisper]
+pip install npcpy[whisper]
 
 # if you want everything:
-pip install npcsh[all]
+pip install npcpy[all]
 
 ```
 ### Windows Install
@@ -576,12 +563,12 @@ pip install npcsh
 # if you want to install with the API libraries
 pip install npcsh[lite]
 # if you want the full local package set up (ollama, diffusers, transformers, cuda etc.)
-pip install npcsh[local]
+pip install npcpy[local]
 # if you want to use tts/stt
-pip install npcsh[whisper]
+pip install npcpy[whisper]
 
 # if you want everything:
-pip install npcsh[all]
+pip install npcpy[all]
 
 ```
 As of now, npcsh appears to work well with some of the core functionalities like /ots and /whisper.
@@ -618,9 +605,9 @@ if [ -f ~/.npcshrc ]; then
 fi
 ```
 
-We support inference via `openai`, `anthropic`, `ollama`,`gemini`, `deepseek`,  and `openai-like` APIs. The default provider must be one of `['openai','anthropic','ollama', 'gemini', 'deepseek', 'openai-like']` and the model must be one available from those providers.
+We support inference via all providers supported by litellm. For openai-compatible providers that are not explicitly named in litellm, use simply `openai-like` as the provider. The default provider must be one of `['openai','anthropic','ollama', 'gemini', 'deepseek', 'openai-like']` and the model must be one available from those providers.
 
-To use tools that require API keys, create an `.env` file up in the folder where you are working or place relevant API keys as env variables in your ~/.npcshrc. If you already have these API keys set in a ~/.bashrc or a ~/.zshrc or similar files, you need not additionally add them to ~/.npcshrc or to an `.env` file. Here is an example of what an `.env` file might look like:
+To use tools that require API keys, create an `.env` file in the folder where you are working or place relevant API keys as env variables in your ~/.npcshrc. If you already have these API keys set in a ~/.bashrc or a ~/.zshrc or similar files, you need not additionally add them to ~/.npcshrc or to an `.env` file. Here is an example of what an `.env` file might look like:
 
 ```bash
 export OPENAI_API_KEY="your_openai_key"
@@ -651,12 +638,19 @@ For cases where you wish to set up a project specific set of NPCs, tools, and as
     └── example.model
 └── example1.npc        # Example NPC
 └── example2.npc        # Example NPC
-└── example1.ctx        # Example NPC
-└── example2.ctx        # Example NPC
+└── team.ctx            # Example ctx
+
 
 ```
 
-## IMPORTANT: migrations and deprecations
+## IMPORTANT: migrations and deprecations and major changes
+
+### v0.3.33
+-In v0.3.33, the NPCCompiler object was phased out and the global/project dichotomy was removed. 
+-the primary python package entrypoint was renamed from npcsh to npcpy
+-npcsh is still automatically installed and available, but we will have a better separation of responsibilities in the NPC framework when the shell handles these rather than integrating it across the library.
+-context files are being introduced.
+
 
 ### v0.3.4
 -In v0.3.4, the structure for tools was adjusted. If you have made custom tools please refer to the structure within npc_compiler to ensure that they are in the correct format. Otherwise, do the following
