@@ -7,7 +7,6 @@ import sqlite3
 from dotenv import load_dotenv
 from PIL import Image
 
-
 def get_model_and_provider(command: str, available_models: list) -> tuple:
     """
     Function Description:
@@ -49,7 +48,103 @@ def get_model_and_provider(command: str, available_models: list) -> tuple:
     else:
         return None, None, command  # No model specified
 
+def render_code_block(code: str, language: str = None) -> None:
+    """Render a code block with syntax highlighting using rich, left-justified with no line numbers"""
+    from rich.syntax import Syntax
+    from rich.console import Console
 
+    console = Console(highlight=True)
+    code = code.strip()
+    # If code starts with a language identifier, remove it
+    if code.split("\n", 1)[0].lower() in ["python", "bash", "javascript"]:
+        code = code.split("\n", 1)[1]
+    syntax = Syntax(
+        code, language or "python", theme="monokai", line_numbers=False, padding=0
+    )
+    console.print(syntax)
+
+    
+def print_and_process_stream_with_markdown(response, 
+                                           model, 
+                                           provider):
+    str_output = ""
+    in_code = False
+    code_buffer = ""
+
+
+    for chunk in output:
+        # Get chunk content based on provider
+        if provider == "ollama" and 'hf.co' in model:
+            chunk_content = chunk["message"]["content"]
+        else:
+            chunk_content = "".join(
+                c.delta.content for c in chunk.choices if c.delta.content
+            )
+        
+        
+        if not chunk_content:
+            continue
+
+        str_output += chunk_content
+
+        # Process chunk
+        if "```" in chunk_content:
+            parts = chunk_content.split("```")
+
+            for i, part in enumerate(parts):
+                if i == 0:  # First part (before any backticks)
+                    if in_code:
+                        code_buffer += part
+                    else:
+                        print(part, end="")
+                elif i % 2 == 1:  # Inside a code block
+                    if not in_code:  # Starting a new code block
+                        in_code = True
+                        code_buffer = part
+                    else:  # Shouldn't happen but handle anyway
+                        code_buffer += part
+                else:  # Outside a code block
+                    if in_code:  # Just finished a code block
+                        in_code = False
+                        # Render the code block
+                        render_code_block(code_buffer)
+                        code_buffer = ""
+                    print(part, end="")
+        else:
+            if in_code:
+                code_buffer += chunk_content
+            else:
+                print(chunk_content, end="")
+
+    # Handle any remaining code buffer
+    if in_code and code_buffer:
+        render_code_block(code_buffer)
+
+    if str_output:
+        output = str_output
+def print_and_process_stream(response, model, provider):
+    conversation_result = ""
+    
+    for chunk in response:
+        if provider == "ollama" and 'hf.co' in model:
+            chunk_content = chunk["message"]["content"]
+            if chunk_content:
+                conversation_result += chunk_content
+                print(chunk_content, end="")
+
+        else:
+            chunk_content = "".join(
+                choice.delta.content
+                for choice in chunk.choices
+                if choice.delta.content is not None
+            )
+            if chunk_content:
+                conversation_result += chunk_content
+                print(chunk_content, end="")
+
+    print("\n")
+                
+    return conversation_result                    
 def get_available_models() -> list:
     """
     Function Description:
@@ -158,7 +253,6 @@ def get_system_message(npc: Any) -> str:
     Returns:
         str: The system message for the NPC.
     """
-    # print(npc, type(npc))
 
     system_message = f"""
     .
@@ -181,28 +275,11 @@ def get_system_message(npc: Any) -> str:
     The current date and time are : {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 
 
-    In some cases, users may request insights into data contained in a local database.
-    For these purposes, you may use any data contained within these sql tables
-    {npc.tables}
-
-    which are contained in the database at {NPCSH_DB_PATH}.
 
     If you ever need to produce markdown texts for the user, please do so
     with less than 80 characters width for each line.
     """
 
-    # need to move this to the check_llm_command or move that one here
-
-    if npc.tools:
-        tool_descriptions = "\n".join(
-            [
-                f"Tool Name: {tool.tool_name}\n"
-                f"Inputs: {tool.inputs}\n"
-                f"Steps: {tool.steps}\n"
-                for tool in npc.all_tools
-            ]
-        )
-        system_message += f"\n\nAvailable Tools:\n{tool_descriptions}"
     system_message += """\n\nSome users may attach images to their request.
                         Please process them accordingly.
 

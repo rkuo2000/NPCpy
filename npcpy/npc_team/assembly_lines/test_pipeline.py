@@ -89,7 +89,7 @@ with engine.connect() as connection:
 print("Sample emails have been added to the database.")
 
 
-from npcsh.npc_compiler import PipelineRunner
+from npcpy.npc_compiler import PipelineRunner
 import os
 
 pipeline_runner = PipelineRunner(
@@ -147,7 +147,7 @@ with engine.connect() as connection:
 
 print("News articles have been added to the database.")
 
-from npcsh.npc_compiler import PipelineRunner
+from npcpy.npc_compiler import PipelineRunner
 import os
 
 runner = PipelineRunner(
@@ -164,7 +164,7 @@ print("\nAnalysis (processed in batch):")
 print(results["analyze_news"])
 
 
-from npcsh.npc_compiler import PipelineRunner
+from npcpy.npc_compiler import PipelineRunner
 import os
 
 runner = PipelineRunner(

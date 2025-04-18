@@ -1,0 +1,1434 @@
+import os
+import yaml
+import json
+import sqlite3
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import re
+import random
+from datetime import datetime
+import hashlib
+import pathlib
+import fnmatch
+import traceback
+import subprocess
+from typing import Any
+from jinja2 import Environment, FileSystemLoader, Template, Undefined
+from sqlalchemy import create_engine
+
+from npcpy.llm_funcs import get_llm_response, get_stream, check_llm_command
+from npcpy.helpers import get_npc_path
+from npcpy.npc_sysenv import (
+    NPCSH_CHAT_MODEL,
+    NPCSH_CHAT_PROVIDER,
+    NPCSH_API_URL,
+    )
+
+class SilentUndefined(Undefined):
+    def _fail_with_undefined_error(self, *args, **kwargs):
+        return ""
+
+# ---------------------------------------------------------------------------
+# Utility Functions
+# ---------------------------------------------------------------------------
+
+def ensure_dirs_exist(*dirs):
+    """Ensure all specified directories exist"""
+    for dir_path in dirs:
+        os.makedirs(os.path.expanduser(dir_path), exist_ok=True)
+
+def init_db_tables(db_path="~/npcsh_history.db"):
+    """Initialize necessary database tables"""
+    db_path = os.path.expanduser(db_path)
+    with sqlite3.connect(db_path) as conn:
+        # NPC log table for storing all kinds of entries
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS npc_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                entity_id TEXT,  
+                entry_type TEXT,
+                content TEXT,
+                metadata TEXT,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        
+        # Pipeline runs table for tracking pipeline executions
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS pipeline_runs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                pipeline_name TEXT,
+                step_name TEXT,
+                output TEXT,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        
+        # Compiled NPCs table for storing compiled NPC content
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS compiled_npcs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT UNIQUE,
+                source_path TEXT,
+                compiled_content TEXT,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        
+        conn.commit()
+
+def log_entry(entity_id, entry_type, content, metadata=None, db_path="~/npcsh_history.db"):
+    """Log an entry for an NPC or team"""
+    db_path = os.path.expanduser(db_path)
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            "INSERT INTO npc_log (entity_id, entry_type, content, metadata) VALUES (?, ?, ?, ?)",
+            (entity_id, entry_type, json.dumps(content), json.dumps(metadata) if metadata else None)
+        )
+        conn.commit()
+
+def get_log_entries(entity_id, entry_type=None, limit=10, db_path="~/npcsh_history.db"):
+    """Get log entries for an NPC or team"""
+    db_path = os.path.expanduser(db_path)
+    with sqlite3.connect(db_path) as conn:
+        query = "SELECT entry_type, content, metadata, timestamp FROM npc_log WHERE entity_id = ?"
+        params = [entity_id]
+        
+        if entry_type:
+            query += " AND entry_type = ?"
+            params.append(entry_type)
+        
+        query += " ORDER BY timestamp DESC LIMIT ?"
+        params.append(limit)
+        
+        results = conn.execute(query, params).fetchall()
+        
+        return [
+            {
+                "entry_type": r[0],
+                "content": json.loads(r[1]),
+                "metadata": json.loads(r[2]) if r[2] else None,
+                "timestamp": r[3]
+            }
+            for r in results
+        ]
+
+def search_log(entity_id, search_term, limit=5, db_path="~/npcsh_history.db"):
+    """Search log for relevant information"""
+    db_path = os.path.expanduser(db_path)
+    with sqlite3.connect(db_path) as conn:
+        results = conn.execute(
+            """
+            SELECT entry_type, content, metadata, timestamp FROM npc_log
+            WHERE entity_id = ? AND content LIKE ?
+            ORDER BY timestamp DESC LIMIT ?
+            """,
+            (entity_id, f"%{search_term}%", limit)
+        ).fetchall()
+        
+        return [
+            {
+                "entry_type": r[0],
+                "content": json.loads(r[1]),
+                "metadata": json.loads(r[2]) if r[2] else None,
+                "timestamp": r[3]
+            }
+            for r in results
+        ]
+
+def load_yaml_file(file_path):
+    """Load a YAML file with error handling"""
+    try:
+        with open(os.path.expanduser(file_path), 'r') as f:
+            return yaml.safe_load(f)
+    except Exception as e:
+        print(f"Error loading YAML file {file_path}: {e}")
+        return None
+
+def write_yaml_file(file_path, data):
+    """Write data to a YAML file"""
+    try:
+        with open(os.path.expanduser(file_path), 'w') as f:
+            yaml.dump(data, f)
+        return True
+    except Exception as e:
+        print(f"Error writing YAML file {file_path}: {e}")
+        return False
+
+def create_or_replace_table(db_path, table_name, data):
+    """Creates or replaces a table in the SQLite database"""
+    conn = sqlite3.connect(os.path.expanduser(db_path))
+    try:
+        data.to_sql(table_name, conn, if_exists="replace", index=False)
+        print(f"Table '{table_name}' created/replaced successfully.")
+        return True
+    except Exception as e:
+        print(f"Error creating/replacing table '{table_name}': {e}")
+        return False
+    finally:
+        conn.close()
+
+def find_file_path(filename, search_dirs, suffix=None):
+    """Find a file in multiple directories"""
+    if suffix and not filename.endswith(suffix):
+        filename += suffix
+        
+    for dir_path in search_dirs:
+        file_path = os.path.join(os.path.expanduser(dir_path), filename)
+        if os.path.exists(file_path):
+            return file_path
+            
+    return None
+
+class Tool:
+    def __init__(self, tool_data=None, tool_path=None):
+        """Initialize a tool from data or file path"""
+        if tool_path:
+            self._load_from_file(tool_path)
+        elif tool_data:
+            self._load_from_data(tool_data)
+        else:
+            raise ValueError("Either tool_data or tool_path must be provided")
+            
+    def _load_from_file(self, path):
+        """Load tool from file"""
+        tool_data = load_yaml_file(path)
+        if not tool_data:
+            raise ValueError(f"Failed to load tool from {path}")
+        self._load_from_data(tool_data)
+            
+    def _load_from_data(self, tool_data):
+        """Load tool from data dictionary"""
+        if not tool_data or not isinstance(tool_data, dict):
+            raise ValueError("Invalid tool data provided")
+            
+        if "tool_name" not in tool_data:
+            raise KeyError("Missing 'tool_name' in tool definition")
+            
+        self.tool_name = tool_data.get("tool_name")
+        self.inputs = tool_data.get("inputs", [])
+        self.description = tool_data.get("description", "")
+        self.steps = self._parse_steps(tool_data.get("steps", []))
+            
+    def _parse_steps(self, steps):
+        """Parse steps from tool definition"""
+        parsed_steps = []
+        for i, step in enumerate(steps):
+            if isinstance(step, dict):
+                parsed_step = {
+                    "name": step.get("name", f"step_{i}"),
+                    "engine": step.get("engine", "natural"),
+                    "code": step.get("code", "")
+                }
+                parsed_steps.append(parsed_step)
+            else:
+                raise ValueError(f"Invalid step format: {step}")
+        return parsed_steps
+        
+    def execute(self, input_values, tools_dict, jinja_env, command="", model=None, provider=None, npc=None, stream=False, messages=None):
+        """Execute the tool with given inputs"""
+        # Create context with input values and tools
+        context = (npc.shared_context.copy() if npc else {})
+        context.update(input_values)
+        context.update({
+            "tools": tools_dict,
+            "command": command,
+            "llm_response": None,
+            "output": None
+        })
+        
+        # Process each step in sequence
+        for i, step in enumerate(self.steps):
+            context = self._execute_step(
+                step, context, jinja_env, 
+                model=model, provider=provider, npc=npc, 
+                stream=stream, messages=messages
+            )
+            
+            # Return immediately for streaming responses in final step
+            if i == len(self.steps) - 1 and stream:
+                return context
+                
+        # Determine the output based on what's available in context
+        if "output" in context and context["output"] is not None:
+            result = context["output"]
+            if not isinstance(result, str):
+                result = str(result)
+            return result
+        elif "llm_response" in context and context["llm_response"] is not None:
+            return context["llm_response"]
+        else:
+            return context
+            
+    def _execute_step(self, step, context, jinja_env, model=None, provider=None, npc=None, stream=False, messages=None):
+        """Execute a single step of the tool"""
+        engine = step.get("engine", "natural")
+        code = step.get("code", "")
+        step_name = step.get("name", "unnamed_step")
+        
+        # Render template and engine with context
+        try:
+            template = jinja_env.from_string(code)
+            rendered_code = template.render(**context)
+            
+            engine_template = jinja_env.from_string(engine)
+            rendered_engine = engine_template.render(**context)
+        except Exception as e:
+            print(f"Error rendering templates for step {step_name}: {e}")
+            rendered_code = code
+            rendered_engine = engine
+            
+        # Execute based on engine type
+        if rendered_engine == "natural":
+            if rendered_code.strip():
+                # Handle streaming case
+                if stream:
+                    messages = messages.copy() if messages else []
+                    messages.append({"role": "user", "content": rendered_code})
+                    return get_stream(
+                        messages,
+                        model=model,
+                        provider=provider,
+                        npc=npc,
+                        api_key=npc.api_key if npc else None,
+                        api_url=npc.api_url if npc else None,
+                    )
+                    
+                # Handle normal LLM case
+                llm_response = get_llm_response(
+                    rendered_code,
+                    model=model,
+                    provider=provider,
+                    npc=npc,
+                    api_key=npc.api_key if npc else None,
+                    api_url=npc.api_url if npc else None,
+                )
+                response_text = llm_response.get("response", "")
+                context["llm_response"] = response_text
+                context["results"] = response_text
+                context[step_name] = response_text
+                
+        elif rendered_engine == "python":
+            # Setup execution environment
+            exec_globals = {
+                "__builtins__": __builtins__,
+                "npc": npc,
+                "context": context,
+                "pd": pd,
+                "plt": plt,
+                "np": np,
+                "os": os,
+                "json": json,
+                "Path": pathlib.Path,
+                "fnmatch": fnmatch,
+                "pathlib": pathlib,
+                "subprocess": subprocess,
+                "get_llm_response": get_llm_response}
+            
+            
+            # Execute the code
+            exec_locals = {}
+            exec(rendered_code, exec_globals, exec_locals)
+            
+            # Update context with results
+            context.update(exec_locals)
+            
+            # Handle explicit output
+            if "output" in exec_locals:
+                context["output"] = exec_locals["output"]
+                context[step_name] = exec_locals["output"]
+        else:
+            # Handle unknown engine
+            context[step_name] = {"error": f"Unsupported engine: {rendered_engine}"}
+            
+        return context
+        
+    def to_dict(self):
+        """Convert to dictionary representation"""
+        return {
+            "tool_name": self.tool_name,
+            "description": self.description,
+            "inputs": self.inputs,
+            "steps": [
+                {
+                    "name": step.get("name", f"step_{i}"),
+                    "engine": step.get("engine"),
+                    "code": step.get("code")
+                }
+                for i, step in enumerate(self.steps)
+            ]
+        }
+        
+    def save(self, directory):
+        """Save tool to file"""
+        tool_path = os.path.join(directory, f"{self.tool_name}.tool")
+        ensure_dirs_exist(os.path.dirname(tool_path))
+        return write_yaml_file(tool_path, self.to_dict())
+        
+    @classmethod
+    def from_mcp(cls, mcp_tool):
+        """Convert an MCP tool to NPC tool format"""
+        # Extract function info from MCP tool
+        import inspect
+        
+        # Get basic info
+        doc = mcp_tool.__doc__ or ""
+        name = mcp_tool.__name__
+        signature = inspect.signature(mcp_tool)
+        
+        # Extract inputs from signature
+        inputs = []
+        for param_name, param in signature.parameters.items():
+            if param_name != 'self':  # Skip self for methods
+                param_type = param.annotation if param.annotation != inspect.Parameter.empty else None
+                param_default = None if param.default == inspect.Parameter.empty else param.default
+                
+                inputs.append({
+                    "name": param_name,
+                    "type": str(param_type),
+                    "default": param_default
+                })
+        
+        # Create tool data
+        tool_data = {
+            "tool_name": name,
+            "description": doc.strip(),
+            "inputs": inputs,
+            "steps": [
+                {
+                    "name": "mcp_function_call",
+                    "engine": "python",
+                    "code": f"""
+# Call the MCP function
+import {mcp_tool.__module__}
+output = {mcp_tool.__module__}.{name}(
+    {', '.join([f'{inp["name"]}=context.get("{inp["name"]}")' for inp in inputs])}
+)
+"""
+                }
+            ]
+        }
+        
+        return cls(tool_data=tool_data)
+
+def load_tools_from_directory(directory):
+    """Load all tools from a directory"""
+    tools = []
+    directory = os.path.expanduser(directory)
+    
+    if not os.path.exists(directory):
+        return tools
+        
+    for filename in os.listdir(directory):
+        if filename.endswith(".tool"):
+            try:
+                tool_path = os.path.join(directory, filename)
+                tool = Tool(tool_path=tool_path)
+                tools.append(tool)
+            except Exception as e:
+                print(f"Error loading tool {filename}: {e}")
+                
+    return tools
+
+# ---------------------------------------------------------------------------
+# NPC Class
+# ---------------------------------------------------------------------------
+
+class NPC:
+    def __init__(
+        self,
+        file: str,
+        name: str = None,
+        primary_directive: str = None,
+        tools: list = None,
+        model: str = None,
+        provider: str = None,
+        api_url: str = None,
+        api_key: str = None,
+        db_conn=None,
+        **kwargs
+    ):
+        """
+        Initialize an NPC from a file path or with explicit parameters
+        
+        Args:
+            file: Path to .npc file or name for the NPC
+            primary_directive: System prompt/directive for the NPC
+            tools: List of tools available to the NPC or "*" to load all tools
+            model: LLM model to use
+            provider: LLM provider to use
+            api_url: API URL for LLM
+            api_key: API key for LLM
+            db_conn: Database connection
+        """
+        self.tools_directory = os.path.abspath("./npc_team/tools")        
+        if file.endswith(".npc"):
+            self._load_from_file(file)
+        else:
+            self.name = name            
+            self.primary_directive = primary_directive
+            self.model = model or os.environ.get("NPCSH_CHAT_MODEL", "llama3.2")
+            self.provider = provider or os.environ.get("NPCSH_CHAT_PROVIDER", "ollama")
+            self.api_url = api_url or os.environ.get("NPCSH_API_URL")
+            self.api_key = api_key
+            self.tools = tools or []
+        self.npc_directory = os.path.abspath('./npc_team/')
+
+        self.jinja_env = Environment(
+            loader=FileSystemLoader([
+                self.npc_directory,
+                self.tools_directory,
+            ]),
+            undefined=SilentUndefined,
+        )
+        
+        # Set up database connection
+        self.db_conn = db_conn
+        if self.db_conn:
+            self._setup_db()
+            
+        # Load tools
+        self.tools = self._load_npc_tools()
+        
+        # Set up shared context for NPC
+        self.shared_context = {
+            "dataframes": {},
+            "current_data": None,
+            "computation_results": [],
+            "memories":{}
+        }
+        
+        # Add any additional attributes
+        for key, value in kwargs.items():
+            setattr(self, key, value)
+            
+        if db_conn is not None:
+            init_db_tables()
+        
+    def _load_from_file(self, file):
+        """Load NPC configuration from file"""
+        if "~" in file:
+            file = os.path.expanduser(file)
+        if not os.path.isabs(file):
+            file = os.path.abspath(file)
+            
+        npc_data = load_yaml_file(file)
+        if not npc_data:
+            raise ValueError(f"Failed to load NPC from {file}")
+            
+        # Extract core fields
+        self.name = npc_data.get("name")
+        if not self.name:
+            # Fall back to filename if name not in file
+            self.name = os.path.splitext(os.path.basename(file))[0]
+            
+        self.primary_directive = npc_data.get("primary_directive")
+        
+        # Handle wildcard tools specification
+        tools_spec = npc_data.get("tools", [])
+        if tools_spec == "*":
+            # Will be loaded in _load_npc_tools
+            self.tools = "*" 
+        else:
+            self.tools = tools_spec
+            
+        self.model = npc_data.get("model", NPCSH_CHAT_MODEL)
+        self.provider = npc_data.get("provider", NPCSH_CHAT_PROVIDER)
+        self.api_url = npc_data.get("api_url", NPCSH_API_URL)
+        self.api_key = npc_data.get("api_key")
+        self.name = npc_data.get("name", self.name)
+
+        # Store path for future reference
+        self.npc_path = file
+        
+        # Set NPC-specific tools directory path
+        self.npc_tools_directory = os.path.join(os.path.dirname(file), "tools")
+            
+    def _setup_db(self):
+        """Set up database tables and determine type"""
+        try:
+            if "psycopg2" in self.db_conn.__class__.__module__:
+                # PostgreSQL connection
+                cursor = self.db_conn.cursor()
+                cursor.execute(
+                    """
+                    SELECT table_name, obj_description((quote_ident(table_name))::regclass, 'pg_class')
+                    FROM information_schema.tables
+                    WHERE table_schema='public';
+                    """
+                )
+                self.tables = cursor.fetchall()
+                self.db_type = "postgres"
+            elif "sqlite3" in self.db_conn.__class__.__module__:
+                # SQLite connection
+                self.tables = self.db_conn.execute(
+                    "SELECT name, sql FROM sqlite_master WHERE type='table';"
+                ).fetchall()
+                self.db_type = "sqlite"
+            else:
+                self.tables = None
+                self.db_type = None
+        except Exception as e:
+            print(f"Error setting up database: {e}")
+            self.tables = None
+            self.db_type = None
+    
+    def _load_npc_tools(self):
+        """Load and process NPC-specific tools"""
+        npc_tools = []
+        
+        # Handle wildcard case - load all tools from the tools directory
+        if self.tools == "*":
+            # Try to find tools in NPC-specific tools dir first
+            if hasattr(self, 'npc_tools_directory') and os.path.exists(self.npc_tools_directory):
+                npc_tools.extend(load_tools_from_directory(self.npc_tools_directory))
+                
+            # Then load from global tools directory
+            if os.path.exists(self.tools_directory):
+                npc_tools.extend(load_tools_from_directory(self.tools_directory))
+                
+            # Return all loaded tools
+            self.tools_dict = {tool.tool_name: tool for tool in npc_tools}
+            return npc_tools
+            
+        # Handle normal case - specified tools
+        for tool in self.tools:
+            #need to add a block here for mcp tools.
+                
+            if isinstance(tool, Tool):
+                npc_tools.append(tool)
+            elif isinstance(tool, dict):
+                npc_tools.append(Tool(tool_data=tool))
+                
+            elif isinstance(tool, str):
+                    
+                # Try to load from file
+                tool_path = None
+                tool_name = tool
+                if not tool_name.endswith(".tool"):
+                    tool_name += ".tool"
+                
+                # Check NPC-specific tools directory first
+                if hasattr(self, 'npc_tools_directory') and os.path.exists(self.npc_tools_directory):
+                    candidate_path = os.path.join(self.npc_tools_directory, tool_name)
+                    if os.path.exists(candidate_path):
+                        tool_path = candidate_path
+                        
+                # Then check global tools directory
+                if tool_path is None and os.path.exists(self.tools_directory):
+                    candidate_path = os.path.join(self.tools_directory, tool_name)
+                    if os.path.exists(candidate_path):
+                        tool_path = candidate_path
+                        
+                if tool_path:
+                    try:
+                        tool_obj = Tool(tool_path=tool_path)
+                        npc_tools.append(tool_obj)
+                    except Exception as e:
+                        print(f"Error loading tool {tool_path}: {e}")
+        
+        # Update tools dictionary
+        self.tools_dict = {tool.tool_name: tool for tool in npc_tools}
+        return npc_tools
+    
+    def _get_llm_response(self, request, **kwargs):
+        """Get a response from the LLM"""
+        
+        # Call the LLM
+        response = get_llm_response(
+            request, 
+            model=self.model, 
+            provider=self.provider, 
+            npc=self, 
+            **kwargs
+        )        
+        if self.db_conn is not None:
+            # fix so these are the same as the ones in command_history.
+            log_entry(self.name, "llm_request", {"prompt": request})
+            log_entry(self.name, "llm_response", {"response": response})
+        
+        return response
+    
+    def execute_tool(self, tool_name, inputs):
+        """Execute a tool by name"""
+        # Find the tool
+        if tool_name in self.tools_dict:
+            tool = self.tools_dict[tool_name]
+        elif tool_name in self.tools_dict:
+            tool = self.tools_dict[tool_name]
+        else:
+            return {"error": f"Tool '{tool_name}' not found"}
+        result = tool.execute(
+            input_values=inputs,
+            tools_dict=self.tools_dict,
+            jinja_env=self.jinja_env,
+            model=self.model,
+            provider=self.provider,
+            npc=self
+        )
+        if self.db_conn is not None:
+            log_entry(self.name, "tool_execution", {"tool": tool_name, "inputs": inputs})
+            log_entry(self.name, "tool_result", {"tool": tool_name, "result": result})
+        
+        return result
+    
+    def _check_llm_command(self, command, messages=None, context=None, shared_context=None):
+        """Check if a command is for the LLM"""
+        if shared_context is not None:
+            self.shared_context = shared_context
+            
+        # Call the LLM command checker
+        return check_llm_command(
+            command,
+            model=self.model,
+            provider=self.provider,
+            api_url=self.api_url,
+            api_key=self.api_key,
+            npc=self,
+            messages=messages,
+            context=context,
+        )
+    
+    def handle_agent_pass(self, npc_to_pass, command, messages=None, context=None, shared_context=None):
+        """Pass a command to another NPC"""
+        print('handling agent pass')
+        if isinstance(npc_to_pass, NPC):
+            target_npc = npc_to_pass
+        else:
+            # Try to find the NPC by name
+            try:
+                npc_path = get_npc_path(npc_to_pass, "~/npcsh_history.db")
+                if not npc_path:
+                    return {"error": f"NPC '{npc_to_pass}' not found"}
+                    
+                target_npc = NPC(npc_path, db_conn=self.db_conn)
+            except Exception as e:
+                return {"error": f"Error loading NPC '{npc_to_pass}': {e}"}
+        
+        # Update shared context
+        if shared_context is not None:
+            self.shared_context = shared_context
+            
+        # Add a note that this command was passed from another NPC
+        updated_command = (
+            command
+            + "\n\n"
+            + f"NOTE: THIS COMMAND HAS BEEN PASSED FROM {self.name} TO YOU, {target_npc.name}.\n"
+            + "PLEASE CHOOSE ONE OF THE OTHER OPTIONS WHEN RESPONDING."
+        )
+        
+        # Log the pass
+        log_entry(
+            self.name, 
+            "agent_pass", 
+            {"to": target_npc.name, "command": command}
+        )
+        
+        # Pass to the target NPC
+        return target_npc._check_llm_command(
+            updated_command,
+            messages=messages,
+            shared_context=self.shared_context,
+        )
+    
+    def to_dict(self):
+        """Convert NPC to dictionary representation"""
+        return {
+            "name": self.name,
+            "primary_directive": self.primary_directive,
+            "model": self.model,
+            "provider": self.provider,
+            "api_url": self.api_url,
+            "api_key": self.api_key,
+            "tools": [tool.to_dict() if isinstance(tool, Tool) else tool for tool in self.tools],
+            "use_global_tools": self.use_global_tools
+        }
+        
+    def save(self, directory=None):
+        """Save NPC to file"""
+        if directory is None:
+            directory = self.project_npc_directory
+            
+        ensure_dirs_exist(directory)
+        npc_path = os.path.join(directory, f"{self.name}.npc")
+        
+        return write_yaml_file(npc_path, self.to_dict())
+    
+    def __str__(self):
+        """String representation of NPC"""
+        return f"NPC: {self.name}\nDirective: {self.primary_directive}\nModel: {self.model}"
+
+class Team:
+    def __init__(self, 
+                 team_path=None, 
+                 npcs=None, 
+                 tools=None,                   
+                 db_conn=None):
+        """
+        Initialize an NPC team from directory or list of NPCs
+        
+        Args:
+            team_path: Path to team directory
+            npcs: List of NPC objects
+            db_conn: Database connection
+        """
+        self.npcs = {}
+        self.sub_teams = {}
+        self.tools_dict = tools or {}
+        self.db_conn = db_conn
+        self.team_path = os.path.expanduser(team_path) if team_path else None
+        
+        if team_path:
+            self.team_name = os.path.basename(os.path.abspath(team_path))
+        else:
+            self.team_name = "custom_team"
+        
+        if team_path:
+            print('loading npc team from directory')
+            self._load_from_directory()
+        elif npcs:
+            for npc in npcs:
+                self.npcs[npc.name] = npc
+            
+        self.shared_context = {
+            "intermediate_results": {},
+            "dataframes": {},
+            "memories": {},          
+            
+            "execution_history": [],   
+            "npc_messages": {}                 
+            }
+        
+        self.jinja_env = Environment(undefined=SilentUndefined)
+        
+            
+        if db_conn is not None:
+            init_db_tables()
+            
+        
+    def _load_from_directory(self):
+        """Load team from directory"""
+        if not os.path.exists(self.team_path):
+            raise ValueError(f"Team directory not found: {self.team_path}")
+        
+        # Load team context if available
+        self.context = self._load_team_context()
+        
+        # Load NPCs
+        for filename in os.listdir(self.team_path):
+            print('filename: ', filename)
+            if filename.endswith(".npc"):
+                try:
+                    npc_path = os.path.join(self.team_path, filename)
+                    npc = NPC(npc_path, db_conn=self.db_conn)
+                    self.npcs[npc.name] = npc
+                    
+                except Exception as e:
+                    print(f"Error loading NPC {filename}: {e}")
+        
+        # Load tools from tools directory
+        tools_dir = os.path.join(self.team_path, "tools")
+        if os.path.exists(tools_dir):
+            for tool in load_tools_from_directory(tools_dir):
+                self.tools_dict[tool.tool_name] = tool
+        
+        # Load sub-teams (subfolders)
+        self._load_sub_teams()
+        
+    def _load_team_context(self):
+        """Load team context from .ctx file"""
+        ctx_path = os.path.join(self.team_path, "team.ctx")
+        if os.path.exists(ctx_path):
+            try:
+                ctx_data = load_yaml_file(ctx_path)
+                
+                # Add to Jinja environment
+                if ctx_data:
+                    self.jinja_env.globals['ctx'] = ctx_data
+                    
+                return ctx_data
+            except Exception as e:
+                print(f"Error loading team context: {e}")
+        
+        return {}
+        
+    def _load_sub_teams(self):
+        """Load sub-teams from subdirectories"""
+        for item in os.listdir(self.team_path):
+            item_path = os.path.join(self.team_path, item)
+            if (os.path.isdir(item_path) and 
+                not item.startswith('.') and 
+                item != "tools"):
+                
+                # Check if directory contains NPCs
+                if any(f.endswith(".npc") for f in os.listdir(item_path) 
+                      if os.path.isfile(os.path.join(item_path, f))):
+                    try:
+                        sub_team = Team(team_path=item_path, db_conn=self.db_conn)
+                        self.sub_teams[item] = sub_team
+                    except Exception as e:
+                        print(f"Error loading sub-team {item}: {e}")
+        
+    def get_foreman(self):
+        """
+        Get the foreman (coordinator) for this team.
+        The foreman is set only if explicitly defined in the context. 
+                
+        """
+        # Check for explicit foreman in context
+        if hasattr(self, 'context') and self.context and 'foreman' in self.context:
+            foreman_ref = self.context['foreman']
+            
+            # Handle Jinja template references
+            if '{{ref(' in foreman_ref:
+                # Extract NPC name from {{ref('npc_name')}}
+                match = re.search(r"{{\s*ref\('([^']+)'\)\s*}}", foreman_ref)
+                if match:
+                    foreman_name = match.group(1)
+                    if foreman_name in self.npcs:
+                        return self.npcs[foreman_name]
+            elif foreman_ref in self.npcs:
+                return self.npcs[foreman_ref]
+        else:
+            foreman_model=self.context.get('model', NPCSH_CHAT_MODEL),
+            foreman_provider=self.context.get('model', NPCSH_CHAT_PROVIDER),
+            foreman_api_key=self.context.get('api_key', None),
+            foreman_api_url=self.context.get('api_url', None)
+            
+
+            foreman = NPC(name='foreman', 
+                          primary_directive="""You are the foreman of the team, coordinating activities 
+                                                between NPCs on the team, verifying that results from 
+                                                NPCs are high quality and can help to adequately answer 
+                                                user requests.""", 
+                            model=foreman_model,
+                            provider=foreman_provider,
+                            api_key=foreman_api_key,
+                            api_url=foreman_api_url,                            
+                                                )
+        return None
+    
+    def get_npc(self, npc_ref):
+        """
+        Get an NPC by reference, handling hierarchical references
+        Example: "analysis_team.data_scientist" gets the data_scientist 
+        from the analysis_team sub-team
+        """
+        if '.' in npc_ref:
+            # Handle hierarchical reference
+            team_name, npc_name = npc_ref.split('.', 1)
+            if team_name in self.sub_teams:
+                return self.sub_teams[team_name].get_npc(npc_name)
+        elif npc_ref in self.npcs:
+            return self.npcs[npc_ref]
+        
+        return None
+    
+    def orchestrate(self, request):
+        """Orchestrate a request through the team"""
+        foreman = self.get_foreman()
+        if not foreman:
+            return {"error": "No foreman available to coordinate the team"}
+        
+        # Log the orchestration start
+        log_entry(
+            self.team_name,
+            "orchestration_start",
+            {"request": request}
+        )
+        
+        # Initial request goes to foreman
+        result = foreman._check_llm_command(
+            request,
+            context=getattr(self, 'context', {}),
+            shared_context=self.shared_context,
+        )
+        
+        # Track execution until complete
+        while True:
+            # Save the result
+            if isinstance(result, dict):
+                self.shared_context["execution_history"].append(result)
+                
+                # Track messages by NPC
+                if result.get("messages") and result.get("npc_name"):
+                    if result["npc_name"] not in self.shared_context["npc_messages"]:
+                        self.shared_context["npc_messages"][result["npc_name"]] = []
+                    self.shared_context["npc_messages"][result["npc_name"]].extend(
+                        result["messages"]
+                    )
+            
+            # Check if the result is complete
+            completion_check = get_llm_response(
+                f"""Context: User request '{request}' returned:
+                {result}
+
+                Instructions:
+                Analyze if this result fully addresses the request. 
+                A result is complete if it satisfies the bare minimum requirements
+                and provides a good starting point for further refinement.
+
+                Return a JSON object with:
+                    -'complete' with boolean value
+                    -'explanation' for incompleteness
+                Return only the JSON object.""",
+                model=foreman.model,
+                provider=foreman.provider,
+                api_key=foreman.api_key,
+                api_url=foreman.api_url,
+                npc=foreman,
+                format="json"
+            )
+            
+            # Extract completion status
+            if isinstance(completion_check.get("response"), dict):
+                complete = completion_check["response"].get("complete", False)
+                explanation = completion_check["response"].get("explanation", "")
+            else:
+                # Default to incomplete if format is wrong
+                complete = False
+                explanation = "Could not determine completion status"
+            
+            if complete:
+                # Generate summary
+                debrief = get_llm_response(
+                    f"""Context:
+                    Original request: {request}
+                    Execution history: {self.shared_context['execution_history']}
+
+                    Instructions:
+                    Provide summary of actions taken and recommendations.
+                    Return a JSON object with:
+                    - 'summary': Overview of what was accomplished
+                    - 'recommendations': Suggested next steps
+                    Return only the JSON object.""",
+                    model=foreman.model,
+                    provider=foreman.provider,
+                    api_key=foreman.api_key,
+                    api_url=foreman.api_url,
+                    npc=foreman,
+                    format="json"
+                )
+                
+                # Log the orchestration completion
+                log_entry(
+                    self.team_name,
+                    "orchestration_complete",
+                    {
+                        "request": request,
+                        "debrief": debrief.get("response")
+                    }
+                )
+                
+                return {
+                    "debrief": debrief.get("response"),
+                    "execution_history": self.shared_context["execution_history"],
+                }
+            else:
+                # Continue with updated request
+                updated_request = (
+                    request
+                    + "\n\nThe request has not yet been fully completed. "
+                    + explanation
+                    + "\nPlease address only the remaining parts of the request."
+                )
+                
+                # Call foreman again
+                result = foreman._check_llm_command(
+                    updated_request,
+                    context=getattr(self, 'context', {}),
+                    shared_context=self.shared_context,
+                )
+                
+    def to_dict(self):
+        """Convert team to dictionary representation"""
+        return {
+            "team_name": self.team_name,
+            "npcs": {name: npc.to_dict() for name, npc in self.npcs.items()},
+            "sub_teams": {name: team.to_dict() for name, team in self.sub_teams.items()},
+            "tools": {name: tool.to_dict() for name, tool in self.tools.items()},
+            "context": getattr(self, 'context', {})
+        }
+    
+    def save(self, directory=None):
+        """Save team to directory"""
+        if directory is None:
+            directory = self.team_path
+            
+        if not directory:
+            raise ValueError("No directory specified for saving team")
+            
+        # Create team directory
+        ensure_dirs_exist(directory)
+        
+        # Save context
+        if hasattr(self, 'context') and self.context:
+            ctx_path = os.path.join(directory, "team.ctx")
+            write_yaml_file(ctx_path, self.context)
+            
+        # Save NPCs
+        for npc in self.npcs.values():
+            npc.save(directory)
+            
+        # Create tools directory
+        tools_dir = os.path.join(directory, "tools")
+        ensure_dirs_exist(tools_dir)
+        
+        # Save tools
+        for tool in self.tools.values():
+            tool.save(tools_dir)
+            
+        # Save sub-teams
+        for team_name, team in self.sub_teams.items():
+            team_dir = os.path.join(directory, team_name)
+            team.save(team_dir)
+            
+        return True
+
+# ---------------------------------------------------------------------------
+# Pipeline Runner
+# ---------------------------------------------------------------------------
+
+class Pipeline:
+    def __init__(self, pipeline_data=None, pipeline_path=None, npc_team=None):
+        """Initialize a pipeline from data or file path"""
+        self.npc_team = npc_team
+        self.steps = []
+        
+        if pipeline_path:
+            self._load_from_path(pipeline_path)
+        elif pipeline_data:
+            self.name = pipeline_data.get("name", "unnamed_pipeline")
+            self.steps = pipeline_data.get("steps", [])
+        else:
+            raise ValueError("Either pipeline_data or pipeline_path must be provided")
+            
+    def _load_from_path(self, path):
+        """Load pipeline from file"""
+        pipeline_data = load_yaml_file(path)
+        if not pipeline_data:
+            raise ValueError(f"Failed to load pipeline from {path}")
+            
+        self.name = os.path.splitext(os.path.basename(path))[0]
+        self.steps = pipeline_data.get("steps", [])
+        self.pipeline_path = path
+        
+    def execute(self, initial_context=None):
+        """Execute the pipeline with given context"""
+        context = initial_context or {}
+        results = {}
+        
+        # Initialize database tables
+        init_db_tables()
+        
+        # Generate pipeline hash for tracking
+        pipeline_hash = self._generate_hash()
+        
+        # Create results table specific to this pipeline
+        results_table = f"{self.name}_results"
+        self._ensure_results_table(results_table)
+        
+        # Create run entry
+        run_id = self._create_run_entry(pipeline_hash)
+        
+        # Add utility functions to context
+        context.update({
+            "ref": lambda step_name: results.get(step_name),
+            "source": self._fetch_data_from_source,
+        })
+        
+        # Execute each step
+        for step in self.steps:
+            step_name = step.get("step_name")
+            if not step_name:
+                raise ValueError(f"Missing step_name in step: {step}")
+                
+            # Get NPC for this step
+            npc_name = self._render_template(step.get("npc", ""), context)
+            npc = self._get_npc(npc_name)
+            if not npc:
+                raise ValueError(f"NPC {npc_name} not found for step {step_name}")
+                
+            # Render task template
+            task = self._render_template(step.get("task", ""), context)
+            
+            # Execute with appropriate NPC
+            model = step.get("model", npc.model)
+            provider = step.get("provider", npc.provider)
+            
+            # Check for special mixa (mixture of agents) mode
+            mixa = step.get("mixa", False)
+            if mixa:
+                response = self._execute_mixa_step(step, context, npc, model, provider)
+            else:
+                # Check for data source
+                source_matches = re.findall(r"{{\s*source\('([^']+)'\)\s*}}", task)
+                if source_matches:
+                    response = self._execute_data_source_step(step, context, source_matches, npc, model, provider)
+                else:
+                    # Standard LLM execution
+                    llm_response = get_llm_response(task, model=model, provider=provider, npc=npc)
+                    response = llm_response.get("response", "")
+            
+            # Store result
+            results[step_name] = response
+            context[step_name] = response
+            
+            # Save to database
+            self._store_step_result(run_id, step_name, npc_name, model, provider, 
+                                   {"task": task}, response, results_table)
+            
+        # Return all results
+        return {
+            "results": results,
+            "run_id": run_id
+        }
+        
+    def _render_template(self, template_str, context):
+        """Render a template with the given context"""
+        if not template_str:
+            return ""
+            
+        try:
+            template = Template(template_str)
+            return template.render(**context)
+        except Exception as e:
+            print(f"Error rendering template: {e}")
+            return template_str
+            
+    def _get_npc(self, npc_name):
+        """Get NPC by name from team"""
+        if not self.npc_team:
+            raise ValueError("No NPC team available")
+            
+        return self.npc_team.get_npc(npc_name)
+        
+    def _generate_hash(self):
+        """Generate a hash for the pipeline"""
+        if hasattr(self, 'pipeline_path') and self.pipeline_path:
+            with open(self.pipeline_path, 'r') as f:
+                content = f.read()
+            return hashlib.sha256(content.encode()).hexdigest()
+        else:
+            # Generate hash from steps
+            content = json.dumps(self.steps)
+            return hashlib.sha256(content.encode()).hexdigest()
+            
+    def _ensure_results_table(self, table_name):
+        """Ensure results table exists"""
+        db_path = "~/npcsh_history.db"
+        with sqlite3.connect(os.path.expanduser(db_path)) as conn:
+            conn.execute(f"""
+                CREATE TABLE IF NOT EXISTS {table_name} (
+                    result_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    run_id INTEGER,
+                    step_name TEXT,
+                    npc_name TEXT,
+                    model TEXT,
+                    provider TEXT,
+                    inputs TEXT,
+                    outputs TEXT,
+                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY(run_id) REFERENCES pipeline_runs(run_id)
+                )
+            """)
+            conn.commit()
+            
+    def _create_run_entry(self, pipeline_hash):
+        """Create run entry in pipeline_runs table"""
+        db_path = "~/npcsh_history.db"
+        with sqlite3.connect(os.path.expanduser(db_path)) as conn:
+            cursor = conn.execute(
+                "INSERT INTO pipeline_runs (pipeline_name, pipeline_hash, timestamp) VALUES (?, ?, ?)",
+                (self.name, pipeline_hash, datetime.now())
+            )
+            conn.commit()
+            return cursor.lastrowid
+            
+    def _store_step_result(self, run_id, step_name, npc_name, model, provider, inputs, outputs, table_name):
+        """Store step result in database"""
+        db_path = "~/npcsh_history.db"
+        with sqlite3.connect(os.path.expanduser(db_path)) as conn:
+            conn.execute(
+                f"""
+                INSERT INTO {table_name} 
+                (run_id, step_name, npc_name, model, provider, inputs, outputs)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    run_id,
+                    step_name,
+                    npc_name,
+                    model,
+                    provider,
+                    json.dumps(self._clean_for_json(inputs)),
+                    json.dumps(self._clean_for_json(outputs))
+                )
+            )
+            conn.commit()
+            
+    def _clean_for_json(self, obj):
+        """Clean an object for JSON serialization"""
+        if isinstance(obj, dict):
+            return {
+                k: self._clean_for_json(v)
+                for k, v in obj.items()
+                if not k.startswith("_") and not callable(v)
+            }
+        elif isinstance(obj, list):
+            return [self._clean_for_json(i) for i in obj]
+        elif isinstance(obj, (str, int, float, bool, type(None))):
+            return obj
+        else:
+            return str(obj)
+            
+    def _fetch_data_from_source(self, table_name):
+        """Fetch data from a database table"""
+        db_path = "~/npcsh_history.db"
+        try:
+            engine = create_engine(f"sqlite:///{os.path.expanduser(db_path)}")
+            df = pd.read_sql(f"SELECT * FROM {table_name}", engine)
+            return df.to_json(orient="records")
+        except Exception as e:
+            print(f"Error fetching data from {table_name}: {e}")
+            return "[]"
+            
+    def _execute_mixa_step(self, step, context, npc, model, provider):
+        """Execute a mixture of agents step"""
+        # Get task template
+        task = self._render_template(step.get("task", ""), context)
+        
+        # Get configuration
+        mixa_turns = step.get("mixa_turns", 5)
+        num_generating_agents = len(step.get("mixa_agents", []))
+        if num_generating_agents == 0:
+            num_generating_agents = 3  # Default
+            
+        num_voting_agents = len(step.get("mixa_voters", []))
+        if num_voting_agents == 0:
+            num_voting_agents = 3  # Default
+            
+        # Step 1: Initial Response Generation
+        round_responses = []
+        for _ in range(num_generating_agents):
+            response = get_llm_response(task, model=model, provider=provider, npc=npc)
+            round_responses.append(response.get("response", ""))
+            
+        # Loop for each round of voting and refining
+        for turn in range(1, mixa_turns + 1):
+            # Step 2: Voting by agents
+            votes = [0] * len(round_responses)
+            for _ in range(num_voting_agents):
+                voted_index = random.choice(range(len(round_responses)))
+                votes[voted_index] += 1
+                
+            # Step 3: Refinement feedback
+            refined_responses = []
+            for i, resp in enumerate(round_responses):
+                feedback = (
+                    f"Current responses and their votes:\n" + 
+                    "\n".join([f"Response {j+1}: {r[:100]}... - Votes: {votes[j]}" 
+                             for j, r in enumerate(round_responses)]) +
+                    f"\n\nRefine your response #{i+1}: {resp}"
+                )
+                
+                response = get_llm_response(feedback, model=model, provider=provider, npc=npc)
+                refined_responses.append(response.get("response", ""))
+                
+            # Update responses for next round
+            round_responses = refined_responses
+            
+        # Final synthesis
+        synthesis_prompt = (
+            "Synthesize these responses into a coherent answer:\n" +
+            "\n".join(round_responses)
+        )
+        final_response = get_llm_response(synthesis_prompt, model=model, provider=provider, npc=npc)
+        
+        return final_response.get("response", "")
+        
+    def _execute_data_source_step(self, step, context, source_matches, npc, model, provider):
+        """Execute a step with data source"""
+        task_template = step.get("task", "")
+        table_name = source_matches[0]
+        
+        try:
+            # Fetch data
+            db_path = "~/npcsh_history.db"
+            engine = create_engine(f"sqlite:///{os.path.expanduser(db_path)}")
+            df = pd.read_sql(f"SELECT * FROM {table_name}", engine)
+            
+            # Handle batch mode vs. individual processing
+            if step.get("batch_mode", False):
+                # Replace source reference with all data
+                data_str = df.to_json(orient="records")
+                task = task_template.replace(f"{{{{ source('{table_name}') }}}}", data_str)
+                task = self._render_template(task, context)
+                
+                # Process all at once
+                response = get_llm_response(task, model=model, provider=provider, npc=npc)
+                return response.get("response", "")
+            else:
+                # Process each row individually
+                results = []
+                for _, row in df.iterrows():
+                    # Replace source reference with row data
+                    row_data = json.dumps(row.to_dict())
+                    row_task = task_template.replace(f"{{{{ source('{table_name}') }}}}", row_data)
+                    row_task = self._render_template(row_task, context)
+                    
+                    # Process row
+                    response = get_llm_response(row_task, model=model, provider=provider, npc=npc)
+                    results.append(response.get("response", ""))
+                    
+                return results
+        except Exception as e:
+            print(f"Error processing data source {table_name}: {e}")
+            return f"Error: {str(e)}"
+
+
+
+def initialize_npc_project(
+    directory=None,
+    templates=None,
+    context=None,
+    model=None,
+    provider=None,
+) -> str:
+    """Initialize an NPC project"""
+    # Implementation updated to work with new classes
+    if directory is None:
+        directory = os.getcwd()
+
+    # Create required directory structure
+    npc_team_dir = os.path.join(directory, "npc_team")
+    os.makedirs(npc_team_dir, exist_ok=True)
+    
+    # Create subdirs
+    for subdir in ["tools", "assembly_lines", "sql_models", "jobs"]:
+        os.makedirs(os.path.join(npc_team_dir, subdir), exist_ok=True)
+    
+    # Create default NPC if needed 
+    foreman_npc_path = os.path.join(npc_team_dir, "sibiji.npc")
+    
+    # Check if we need to generate a team
+    if context is not None:
+        # This would use your new team generation logic
+        # Maybe call a new implementation that uses your updated classes
+        from .team_generator import conjure_team
+        team = conjure_team(context, templates, model=model, provider=provider)
+    
+    # Always ensure default NPC exists
+    if not os.path.exists(foreman_npc_path):
+        # Use your new NPC class to create sibiji
+        default_npc = {
+            "name": "sibiji",
+            "primary_directive": "You are sibiji, the foreman of an NPC team...",
+            "model": model or "llama3.2",
+            "provider": provider or "ollama"
+        }
+        with open(foreman_npc_path, "w") as f:
+            yaml.dump(default_npc, f)
+            
+    return f"NPC project initialized in {npc_team_dir}"

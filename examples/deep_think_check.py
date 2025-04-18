@@ -1,7 +1,7 @@
 from typing import Generator, Dict, List, Any, Optional
 import re
 
-from npcsh.llm_funcs import enter_reasoning_human_in_the_loop
+from npcpy.llm_funcs import enter_reasoning_human_in_the_loop
 
 if __name__ == "__main__":
     # Example usage

@@ -60,7 +60,7 @@ Integrate npcsh into your Python projects for additional flexibility. Below are 
 ### Example 1: using npcsh's get_llm_response and get_stream
 
 ```python
-from npcsh.llm_funcs import get_llm_response
+from npcpy.llm_funcs import get_llm_response
 
 # ollama's llama3.2
 response = get_llm_response("What is the capital of France? Respond with a json object containing 'capital' as the key and the capital as the value.",
@@ -77,7 +77,7 @@ print(messages)
 
 
 #openai's gpt-4o-mini
-from npcsh.llm_funcs import get_llm_response
+from npcpy.llm_funcs import get_llm_response
 
 response = get_llm_response("What is the capital of France? Respond with a json object containing 'capital' as the key and the capital as the value.",
                             model='gpt-4o-mini',
@@ -85,7 +85,7 @@ response = get_llm_response("What is the capital of France? Respond with a json 
                             format='json')
 print(response)
 # anthropic's claude haikue 3.5 latest
-from npcsh.llm_funcs import get_llm_response
+from npcpy.llm_funcs import get_llm_response
 
 response = get_llm_response("What is the capital of France? Respond with a json object containing 'capital' as the key and the capital as the value.",
                             model='claude-3-5-haiku-latest',
@@ -112,7 +112,7 @@ response = get_stream("What is the capital of France? Respond with a json object
 
 ```python
 #first let's demonstrate the capabilities of npcsh's check_llm_command
-from npcsh.llm_funcs import check_llm_command
+from npcpy.llm_funcs import check_llm_command
 
 command = 'can you write a description of the idea of semantic degeneracy?'
 
@@ -125,8 +125,8 @@ response = check_llm_command(command,
 # now to make the most of check_llm_command, let's add an NPC with a generic code execution tool
 
 
-from npcsh.npc_compiler import NPC, Tool
-from npcsh.llm_funcs import check_llm_command
+from npcpy.npc_compiler import NPC, Tool
+from npcpy.llm_funcs import check_llm_command
 
 code_execution_tool = Tool(
     {
@@ -163,7 +163,7 @@ response = check_llm_command(
 
 
 # or by attaching an NPC Team
-from npcsh.npc_compiler import NPC
+from npcpy.npc_compiler import NPC
 
 response = check_llm_command(command,
                              model='gpt-4o-mini',
@@ -176,7 +176,7 @@ response = check_llm_command(command,
 This example shows how to create and initialize an NPC and use it to answer a question.
 ```python
 import sqlite3
-from npcsh.npc_compiler import NPC
+from npcpy.npc_compiler import NPC
 
 # Set up database connection
 db_path = '~/npcsh_history.db'
@@ -200,7 +200,7 @@ print(response['response'])
 ### Example 3: Using an NPC to Analyze Data
 This example shows how to use an NPC to perform data analysis on a DataFrame using LLM commands.
 ```python
-from npcsh.npc_compiler import NPC
+from npcpy.npc_compiler import NPC
 import sqlite3
 import os
 # Set up database connection
@@ -239,7 +239,7 @@ You can define a tool and execute it from within your Python script.
 Here we'll create a tool that will take in a pdf file, extract the text, and then answer a user request about the text.
 
 ```python
-from npcsh.npc_compiler import Tool, NPC
+from npcpy.npc_compiler import Tool, NPC
 import sqlite3
 import os
 
@@ -345,7 +345,7 @@ print('Tool Output:', output)
 import pandas as pd
 import numpy as np
 import os
-from npcsh.npc_compiler import NPC, NPCTeam, Tool
+from npcpy.npc_compiler import NPC, Team, Tool
 
 
 # Create test data and save to CSV
@@ -451,7 +451,7 @@ def create_analytics_team():
     )
 
     # Create team
-    team = NPCTeam(npcs=npcs, foreman=coordinator)
+    team = Team(npcs=npcs, foreman=coordinator)
     return team
 
 

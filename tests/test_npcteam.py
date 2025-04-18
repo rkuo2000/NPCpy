@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 import os
-from npcsh.npc_compiler import NPC, NPCTeam, Tool
+from npcsh.npc_compiler import NPC, Team, Tool
 
 
 # Create test data and save to CSV
@@ -107,7 +107,7 @@ def create_analytics_team():
     )
 
     # Create team
-    team = NPCTeam(npcs=npcs, foreman=coordinator)
+    team = Team(npcs=npcs, foreman=coordinator)
     return team
 
 

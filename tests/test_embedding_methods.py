@@ -1,7 +1,7 @@
 import unittest
 import random
 from typing import List
-from npcsh.llm_funcs import (
+from npcpy.llm_funcs import (
     get_embeddings,
     search_similar_texts_for_model,
 )  # Ensure both functions are imported

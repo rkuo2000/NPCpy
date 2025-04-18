@@ -1,4 +1,4 @@
-from npcsh.knowledge_graph import *
+from npcpy.knowledge_graph import *
 import os
 
 # Example usage:

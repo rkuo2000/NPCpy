@@ -6,7 +6,7 @@ import pandas as pd
 
 import pytest
 import json
-from npcsh.llm_funcs import (
+from npcpy.llm_funcs import (
     get_stream,
     generate_image_gemini,
     generate_image_openai,
@@ -15,7 +15,7 @@ from npcsh.llm_funcs import (
     check_llm_command,
 )
 import pytest
-from npcsh.llm_funcs import get_stream  # Adjust with your actual import path
+from npcpy.llm_funcs import get_stream  # Adjust with your actual import path
 
 # You can define global variables or fixtures if needed
 
@@ -81,7 +81,7 @@ def test_execute_llm_question():
 
 import pytest
 from pydantic import ValidationError
-from npcsh.llm_funcs import get_ollama_response, get_openai_response
+from npcpy.llm_funcs import get_ollama_response, get_openai_response
 
 from pydantic import BaseModel
 

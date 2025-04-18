@@ -31,7 +31,7 @@ Integrate npcsh into your Python projects for additional flexibility. Below are 
 This example shows how to create and initialize an NPC and use it to answer a question.
 ```bash
 import sqlite3
-from npcsh.npc_compiler import NPC
+from npcpy.npc_compiler import NPC
 
 # Set up database connection
 db_path = '~/npcsh_history.db'
@@ -55,7 +55,7 @@ print(response['response'])
 ### Example 2: Using an NPC to Analyze Data
 This example shows how to use an NPC to perform data analysis on a DataFrame using LLM commands.
 ```bash
-from npcsh.npc_compiler import NPC
+from npcpy.npc_compiler import NPC
 import sqlite3
 import os
 # Set up database connection
@@ -94,7 +94,7 @@ You can define a tool and execute it from within your Python script.
 Here we'll create a tool that will take in a pdf file, extract the text, and then answer a user request about the text.
 
 ```bash
-from npcsh.npc_compiler import Tool, NPC
+from npcpy.npc_compiler import Tool, NPC
 import sqlite3
 import os
 
@@ -200,7 +200,7 @@ print('Tool Output:', output)
 import pandas as pd
 import numpy as np
 import os
-from npcsh.npc_compiler import NPC, NPCTeam, Tool
+from npcpy.npc_compiler import NPC, Team , Tool
 
 
 # Create test data and save to CSV
@@ -306,7 +306,7 @@ def create_analytics_team():
     )
 
     # Create team
-    team = NPCTeam(npcs=npcs, foreman=coordinator)
+    team = Team(npcs=npcs, foreman=coordinator)
     return team
 
 

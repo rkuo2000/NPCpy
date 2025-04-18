@@ -6,7 +6,7 @@ from PIL import Image
 from typing import Any, Dict, Generator, List, Union
 
 from pydantic import BaseModel
-from npcsh.npc_sysenv import (
+from npcpy.npc_sysenv import (
     get_system_message,
     compress_image,
     available_chat_models,
@@ -53,6 +53,7 @@ def get_ollama_response(
 
     # try:
     # Prepare the message payload
+    
     system_message = get_system_message(npc) if npc else "You are a helpful assistant."
     if messages is None or len(messages) == 0:
         messages = [
@@ -112,6 +113,7 @@ def get_litellm_response(
     provider: str = None,
     images: List[Dict[str, str]] = None,
     npc: Any = None,
+    team :  Any = None, 
     tools: list = None,
     format: Union[str, BaseModel] = None,
     messages: List[Dict[str, str]] = None,
@@ -123,7 +125,30 @@ def get_litellm_response(
     """
     Improved version with consistent JSON parsing
     """
+    if model is not None and provider is not None:
+        pass
+
+    elif provider is None and model is not None:
+        provider = lookup_provider(model)
+
+    elif npc is not None:
+        if npc.provider is not None:
+            provider = npc.provider
+        if npc.model is not None:
+            model = npc.model
+        if npc.api_url is not None:
+            api_url = npc.api_url
+
+    else:
+        provider = "ollama"
+                
+    
     if provider == "ollama":
+        if images is not None:
+            model = "gemma3:12b"
+        else:
+            model = "llama3.2"
+        
         return get_ollama_response(
             prompt, model, images, npc, tools, format, messages, **kwargs
         )
@@ -176,7 +201,7 @@ def get_litellm_response(
         # so the proviuder should only ever be openai-like
         if provider == "openai-like":
             api_params["api_base"] = api_url
-
+            provider = "openai"
     if format == "json":
         api_params["response_format"] = {"type": "json_object"}
     elif format is not None:
@@ -215,58 +240,58 @@ def get_litellm_response(
             ]:
                 api_params[key] = value
 
-    try:
-        # print(api_params)
-        # litellm completion appears to have some
-        # ollama issues, so will default to our
-        # custom implementation until we can revisit
-        # when its likely more better supported
-        resp = completion(
-            **api_params,
-        )
+    # try:
+    # print(api_params)
+    # litellm completion appears to have some
+    # ollama issues, so will default to our
+    # custom implementation until we can revisit
+    # when its likely more better supported
+    resp = completion(
+        **api_params,
+    )
 
-        # Get the raw response content
-        llm_response = resp.choices[0].message.content
+    # Get the raw response content
+    llm_response = resp.choices[0].message.content
 
-        # Prepare return dict
-        items_to_return = {
-            "response": llm_response,
-            "messages": messages,
-            "raw_response": resp,  # Include the full response for debugging
+    # Prepare return dict
+    items_to_return = {
+        "response": llm_response,
+        "messages": messages,
+        "raw_response": resp,  # Include the full response for debugging
+    }
+
+    # Handle JSON format requests
+    # print(format)
+    if format == "json":
+        try:
+            if isinstance(llm_response, str):
+                # print("converting the json")
+                loaded = json.loads(llm_response)
+            else:
+                loaded = llm_response  # Assume it's already parsed
+            if "json" in loaded:
+                items_to_return["response"] = loaded["json"]
+            else:
+                items_to_return["response"] = loaded
+
+        except (json.JSONDecodeError, TypeError) as e:
+            print(f"JSON parsing error: {str(e)}")
+            print(f"Raw response: {llm_response}")
+            items_to_return["error"] = "Invalid JSON response"
+            return items_to_return
+
+    # Add assistant response to message history
+    items_to_return["messages"].append(
+        {
+            "role": "assistant",
+            "content": (
+                llm_response if isinstance(llm_response, str) else str(llm_response)
+            ),
         }
+    )
 
-        # Handle JSON format requests
-        print(format)
-        if format == "json":
-            try:
-                if isinstance(llm_response, str):
-                    print("converting the json")
-                    loaded = json.loads(llm_response)
-                else:
-                    loaded = llm_response  # Assume it's already parsed
-                if "json" in loaded:
-                    items_to_return["response"] = loaded["json"]
-                else:
-                    items_to_return["response"] = loaded
+    return items_to_return
 
-            except (json.JSONDecodeError, TypeError) as e:
-                print(f"JSON parsing error: {str(e)}")
-                print(f"Raw response: {llm_response}")
-                items_to_return["error"] = "Invalid JSON response"
-                return items_to_return
-
-        # Add assistant response to message history
-        items_to_return["messages"].append(
-            {
-                "role": "assistant",
-                "content": (
-                    llm_response if isinstance(llm_response, str) else str(llm_response)
-                ),
-            }
-        )
-
-        return items_to_return
-
-    except Exception as e:
-        print(f"Error in get_litellm_response: {str(e)}")
-        return {"error": str(e), "messages": messages, "response": None}
+    # except Exception as e:
+    #    print(f"Error in get_litellm_response: {str(e)}")
+    #    return {"error": str(e), "messages": messages, "response": None}

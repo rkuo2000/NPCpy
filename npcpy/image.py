@@ -6,8 +6,8 @@ import subprocess
 from typing import Dict, Any
 from PIL import ImageGrab  # Import ImageGrab from Pillow
 
-from npcsh.npc_sysenv import NPCSH_VISION_MODEL, NPCSH_VISION_PROVIDER, NPCSH_API_URL
-from npcsh.llm_funcs import get_llm_response, get_stream
+from npcpy.npc_sysenv import NPCSH_VISION_MODEL, NPCSH_VISION_PROVIDER, NPCSH_API_URL
+from npcpy.llm_funcs import get_llm_response, get_stream
 import os
 
 
@@ -269,7 +269,7 @@ def analyze_image(
                 if stream:
                     # print("going to stream")
                     return get_stream(
-                        messages, images=[image_info], npc=npc, **model_kwargs
+                        messages, images=[image_info], npc=npc
                     )
 
                 else:

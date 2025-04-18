@@ -63,6 +63,7 @@ base_requirements = [
     "PyYAML",
     "PyMuPDF",
     "pyautogui",
+    "pydantic", 
     "pygments",
     "sqlalchemy",
     "termcolor",
@@ -81,7 +82,13 @@ base_requirements = [
 ]
 
 # API integration requirements
-api_requirements = ["anthropic", "openai", "google-generativeai", "google-genai"]
+api_requirements = [
+    "litellm",
+    "anthropic",
+    "openai",
+    "google-generativeai",
+    "google-genai",
+]
 
 # Local ML/AI requirements
 local_requirements = [
@@ -96,18 +103,19 @@ local_requirements = [
 
 # Voice/Audio requirements
 voice_requirements = [
-    "openai-whisper",
     "pyaudio",
     "gtts",
     "playsound==1.2.2",
+    "pygame", 
+    "faster_whisper",
     "pyttsx3",
 ]
 
-extra_files = package_files("npcsh/npc_team/")
+extra_files = package_files("npcpy/npc_team/")
 
 setup(
-    name="npcsh",
-    version="0.3.32",
+    name="npcpy",
+    version="0.3.33",
     packages=find_packages(exclude=["tests*"]),
     install_requires=base_requirements,  # Only install base requirements by default
     extras_require={
@@ -118,13 +126,13 @@ setup(
     },
     entry_points={
         "console_scripts": [
-            "npcsh=npcsh.shell:main",
-            "npc=npcsh.cli:main",
+            "npcsh=npcpy.shell:main",
+            "npc=npcpy.cli:main",
         ],
     },
     author="Christopher Agostino",
     author_email="info@npcworldwi.de",
-    description="npcsh is a command line tool for integrating LLMs into everyday workflows and for orchestrating teams of NPCs.",
+    description="npcpy is a python library for orchestrating AI agents.",
     long_description=open("README.md").read(),
     long_description_content_type="text/markdown",
     url="https://github.com/cagostino/npcsh",

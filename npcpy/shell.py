@@ -2,94 +2,48 @@ import os
 import sys
 import readline
 import atexit
-import re
-import pty
-import select
-import termios
-import tty
-import shlex
-import json
-
-from datetime import datetime
 from inspect import isgenerator
-
-
-# Third-party imports
-import pandas as pd
-import sqlite3
-import numpy as np
 from termcolor import colored
-from dotenv import load_dotenv
-import subprocess
-from typing import Dict, Any, List, Optional
-
-
-try:
-    from sentence_transformers import SentenceTransformer
-except:
-    print("Could not load the sentence-transformers package.")
-# Local imports
-
-from npcsh.npc_sysenv import (
-    get_system_message,
-    lookup_provider,
+from sqlalchemy import create_engine
+from npcpy.npc_sysenv import (
+    print_and_process_stream_with_markdown,
     NPCSH_STREAM_OUTPUT,
     NPCSH_CHAT_MODEL,
     NPCSH_CHAT_PROVIDER,
     NPCSH_API_URL,
 )
 
-from npcsh.command_history import (
+from npcpy.command_history import (
     CommandHistory,
     start_new_conversation,
     save_conversation_message,
-    save_attachment_to_message,
 )
-from npcsh.llm_funcs import (
-    execute_llm_command,
-    execute_llm_question,
-    generate_image,
-    check_llm_command,
-    get_conversation,
-    get_system_message,
-)
-from npcsh.search import rag_search, search_web
-from npcsh.helpers import (
-    load_all_files,
+from npcpy.helpers import (
     setup_npcsh_config,
     is_npcsh_initialized,
     initialize_base_npcs_if_needed,
 )
-from npcsh.shell_helpers import (
+from npcpy.shell_helpers import (
     complete,  # For command completion
     readline_safe_prompt,
     get_multiline_input,
     setup_readline,
     execute_command,
-    render_markdown,
-    render_code_block,
+
     orange,  # For colored prompt
 )
-from npcsh.npc_compiler import (
-    NPCCompiler,
-    load_tools_from_directory,
-    NPC,
-    initialize_npc_project,
+from npcpy.npc_compiler import (
+    NPC, Team
 )
 
 import argparse
-from npcsh.serve import (
-    start_flask_server,
-)
-import importlib.metadata  # Python 3.8+
-
-# Fetch the version from the package metadata
+import importlib.metadata  
 try:
     VERSION = importlib.metadata.version(
-        "npcsh"
-    )  # Replace "npcsh" with your package name
+        "npcpy"
+    )  
 except importlib.metadata.PackageNotFoundError:
-    VERSION = "unknown"  # Fallback if the package is not installed
+    VERSION = "unknown"  
 
 
 def main() -> None:
@@ -124,22 +78,6 @@ def main() -> None:
         db_path = os.path.expanduser("~/npcsh_history.db")
 
     command_history = CommandHistory(db_path)
-    valid_commands = [
-        "/compile",
-        "/com",
-        "/whisper",
-        "/notes",
-        "/data",
-        "/cmd",
-        "/command",
-        "/set",
-        "/sample",
-        "/spool",
-        "/sp",
-        "/help",
-        "/exit",
-        "/quit",
-    ]
 
     readline.set_completer_delims(" \t\n")
     readline.set_completer(complete)
@@ -155,10 +93,9 @@ def main() -> None:
     else:
         npc_directory = os.path.expanduser("~/.npcsh/npc_team/")
 
-    npc_compiler = NPCCompiler(npc_directory, db_path)
 
     os.makedirs(npc_directory, exist_ok=True)
-
+    """ 
     # Compile all NPCs in the user's npc_team directory
     for filename in os.listdir(npc_directory):
         if filename.endswith(".npc"):
@@ -170,7 +107,7 @@ def main() -> None:
         for filename in os.listdir(npc_directory):
             if filename.endswith(".npc"):
                 npc_file_path = os.path.join(npc_directory, filename)
-                npc_compiler.compile(npc_file_path)
+                npc_compiler.compile(npc_file_path) """
 
     if not is_npcsh_initialized():
         print("Initializing NPCSH...")
@@ -207,8 +144,9 @@ def main() -> None:
     current_npc = None
     messages = None
     current_conversation_id = start_new_conversation()
-
-    # --- Minimal Piped Input Handling ---
+    team = Team(team_path=npc_directory)
+    sibiji = NPC(file=os.path.expanduser("~/.npcsh/npc_team/sibiji.npc")    )
+    npc = sibiji
     if not sys.stdin.isatty():
         for line in sys.stdin:
             user_input = line.strip()
@@ -220,8 +158,8 @@ def main() -> None:
             result = execute_command(
                 user_input,
                 db_path,
-                npc_compiler,
-                current_npc,
+                npc = npc,
+                team=team,
                 model=NPCSH_CHAT_MODEL,
                 provider=NPCSH_CHAT_PROVIDER,
                 messages=messages,
@@ -237,6 +175,7 @@ def main() -> None:
             model = result.get("model")
             provider = result.get("provider")
             npc = result.get("npc")
+            team = result.get("team")
             messages = result.get("messages")
             current_path = result.get("current_path")
             attachments = result.get("attachments")
@@ -245,7 +184,7 @@ def main() -> None:
                 if isinstance(npc, NPC)
                 else npc if isinstance(npc, str) else None
             )
-
+            
             save_conversation_message(
                 command_history,
                 conversation_id,
@@ -261,68 +200,10 @@ def main() -> None:
                 isgenerator(output)
                 or (hasattr(output, "__iter__") and hasattr(output, "__next__"))
             ):
-                str_output = ""
-                in_code = False
-                code_buffer = ""
-                text_buffer = ""
+                output = print_and_process_stream_with_markdown(    
+                                                                output, model, provider)
 
-                for chunk in output:
-                    # Get chunk content based on provider
-                    if provider == "anthropic":
-                        chunk_content = (
-                            chunk.delta.text
-                            if chunk.type == "content_block_delta"
-                            else None
-                        )
-                    elif provider in ["openai", "deepseek", "openai-like"]:
-                        chunk_content = "".join(
-                            c.delta.content for c in chunk.choices if c.delta.content
-                        )
-                    elif provider == "ollama":
-                        chunk_content = chunk["message"]["content"]
-                    else:
-                        continue
-
-                    if not chunk_content:
-                        continue
-
-                    str_output += chunk_content
-
-                    # Process chunk
-                    if "```" in chunk_content:
-                        parts = chunk_content.split("```")
-
-                        for i, part in enumerate(parts):
-                            if i == 0:  # First part (before any backticks)
-                                if in_code:
-                                    code_buffer += part
-                                else:
-                                    print(part, end="")
-                            elif i % 2 == 1:  # Inside a code block
-                                if not in_code:  # Starting a new code block
-                                    in_code = True
-                                    code_buffer = part
-                                else:  # Shouldn't happen but handle anyway
-                                    code_buffer += part
-                            else:  # Outside a code block
-                                if in_code:  # Just finished a code block
-                                    in_code = False
-                                    # Render the code block
-                                    render_code_block(code_buffer)
-                                    code_buffer = ""
-                                print(part, end="")
-                    else:
-                        if in_code:
-                            code_buffer += chunk_content
-                        else:
-                            print(chunk_content, end="")
-
-                # Handle any remaining code buffer
-                if in_code and code_buffer:
-                    render_code_block(code_buffer)
-
-                if str_output:
-                    output = str_output
+                    
         save_conversation_message(
             command_history,
             conversation_id,
@@ -344,7 +225,9 @@ def main() -> None:
 
             prompt = readline_safe_prompt(prompt)
             user_input = get_multiline_input(prompt).strip()
-
+            if not user_input:
+                continue
+            
             if user_input.lower() in ["exit", "quit"]:
                 if current_npc:
                     print(f"Exiting {current_npc.name} mode.")
@@ -353,13 +236,13 @@ def main() -> None:
                 else:
                     print("Goodbye!")
                     break
-            # print(current_npc, "current npc fore command execution")
-            # Execute the command and capture the result
+            if npc is not None:
+                print(f"{npc.name}>", end="")
+
             result = execute_command(
                 user_input,
-                db_path,
-                npc_compiler,
-                current_npc=current_npc,
+                npc= npc,
+                team=team,
                 model=NPCSH_CHAT_MODEL,
                 provider=NPCSH_CHAT_PROVIDER,
                 messages=messages,
@@ -374,9 +257,9 @@ def main() -> None:
             # model, provider, npc, timestamp, role, content
             # also messages
 
-            if "current_npc" in result:
+            if "npc" in result:
 
-                current_npc = result["current_npc"]
+                npc = result["npc"]
             output = result.get("output")
 
             conversation_id = result.get("conversation_id")
@@ -406,6 +289,9 @@ def main() -> None:
                 attachments=attachments,
             )
 
+
+            #import pdb 
+            #pdb.set_trace()
             str_output = ""
             try:
                 if NPCSH_STREAM_OUTPUT and hasattr(output, "__iter__"):

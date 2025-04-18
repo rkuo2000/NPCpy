@@ -40,7 +40,7 @@ steps:
       import os
       from PIL import Image
       import time
-      from npcsh.image import analyze_image_base, capture_screenshot
+      from npcpy.image import analyze_image_base, capture_screenshot
 
       out = capture_screenshot(npc = npc, full = True)
 
@@ -230,7 +230,7 @@ npcsh> /compile morning_routine.pipe
 Alternatively we can run a pipeline like so in Python:
 
 ```bash
-from npcsh.npc_compiler import PipelineRunner
+from npcpy.npc_compiler import PipelineRunner
 import os
 
 pipeline_runner = PipelineRunner(
@@ -307,7 +307,7 @@ or in python like:
 
 ```bash
 
-from npcsh.npc_compiler import PipelineRunner
+from npcpy.npc_compiler import PipelineRunner
 import os
 runner = PipelineRunner(
     "./news_analysis.pipe",
@@ -351,7 +351,7 @@ or in python like:
 
 ```bash
 
-from npcsh.npc_compiler import PipelineRunner
+from npcpy.npc_compiler import PipelineRunner
 import os
 
 runner = PipelineRunner(

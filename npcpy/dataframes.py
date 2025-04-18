@@ -8,12 +8,12 @@ import io
 from PIL import Image
 from typing import Optional
 
-from npcsh.llm_funcs import get_llm_response
+from npcpy.llm_funcs import get_llm_response
 
-# from npcsh.audio import process_audio
-# from npcsh.video import process_video
+# from npcpy.audio import process_audio
+# from npcpy.video import process_video
 
-from npcsh.load_data import (
+from npcpy.load_data import (
     load_pdf,
     load_csv,
     load_json,

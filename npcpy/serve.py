@@ -15,12 +15,12 @@ import yaml
 from PIL import Image
 from PIL import ImageFile
 
-from npcsh.command_history import (
+from npcpy.command_history import (
     CommandHistory,
     save_conversation_message,
 )
-from npcsh.npc_compiler import NPCCompiler, Tool, NPC
-from npcsh.npc_sysenv import (
+from npcpy.npc_compiler import  Tool, NPC
+from npcpy.npc_sysenv import (
     get_model_and_provider,
     get_available_models,
     get_system_message,
@@ -28,15 +28,15 @@ from npcsh.npc_sysenv import (
 )
 
 
-from npcsh.llm_funcs import (
+from npcpy.llm_funcs import (
     check_llm_command,
     get_llm_response,
     get_stream,
     get_conversation,
 )
-from npcsh.helpers import get_directory_npcs, get_db_npcs, get_npc_path
-from npcsh.npc_compiler import load_npc_from_file
-from npcsh.shell_helpers import execute_command, execute_command_stream
+from npcpy.helpers import get_directory_npcs, get_db_npcs, get_npc_path
+from npcpy.npc_compiler import NPC
+from npcpy.shell_helpers import execute_command, execute_command_stream
 import base64
 
 import json
@@ -52,7 +52,7 @@ user_npc_directory = os.path.expanduser("~/.npcsh/npc_team")
 project_npc_directory = os.path.abspath("./npc_team")
 
 # Initialize components
-npc_compiler = NPCCompiler(user_npc_directory, db_path)
+
 
 app = Flask(__name__)
 app.config["REDIS_URL"] = "redis://localhost:6379"
@@ -70,10 +70,7 @@ CORS(
 
 
 def get_locally_available_models(project_directory):
-    # check if anthropic, gemini, openai keys exist in project folder env
-    # also try to get ollama
     available_models_providers = []
-    # get the project env
     env_path = os.path.join(project_directory, ".env")
     env_vars = {}
     if os.path.exists(env_path):
@@ -84,63 +81,70 @@ def get_locally_available_models(project_directory):
                     if "=" in line:
                         key, value = line.split("=", 1)
                         env_vars[key.strip()] = value.strip().strip("\"'")
-    # check if the keys exist in the env
     if "ANTHROPIC_API_KEY" in env_vars:
-        import anthropic
+        try:
+            import anthropic
 
-        client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
-        models = client.models.list()
-        for model in models.data:
-
-            available_models_providers.append(
-                {
-                    "model": model.id,
-                    "provider": "anthropic",
-                }
-            )
-
-    if "OPENAI_API_KEY" in env_vars:
-        import openai
-
-        openai.api_key = env_vars["OPENAI_API_KEY"]
-        models = openai.models.list()
-
-        for model in models.data:
-            if (
-                (
-                    "gpt" in model.id
-                    or "o1" in model.id
-                    or "o3" in model.id
-                    or "chat" in model.id
-                )
-                and "audio" not in model.id
-                and "realtime" not in model.id
-            ):
+            client = anthropic.Anthropic(api_key=env_vars.get("ANTHROPIC_API_KEY"))
+            models = client.models.list()
+            for model in models.data:
 
                 available_models_providers.append(
                     {
                         "model": model.id,
-                        "provider": "openai",
+                        "provider": "anthropic",
                     }
                 )
+        except:
+            print("anthropic models not indexed")
+    if "OPENAI_API_KEY" in env_vars:
+        try:
+            import openai
+
+            openai.api_key = env_vars["OPENAI_API_KEY"]
+            models = openai.models.list()
+
+            for model in models.data:
+                if (
+                    (
+                        "gpt" in model.id
+                        or "o1" in model.id
+                        or "o3" in model.id
+                        or "chat" in model.id
+                    )
+                    and "audio" not in model.id
+                    and "realtime" not in model.id
+                ):
+
+                    available_models_providers.append(
+                        {
+                            "model": model.id,
+                            "provider": "openai",
+                        }
+                    )
+        except:
+            print("openai models not indexed")
+
     if "GEMINI_API_KEY" in env_vars:
-        import google.generativeai as gemini
+        try:
+            import google.generativeai as gemini
 
-        gemini.configure(api_key=env_vars["GEMINI_API_KEY"])
-        models = gemini.list_models()
-        # available_models_providers.append(
-        #    {
-        #        "model": "gemini-2.5-pro",
-        #        "provider": "gemini",
-        #    }
-        # )
-        available_models_providers.append(
-            {
-                "model": "gemini-2.0-flash-lite",
-                "provider": "gemini",
-            }
-        )
-
+            gemini.configure(api_key=env_vars["GEMINI_API_KEY"])
+            models = gemini.list_models()
+            # available_models_providers.append(
+            #    {
+            #        "model": "gemini-2.5-pro",
+            #        "provider": "gemini",
+            #    }
+            # )
+            available_models_providers.append(
+                {
+                    "model": "gemini-2.0-flash-lite",
+                    "provider": "gemini",
+                }
+            )
+        except:
+            print("gemini models not indexed.")
     if "DEEPSEEK_API_KEY" in env_vars:
         available_models_providers.append(
             {"model": "deepseek-chat", "provider": "deepseek"}
@@ -153,7 +157,8 @@ def get_locally_available_models(project_directory):
         import ollama
 
         models = ollama.list()
-        for model in models:
+        for model in models.models:
+
             if "embed" not in model.model:
                 mod = model.model
                 available_models_providers.append(
@@ -284,8 +289,9 @@ def get_global_settings():
             "provider": "ollama",
             "embedding_model": "nomic-embed-text",
             "embedding_provider": "ollama",
-            "search_provider": "google",
+            "search_provider": "perplexity",
             "NPCSH_LICENSE_KEY": "",
+            "default_folder": os.path.expanduser("~/.npcsh/"),
         }
         global_vars = {}
 
@@ -322,6 +328,7 @@ def get_global_settings():
                         "NPCSH_SEARCH_PROVIDER": "search_provider",
                         "NPCSH_LICENSE_KEY": "NPCSH_LICENSE_KEY",
                         "NPCSH_STREAM_OUTPUT": "NPCSH_STREAM_OUTPUT",
+                        "NPC_STUDIO_DEFAULT_FOLDER": "default_folder",
                     }
 
                     if key in key_mapping:
@@ -329,6 +336,8 @@ def get_global_settings():
                     else:
                         global_vars[key] = value
 
+        print("Global settings loaded from .npcshrc")
+        print(global_settings)
         return jsonify(
             {
                 "global_settings": global_settings,
@@ -359,10 +368,11 @@ def save_global_settings():
             "search_provider": "NPCSH_SEARCH_PROVIDER",
             "NPCSH_LICENSE_KEY": "NPCSH_LICENSE_KEY",
             "NPCSH_STREAM_OUTPUT": "NPCSH_STREAM_OUTPUT",
+            "default_folder": "NPC_STUDIO_DEFAULT_FOLDER",
         }
 
         os.makedirs(os.path.dirname(npcshrc_path), exist_ok=True)
-
+        print(data)
         with open(npcshrc_path, "w") as f:
             # Write settings as environment variables
             for key, value in data.get("global_settings", {}).items():
@@ -595,44 +605,70 @@ def stream():
     complete_response = []  # List to store all chunks
 
     def event_stream():
+
         for response_chunk in stream_response:
-            chunk_content = ""
-            chunk_content = "".join(
-                choice.delta.content
-                for choice in response_chunk.choices
-                if choice.delta.content is not None
-            )
-            if chunk_content:
-                complete_response.append(chunk_content)
-            chunk_data = {
-                "id": response_chunk.id,
-                "object": response_chunk.object,
-                "created": response_chunk.created,
-                "model": response_chunk.model,
-                "choices": [
-                    {
-                        "index": choice.index,
-                        "delta": {
-                            "content": choice.delta.content,
-                            "role": choice.delta.role,
-                        },
-                        "finish_reason": choice.finish_reason,
-                    }
+            if "hf.co" in model:
+                print("streaming from hf model through ollama")
+                chunk_content = response_chunk["message"]["content"]
+                if chunk_content:
+                    complete_response.append(chunk_content)
+                chunk_data = {
+                    "id": None,
+                    "object": None,
+                    "created": response_chunk["created_at"],
+                    "model": response_chunk["model"],
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {
+                                "content": chunk_content,
+                                "role": response_chunk["message"]["role"],
+                            },
+                            "finish_reason": response_chunk.get("done_reason"),
+                        }
+                    ],
+                }
+                yield f"data: {json.dumps(chunk_data)}\n\n"
+
+            else:
+
+                chunk_content = ""
+                chunk_content = "".join(
+                    choice.delta.content
                     for choice in response_chunk.choices
-                ],
-            }
-            yield f"data: {json.dumps(chunk_data)}\n\n"
-            save_conversation_message(
-                command_history,
-                conversation_id,
-                "assistant",
-                chunk_content,
-                wd=current_path,
-                model=model,
-                provider=provider,
-                npc=npc,
-                message_id=message_id,  # Save with the same message_id
-            )
+                    if choice.delta.content is not None
+                )
+                if chunk_content:
+                    complete_response.append(chunk_content)
+                chunk_data = {
+                    "id": response_chunk.id,
+                    "object": response_chunk.object,
+                    "created": response_chunk.created,
+                    "model": response_chunk.model,
+                    "choices": [
+                        {
+                            "index": choice.index,
+                            "delta": {
+                                "content": choice.delta.content,
+                                "role": choice.delta.role,
+                            },
+                            "finish_reason": choice.finish_reason,
+                        }
+                        for choice in response_chunk.choices
+                    ],
+                }
+                yield f"data: {json.dumps(chunk_data)}\n\n"
+                save_conversation_message(
+                    command_history,
+                    conversation_id,
+                    "assistant",
+                    chunk_content,
+                    wd=current_path,
+                    model=model,
+                    provider=provider,
+                    npc=npc,
+                    message_id=message_id,  # Save with the same message_id
+                )
 
         # Send completion message
         yield f"data: {json.dumps({'type': 'message_stop'})}\n\n"
@@ -653,10 +689,10 @@ def get_npc_team_global():
         npc_data = []
 
         # Use existing helper to get NPCs from the global directory
-        for npc_file in os.listdir(global_npc_directory):
-            if npc_file.endswith(".npc"):
-                npc_path = os.path.join(global_npc_directory, npc_file)
-                npc = load_npc_from_file(npc_path, db_conn)
+        for file in os.listdir(global_npc_directory):
+            if file.endswith(".npc"):
+                npc_path = os.path.join(global_npc_directory, file)
+                npc = NPC(file=npc_path, db_conn= db_conn)
 
                 # Serialize the NPC data
                 serialized_npc = {
@@ -796,8 +832,8 @@ use_global_tools: {str(npc_data.get('use_global_tools', True)).lower()}
 """
 
         # Save the file
-        npc_file_path = os.path.join(npc_directory, f"{npc_data['name']}.npc")
-        with open(npc_file_path, "w") as f:
+        file_path = os.path.join(npc_directory, f"{npc_data['name']}.npc")
+        with open(file_path, "w") as f:
             f.write(yaml_content)
 
         return jsonify({"message": "NPC saved successfully", "error": None})
@@ -818,11 +854,11 @@ def get_npc_team_project():
 
         npc_data = []
 
-        for npc_file in os.listdir(project_npc_directory):
-            print(npc_file)
-            if npc_file.endswith(".npc"):
-                npc_path = os.path.join(project_npc_directory, npc_file)
-                npc = load_npc_from_file(npc_path, db_conn)
+        for file in os.listdir(project_npc_directory):
+            print(file)
+            if file.endswith(".npc"):
+                npc_path = os.path.join(project_npc_directory, file)
+                npc = NPC(file=npc_path, db_conn= db_conn)
 
                 # Serialize the NPC data, including tools
                 serialized_npc = {

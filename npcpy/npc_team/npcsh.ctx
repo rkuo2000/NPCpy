@@ -8,4 +8,6 @@ databases:
 mcp_servers:
     - /path/to/mcp/server.py
     - @npm for server
-
+    - <server_name>
+       - commands...
+       

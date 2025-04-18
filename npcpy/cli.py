@@ -1,5 +1,5 @@
 import argparse
-from npcsh.npc_sysenv import (
+from npcpy.npc_sysenv import (
     NPCSH_CHAT_MODEL,
     NPCSH_CHAT_PROVIDER,
     NPCSH_IMAGE_GEN_MODEL,
@@ -13,16 +13,15 @@ from npcsh.npc_sysenv import (
     NPCSH_DB_PATH,
     NPCSH_STREAM_OUTPUT,
     NPCSH_SEARCH_PROVIDER,
+    print_and_process_stream
 )
-from npcsh.serve import start_flask_server
-from npcsh.npc_compiler import (
-    initialize_npc_project,
+from npcpy.serve import start_flask_server
+from npcpy.npc_compiler import (
+    
     conjure_team,
-    NPCCompiler,
     NPC,
-    load_npc_from_file,
 )
-from npcsh.llm_funcs import (
+from npcpy.llm_funcs import (
     check_llm_command,
     execute_llm_command,
     execute_llm_question,
@@ -33,23 +32,22 @@ from npcsh.llm_funcs import (
     get_stream,
     get_conversation,
 )
-from npcsh.plonk import plonk, action_space
-from npcsh.search import search_web
-from npcsh.shell_helpers import *
+from npcpy.plonk import plonk, action_space
+from npcpy.search import search_web
+from npcpy.shell_helpers import *
 import os
+import sqlite3
 
 # check if ./npc_team exists
 if os.path.exists("./npc_team"):
-
     npc_directory = os.path.abspath("./npc_team/")
 else:
     npc_directory = os.path.expanduser("~/.npcsh/npc_team/")
 
-npc_compiler = NPCCompiler(npc_directory, NPCSH_DB_PATH)
+
 
 
 def main():
-
     parser = argparse.ArgumentParser(description="NPC utilities")
     known_commands = {
         "assemble",
@@ -73,9 +71,10 @@ def main():
         "ots",
         "whisper",
     }
+    has_command = any(arg in known_commands for arg in sys.argv[1:])
 
     # Only add prompt as default if first arg isn't a known command
-    if len(sys.argv) > 1 and sys.argv[1] not in known_commands:
+    if not has_command:
         parser.add_argument(
             "prompt", nargs="?", help="Generic prompt to send to the default LLM"
         )
@@ -89,51 +88,23 @@ def main():
             type=str,
             default=NPCSH_CHAT_PROVIDER,
         )
+
         parser.add_argument(
             "-n", "--npc", help="name of the NPC", type=str, default="sibiji"
         )
-
         args = parser.parse_args()
         db_conn = sqlite3.connect(NPCSH_DB_PATH)
         if args.npc is None or args.npc == "sibiji":
-            npc = load_npc_from_file("~/.npcsh/npc_team/sibiji.npc", db_conn)
+            npc = NPC(file="~/.npcsh/npc_team/sibiji.npc", db_conn = db_conn)
         else:
-            npc = load_npc_from_file("./npc_team/" + args.npc + ".npc", db_conn)
+            npc = NPC(file="./npc_team/" + args.npc + ".npc", db_conn = db_conn)
 
         response = check_llm_command(
             args.prompt, model=args.model, provider=args.provider, npc=npc, stream=True
         )
         provider = args.provider
         model = args.model
-        conversation_result = ""
-        for chunk in response:
-            if provider == "anthropic":
-                if chunk.type == "content_block_delta":
-                    chunk_content = chunk.delta.text
-                    if chunk_content:
-                        conversation_result += chunk_content
-                        print(chunk_content, end="")
-
-            elif (
-                provider == "openai"
-                or provider == "deepseek"
-                or provider == "openai-like"
-            ):
-                chunk_content = "".join(
-                    choice.delta.content
-                    for choice in chunk.choices
-                    if choice.delta.content is not None
-                )
-                if chunk_content:
-                    conversation_result += chunk_content
-                    print(chunk_content, end="")
-
-            elif provider == "ollama":
-                chunk_content = chunk["message"]["content"]
-                if chunk_content:
-                    conversation_result += chunk_content
-                    print(chunk_content, end="")
-        print("\n")
+        conversation_result = print_and_process_stream(response, provider, model)
         return
 
     parser.add_argument(
@@ -317,6 +288,8 @@ def main():
 
     # Image generation
     vixynt_parser = subparsers.add_parser("vixynt", help="generate an image")
+    vixynt_parser.add_argument("--height", "-ht", help="the height of the image")
+    vixynt_parser.add_argument("--width", "-wd", help="the width of the image")
     vixynt_parser.add_argument("spell", help="the prompt to generate the image")
 
     # Screenshot analysis
@@ -377,7 +350,7 @@ def main():
     elif args.command == "chat":
         npc_name = args.npc_name
         npc_path = get_npc_path(npc_name, NPCSH_DB_PATH)
-        current_npc = load_npc_from_file(npc_path, sqlite3.connect(NPCSH_DB_PATH))
+        current_npc = NPC(file=npc_path, db_conn = sqlite3.connect(NPCSH_DB_PATH))
         return enter_spool_mode(
             model=args.model, provider=args.provider, npc=current_npc
         )
@@ -409,9 +382,8 @@ def main():
         )
 
     elif args.command == "compile":
-        npc_compiler = NPCCompiler(npc_directory, NPCSH_DB_PATH)
-        compiled = npc_compiler.compile(args.path)
-        print("NPC compiled to:", compiled)
+
+        print("fix npc compile")
 
     elif args.command == "plonk":
         task = args.task or args.spell
@@ -426,9 +398,9 @@ def main():
     elif args.command == "sample":
         db_conn = sqlite3.connect(NPCSH_DB_PATH)
         if args.npc is None or args.npc == "sibiji":
-            npc = load_npc_from_file("~/.npcsh/npc_team/sibiji.npc", db_conn)
+            npc = NPC(file="~/.npcsh/npc_team/sibiji.npc", db_conn=db_conn)
         else:
-            npc = load_npc_from_file("./npc_team/" + args.npc + ".npc", db_conn)
+            npc = NPC(file="./npc_team/" + args.npc + ".npc", db_conn= db_conn)
 
         result = get_llm_response(
             args.prompt,
@@ -445,6 +417,8 @@ def main():
             args.spell,
             model=args.model,
             provider=args.provider,
+            height=int(args.height),
+            width=int(args.width),
         )
         print(f"Image generated at: {image_path}")
 
@@ -464,7 +438,7 @@ def main():
     elif args.command == "whisper":
         npc_name = args.npc_name
         npc_path = get_npc_path(npc_name, NPCSH_DB_PATH)
-        current_npc = load_npc_from_file(npc_path, sqlite3.connect(NPCSH_DB_PATH))
+        current_npc = NPC(file=npc_path, db_conn = sqlite3.connect(NPCSH_DB_PATH))
 
         enter_whisper_mode(npc=current_npc)
 
@@ -503,7 +477,7 @@ def main():
     elif args.command == "new":
         # create a new npc, tool, or assembly line
         if args.type == "npc":
-            from npcsh.npc_creator import create_new_npc
+            from npcpy.npc_creator import create_new_npc
 
             create_new_npc(
                 name=args.name,
@@ -514,14 +488,12 @@ def main():
                 autogen=args.autogen,
             )
         elif args.type == "tool":
-
             create_new_tool(
                 name=args.name,
                 description=args.description,
                 autogen=args.autogen,
             )
         elif args.type == "assembly_line":
-
             create_new_assembly_line(
                 name=args.name,
                 description=args.description,
@@ -530,9 +502,9 @@ def main():
     elif args.command == "spool":
         db_conn = sqlite3.connect(NPCSH_DB_PATH)
         if args.npc is None or args.npc == "sibiji":
-            npc = load_npc_from_file("~/.npcsh/npc_team/sibiji.npc", db_conn)
+            npc = NPC(file="~/.npcsh/npc_team/sibiji.npc", db_conn=db_conn)
         else:
-            npc = load_npc_from_file("./npc_team/" + args.npc + ".npc", db_conn)
+            npc = NPC(file="./npc_team/" + args.npc + ".npc", db_conn=db_conn)
         response = enter_spool_mode(
             stream=True,
             npc=npc,

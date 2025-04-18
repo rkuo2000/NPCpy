@@ -2,7 +2,7 @@ import psycopg2
 from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
 import os
 import sqlite3
-from npcsh.npc_compiler import NPC
+from npcpy.npc_compiler import NPC
 
 
 def setup_postgres_db():
