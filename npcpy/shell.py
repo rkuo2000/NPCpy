@@ -236,7 +236,8 @@ def main() -> None:
                 else:
                     print("Goodbye!")
                     break
-            print(f"{npc.name}>", end="")
+            if npc is not None:
+                print(f"{npc.name}>", end="")
 
             result = execute_command(
                 user_input,

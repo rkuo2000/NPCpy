@@ -1992,10 +1992,28 @@ def execute_slash_command(
             messages=messages,
         )
 
+    elif command_name == "search":
+        result = execute_search_command(
+            command,
+            messages=messages,
+        )
+        messages = result["messages"]
+        output = result["output"]
+        return {
+            "messages": messages,
+            "output": output,
+            "current_npc": current_npc,
+        }
     elif command_name == "rag":
-        output = execute_rag_command(command, messages=messages)
-        messages = output["messages"]
-        output = output["output"]
+        result = execute_rag_command(command, messages=messages)
+        messages = result["messages"]
+        output = result["output"]
+        return {
+            "messages": messages,
+            "output": output,
+            "current_npc": current_npc,
+        }
+
     elif command_name == "roll":
 
         output = generate_video(
@@ -2536,7 +2554,7 @@ def execute_command(
                 messages = new_messages
             output = response
         if output:
-            if npc:
+            if npc is not None:
                 print(f"{npc.name}> ", end="")
             
             if not stream:

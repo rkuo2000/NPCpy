@@ -1152,189 +1152,186 @@ def handle_tool_call(
     print(npc)
     print("handling tool call")
     print(command)
-    if not npc:
-        print(
-            f"No tools available for NPC '{npc.name}' or tools_dict is empty. Available tools: {available_tools}"
+    if npc is None:
+        return f"No tools are available. "
+    else:
+        if tool_name not in npc.tools_dict:
+            print("not available")
+            print(f"Tool '{tool_name}' not found in NPC's tools_dict.")
+            return f"Tool '{tool_name}' not found."
+        elif tool_name in npc.tools_dict:
+            tool = npc.tools_dict[tool_name]
+        print(f"Tool found: {tool.tool_name}")
+        jinja_env = Environment(loader=FileSystemLoader("."), undefined=Undefined)
+
+        prompt = f"""
+        The user wants to use the tool '{tool_name}' with the following request:
+        '{command}'
+        Here is the tool file:
+        ```
+        {tool.to_dict()}
+        ```
+
+        Please determine the required inputs for the tool as a JSON object.
+        
+        
+        They must be exactly as they are named in the tool.
+        For example, if the tool has three inputs, you should respond with a list of three values that will pass for those args.
+        
+        Return only the JSON object without any markdown formatting.
+
+        """
+
+        if npc and hasattr(npc, "shared_context"):
+            if npc.shared_context.get("dataframes"):
+                context_info = "\nAvailable dataframes:\n"
+                for df_name in npc.shared_context["dataframes"].keys():
+                    context_info += f"- {df_name}\n"
+                prompt += f"""Here is contextual info that may affect your choice: {context_info}
+                """
+        if context is not None:
+            prompt += f"Here is some additional context: {context}"
+
+        # print(prompt)
+
+        # print(
+        # print(prompt)
+        response = get_llm_response(
+            prompt,
+            format="json",
+            model=model,
+            provider=provider,
+            api_url=api_url,
+            api_key=api_key,
+            npc=npc,
         )
-        return f"No tools are available for NPC '{npc.name or 'default'}'."
-    
-    if tool_name not in npc.tools_dict:
-        print("not available")
-        print(f"Tool '{tool_name}' not found in NPC's tools_dict.")
-        return f"Tool '{tool_name}' not found."
-    elif tool_name in npc.tools_dict:
-        tool = npc.tools_dict[tool_name]
-    print(f"Tool found: {tool.tool_name}")
-    jinja_env = Environment(loader=FileSystemLoader("."), undefined=Undefined)
+        try:
+            # Clean the response of markdown formatting
+            response_text = response.get("response", "{}")
+            if isinstance(response_text, str):
+                response_text = (
+                    response_text.replace("```json", "").replace("```", "").strip()
+                )
 
-    prompt = f"""
-    The user wants to use the tool '{tool_name}' with the following request:
-    '{command}'
-    Here is the tool file:
-    ```
-    {tool.to_dict()}
-    ```
+            # Parse the cleaned response
+            if isinstance(response_text, dict):
+                input_values = response_text
+            else:
+                input_values = json.loads(response_text)
+            # print(f"Extracted inputs: {input_values}")
+        except json.JSONDecodeError as e:
+            print(f"Error decoding input values: {e}. Raw response: {response}")
+            return f"Error extracting inputs for tool '{tool_name}'"
+        # Input validation (example):
+        required_inputs = tool.inputs
+        missing_inputs = []
+        for inp in required_inputs:
+            if not isinstance(inp, dict):
+                # dicts contain the keywords so its fine if theyre missing from the inputs.
+                if inp not in input_values or input_values[inp] == "":
+                    missing_inputs.append(inp)
+        if len(missing_inputs) > 0:
+            # print(f"Missing required inputs for tool '{tool_name}': {missing_inputs}")
+            if attempt < n_attempts:
+                print(f"attempt {attempt+1} to generate inputs failed, trying again")
+                print("missing inputs", missing_inputs)
+                print("llm response", response)
+                print("input values", input_values)
+                return handle_tool_call(
+                    command,
+                    tool_name,
+                    model=model,
+                    provider=provider,
+                    messages=messages,
+                    npc=npc,
+                    api_url=api_url,
+                    api_key=api_key,
+                    stream=stream,
+                    attempt=attempt + 1,
+                    n_attempts=n_attempts,
+                )
+            return {
+                "output": f"Missing inputs for tool '{tool_name}': {missing_inputs}",
+                "messages": messages,
+            }
 
-    Please determine the required inputs for the tool as a JSON object.
-    
-    
-    They must be exactly as they are named in the tool.
-    For example, if the tool has three inputs, you should respond with a list of three values that will pass for those args.
-    
-    Return only the JSON object without any markdown formatting.
+        # try:
+        print("Executing tool with input values:", input_values)
 
-    """
+        # try:
+        tool_output = tool.execute(
+            input_values,
+            npc.tools_dict,
+            jinja_env,
+            command,
+            model=model,
+            provider=provider,
+            npc=npc,
+            stream=stream,
+            messages=messages,
+        )
+        if not stream:
+            if "Error" in tool_output:
+                raise Exception(tool_output)
+            # except Exception as e:
+            # diagnose_problem = get_llm_response(
+            ##    f"""a problem has occurred.
+            #                                    Please provide a diagnosis of the problem and a suggested #fix.
 
-    if npc and hasattr(npc, "shared_context"):
-        if npc.shared_context.get("dataframes"):
-            context_info = "\nAvailable dataframes:\n"
-            for df_name in npc.shared_context["dataframes"].keys():
-                context_info += f"- {df_name}\n"
-            prompt += f"""Here is contextual info that may affect your choice: {context_info}
-            """
-    if context is not None:
-        prompt += f"Here is some additional context: {context}"
+            #                                    The tool call failed with this error:
+            #                                    {e}
+            #                                    Please return a json object containing two fields
+            ##                                    -problem
+            #                                    -suggested solution.
+            #                                    do not include any additional markdown formatting or #leading json tags
 
-    # print(prompt)
-
-    # print(
-    # print(prompt)
-    response = get_llm_response(
-        prompt,
-        format="json",
-        model=model,
-        provider=provider,
-        api_url=api_url,
-        api_key=api_key,
-        npc=npc,
-    )
-    try:
-        # Clean the response of markdown formatting
-        response_text = response.get("response", "{}")
-        if isinstance(response_text, str):
-            response_text = (
-                response_text.replace("```json", "").replace("```", "").strip()
-            )
-
-        # Parse the cleaned response
-        if isinstance(response_text, dict):
-            input_values = response_text
-        else:
-            input_values = json.loads(response_text)
-        # print(f"Extracted inputs: {input_values}")
-    except json.JSONDecodeError as e:
-        print(f"Error decoding input values: {e}. Raw response: {response}")
-        return f"Error extracting inputs for tool '{tool_name}'"
-    # Input validation (example):
-    required_inputs = tool.inputs
-    missing_inputs = []
-    for inp in required_inputs:
-        if not isinstance(inp, dict):
-            # dicts contain the keywords so its fine if theyre missing from the inputs.
-            if inp not in input_values or input_values[inp] == "":
-                missing_inputs.append(inp)
-    if len(missing_inputs) > 0:
-        # print(f"Missing required inputs for tool '{tool_name}': {missing_inputs}")
-        if attempt < n_attempts:
-            print(f"attempt {attempt+1} to generate inputs failed, trying again")
-            print("missing inputs", missing_inputs)
-            print("llm response", response)
-            print("input values", input_values)
-            return handle_tool_call(
-                command,
-                tool_name,
-                model=model,
-                provider=provider,
-                messages=messages,
-                npc=npc,
-                api_url=api_url,
-                api_key=api_key,
-                stream=stream,
-                attempt=attempt + 1,
-                n_attempts=n_attempts,
-            )
-        return {
-            "output": f"Missing inputs for tool '{tool_name}': {missing_inputs}",
-            "messages": messages,
-        }
-
-    # try:
-    print("Executing tool with input values:", input_values)
-
-    # try:
-    tool_output = tool.execute(
-        input_values,
-        npc.tools_dict,
-        jinja_env,
-        command,
-        model=model,
-        provider=provider,
-        npc=npc,
-        stream=stream,
-        messages=messages,
-    )
-    if not stream:
-        if "Error" in tool_output:
-            raise Exception(tool_output)
+            #                                    """,
+            #    model=model,
+            #    provider=provider,
+            #    npc=npc,
+            ##    api_url=api_url,
+            #    api_ley=api_key,
+            #    format="json",
+            # )
+            # print(e)
+            # problem = diagnose_problem.get("response", {}).get("problem")
+            # suggested_solution = diagnose_problem.get("response", {}).get(
+            #    "suggested_solution"
+            # )
+            '''
+            print(f"An error occurred while executing the tool: {e}")
+            print(f"trying again, attempt {attempt+1}")
+            if attempt < n_attempts:
+                tool_output = handle_tool_call(
+                    command,
+                    tool_name,
+                    model=model,
+                    provider=provider,
+                    messages=messages,
+                    npc=npc,
+                    api_url=api_url,
+                    api_key=api_key,
+                    stream=stream,
+                    attempt=attempt + 1,
+                    n_attempts=n_attempts,
+                    context=f""" \n \n \n "tool failed: {e}  \n \n \n here was the previous attempt: {input_values}""",
+                )
+            else:
+                user_input = input(
+                    "the tool execution has failed after three tries, can you add more context to help or would you like to run again?"
+                )
+                return
+            '''
+        if stream:
+            return tool_output
+        # print(f"Tool output: {tool_output}")
+        # render_markdown(str(tool_output))
+        if messages is not None:  # Check if messages is not None
+            messages.append({"role": "assistant", "content": tool_output})
+        return {"messages": messages, "output": tool_output}
         # except Exception as e:
-        # diagnose_problem = get_llm_response(
-        ##    f"""a problem has occurred.
-        #                                    Please provide a diagnosis of the problem and a suggested #fix.
-
-        #                                    The tool call failed with this error:
-        #                                    {e}
-        #                                    Please return a json object containing two fields
-        ##                                    -problem
-        #                                    -suggested solution.
-        #                                    do not include any additional markdown formatting or #leading json tags
-
-        #                                    """,
-        #    model=model,
-        #    provider=provider,
-        #    npc=npc,
-        ##    api_url=api_url,
-        #    api_ley=api_key,
-        #    format="json",
-        # )
-        # print(e)
-        # problem = diagnose_problem.get("response", {}).get("problem")
-        # suggested_solution = diagnose_problem.get("response", {}).get(
-        #    "suggested_solution"
-        # )
-        '''
-        print(f"An error occurred while executing the tool: {e}")
-        print(f"trying again, attempt {attempt+1}")
-        if attempt < n_attempts:
-            tool_output = handle_tool_call(
-                command,
-                tool_name,
-                model=model,
-                provider=provider,
-                messages=messages,
-                npc=npc,
-                api_url=api_url,
-                api_key=api_key,
-                stream=stream,
-                attempt=attempt + 1,
-                n_attempts=n_attempts,
-                context=f""" \n \n \n "tool failed: {e}  \n \n \n here was the previous attempt: {input_values}""",
-            )
-        else:
-            user_input = input(
-                "the tool execution has failed after three tries, can you add more context to help or would you like to run again?"
-            )
-            return
-        '''
-    if stream:
-        return tool_output
-    # print(f"Tool output: {tool_output}")
-    # render_markdown(str(tool_output))
-    if messages is not None:  # Check if messages is not None
-        messages.append({"role": "assistant", "content": tool_output})
-    return {"messages": messages, "output": tool_output}
-    # except Exception as e:
-    #    print(f"Error executing tool {tool_name}: {e}")
-    #    return f"Error executing tool {tool_name}: {e}"
+        #    print(f"Error executing tool {tool_name}: {e}")
+        #    return f"Error executing tool {tool_name}: {e}"
 
 
 def execute_data_operations(
