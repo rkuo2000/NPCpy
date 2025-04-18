@@ -644,6 +644,120 @@ def execute_llm_command(
     }
 
 
+def decide_plan(
+    command: str,
+    possible_actions: Dict[str, str],
+    responder = None,
+    messages: Optional[List[Dict[str, str]]] = None, 
+    model: Optional[str] = None,
+    provider: Optional[str] = None,
+    api_url: Optional[str] = None,
+    api_key: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Gets a plan by asking LLM to choose from possible_actions.
+    Prompt includes only command, actions, and potential delegation targets (if responder is Team).
+    Relies on get_llm_response to handle all other context via the passed npc object.
+
+    Args:
+        command: User input.
+        possible_actions: Dictionary of valid action names and descriptions.
+        responder: The NPC or Team object, or None.
+        messages: Conversation history (passed to get_llm_response).
+        model, provider, api_url, api_key: LLM configuration overrides.
+
+    Returns:
+        Plan dictionary: {"chosen_action":..., "parameters":..., "explanation":..., "error":...}.
+    """
+    if not possible_actions:
+        return {"error": "No possible actions provided."}
+
+
+    prompt = f"User Request: \"{command}\"\n\n"
+    prompt += "## Possible Actions:\nChoose ONE action:\n"
+    for name, desc in possible_actions.items():
+        prompt += f"- {name}: {desc}\n"
+
+    # Add delegation targets ONLY if responder is a Team    
+    if hasattr(responder, 'npcs'):
+        foreman = decision_npc_obj # Already fetched
+        entities = []
+        for name, npc_obj in responder.npcs.items():
+             if npc_obj != foreman: # Don't list the foreman itself
+                 entities.append(f"- {name} (NPC)")
+        for name, team_obj in responder.sub_teams.items():
+             entities.append(f"- {name} (Team)")
+        if entities:
+            prompt += "\n### Potential Delegation Targets:\n" + "\n".join(entities) + "\n"
+
+    # Instructions for LLM
+    prompt += """
+# Instructions:
+1. Select the single most appropriate action from 'Possible Actions'.
+2. Determine parameters identifying the action's target (e.g., 'tool_name', 'target_entity'). DO NOT determine tool arguments.
+3. Explain reasoning.
+
+# Required Output Format (JSON Only, NO MARKDOWN):
+{
+  "chosen_action": "action_name",
+  "parameters": { /* "tool_name": "...", "target_entity": "..." */ },
+  "explanation": "Your reasoning."
+}
+"""
+
+    # --- 3. Call LLM ---
+    # Pass decision_npc_obj - get_llm_response handles its context (directive etc.)
+    llm_response = get_llm_response(
+        prompt=prompt,
+        model=effective_model,
+        provider=effective_provider,
+        api_url=effective_api_url,
+        api_key=effective_api_key,
+        npc=decision_npc_obj, # Pass the relevant NPC/Foreman object or None
+        format="json",
+        messages=messages # Pass history if get_llm_response uses it
+    )
+
+    # --- 4. Parse and Validate ---
+    plan = {"error": None}
+    if "error" in llm_response or "Error" in llm_response:
+        plan["error"] = f"LLM Error: {llm_response.get('error', llm_response.get('Error'))}"
+        print(plan["error"])
+        return plan
+
+    response_content = llm_response.get("response", {})
+    parsed_json = None
+    try:
+        if isinstance(response_content, str): parsed_json = json.loads(response_content.strip())
+        elif isinstance(response_content, dict): parsed_json = response_content
+        else: raise TypeError("Response is not str or dict")
+
+        if not all(k in parsed_json for k in ["chosen_action", "parameters", "explanation"]) or \
+           not isinstance(parsed_json.get("parameters"), dict) or \
+           not isinstance(parsed_json.get("chosen_action"), str) or \
+           not parsed_json.get("chosen_action"):
+            raise ValueError("LLM plan has invalid structure or missing keys.")
+
+        chosen_action = parsed_json["chosen_action"]
+        if chosen_action not in possible_actions:
+            raise ValueError(f"LLM chose an invalid action '{chosen_action}'. Valid: {list(possible_actions.keys())}")
+
+        plan["chosen_action"] = chosen_action
+        plan["parameters"] = parsed_json.get("parameters", {})
+        plan["explanation"] = parsed_json.get("explanation", "")
+
+    except (json.JSONDecodeError, TypeError, ValueError) as e:
+        plan["error"] = f"LLM plan processing error: {e}. Response: {str(response_content)[:200]}..."
+        print(plan["error"])
+        return plan
+
+
+    print(f"Plan Determined: Action='{plan['chosen_action']}', Params='{plan['parameters']}'")
+    return plan
+
+
+
+
 def check_llm_command(
     command: str,
     model: str = NPCSH_CHAT_MODEL,

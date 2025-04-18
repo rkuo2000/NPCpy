@@ -453,7 +453,6 @@ class NPC:
         api_url: str = None,
         api_key: str = None,
         db_conn=None,
-        use_global_tools: bool = True,
         **kwargs
     ):
         """
@@ -470,14 +469,7 @@ class NPC:
             db_conn: Database connection
             use_global_tools: Whether to use global tools
         """
-        # Set up standard paths
-        self.user_home = os.path.expanduser("~")
-        self.global_tools_directory = os.path.join(self.user_home, ".npcsh", "npc_team", "tools")
-        self.project_tools_directory = os.path.abspath("./npc_team/tools")
-        self.global_npc_directory = os.path.join(self.user_home, ".npcsh", "npc_team")
-        self.project_npc_directory = os.path.abspath("./npc_team")
-        
-        # Determine if loading from file or direct parameters
+        self.tools_directory = os.path.abspath("./npc_team/tools")        
         if file.endswith(".npc"):
             self._load_from_file(file)
         else:
@@ -489,15 +481,12 @@ class NPC:
             self.api_url = api_url or os.environ.get("NPCSH_API_URL")
             self.api_key = api_key
             self.tools = tools or []
-            self.use_global_tools = use_global_tools
-            
-        # Set up Jinja environment for template rendering
+        self.npc_directory = os.path.abspath('./npc_team/')
+
         self.jinja_env = Environment(
             loader=FileSystemLoader([
-                self.project_npc_directory,
-                self.global_npc_directory,
-                self.project_tools_directory,
-                self.global_tools_directory,
+                self.npc_directory,
+                self.tools_directory,
             ]),
             undefined=SilentUndefined,
         )
@@ -509,11 +498,6 @@ class NPC:
             
         # Load tools
         self.all_tools = []
-        if self.use_global_tools:
-            self.all_tools.extend(load_tools_from_directory(self.global_tools_directory))
-            self.all_tools.extend(load_tools_from_directory(self.project_tools_directory))
-            
-        # Process and load NPC-specific tools
         self._load_npc_tools()
         
         # Set up shared context for NPC
@@ -553,7 +537,6 @@ class NPC:
         self.provider = npc_data.get("provider", os.environ.get("NPCSH_CHAT_PROVIDER", "ollama"))
         self.api_url = npc_data.get("api_url", os.environ.get("NPCSH_API_URL"))
         self.api_key = npc_data.get("api_key")
-        self.use_global_tools = npc_data.get("use_global_tools", True)
         
         # Store path for future reference
         self.npc_path = file
@@ -677,7 +660,7 @@ class NPC:
         
         return result
     
-    def _check_llm_command(self, command, retrieved_docs=None, messages=None, n_docs=5, context=None, shared_context=None):
+    def _check_llm_command(self, command, messages=None, context=None, shared_context=None):
         """Check if a command is for the LLM"""
         if shared_context is not None:
             self.shared_context = shared_context
@@ -690,13 +673,11 @@ class NPC:
             api_url=self.api_url,
             api_key=self.api_key,
             npc=self,
-            retrieved_docs=retrieved_docs,
             messages=messages,
-            n_docs=n_docs,
             context=context,
         )
     
-    def handle_agent_pass(self, npc_to_pass, command, messages=None, retrieved_docs=None, n_docs=5, context=None, shared_context=None):
+    def handle_agent_pass(self, npc_to_pass, command, messages=None, context=None, shared_context=None):
         """Pass a command to another NPC"""
         # Handle case where npc_to_pass is already an NPC object
         if isinstance(npc_to_pass, NPC):
@@ -734,9 +715,7 @@ class NPC:
         # Pass to the target NPC
         return target_npc._check_llm_command(
             updated_command,
-            retrieved_docs=retrieved_docs,
             messages=messages,
-            n_docs=n_docs,
             shared_context=self.shared_context,
         )
     
