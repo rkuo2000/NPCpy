@@ -53,6 +53,7 @@ def get_ollama_response(
 
     # try:
     # Prepare the message payload
+    
     system_message = get_system_message(npc) if npc else "You are a helpful assistant."
     if messages is None or len(messages) == 0:
         messages = [
@@ -112,6 +113,7 @@ def get_litellm_response(
     provider: str = None,
     images: List[Dict[str, str]] = None,
     npc: Any = None,
+    team :  Any = None, 
     tools: list = None,
     format: Union[str, BaseModel] = None,
     messages: List[Dict[str, str]] = None,
@@ -123,7 +125,30 @@ def get_litellm_response(
     """
     Improved version with consistent JSON parsing
     """
+    if model is not None and provider is not None:
+        pass
+
+    elif provider is None and model is not None:
+        provider = lookup_provider(model)
+
+    elif npc is not None:
+        if npc.provider is not None:
+            provider = npc.provider
+        if npc.model is not None:
+            model = npc.model
+        if npc.api_url is not None:
+            api_url = npc.api_url
+
+    else:
+        provider = "ollama"
+                
+    
     if provider == "ollama":
+        if images is not None:
+            model = "gemma3:12b"
+        else:
+            model = "llama3.2"
+        
         return get_ollama_response(
             prompt, model, images, npc, tools, format, messages, **kwargs
         )

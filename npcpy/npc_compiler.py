@@ -12,12 +12,18 @@ import hashlib
 import pathlib
 import fnmatch
 import traceback
+import subprocess
 from typing import Any
 from jinja2 import Environment, FileSystemLoader, Template, Undefined
 from sqlalchemy import create_engine
 
 from npcpy.llm_funcs import get_llm_response, get_stream, check_llm_command
 from npcpy.helpers import get_npc_path
+from npcpy.npc_sysenv import (
+    NPCSH_CHAT_MODEL,
+    NPCSH_CHAT_PROVIDER,
+    NPCSH_API_URL,
+    )
 
 class SilentUndefined(Undefined):
     def _fail_with_undefined_error(self, *args, **kwargs):
@@ -175,10 +181,6 @@ def find_file_path(filename, search_dirs, suffix=None):
             
     return None
 
-# ---------------------------------------------------------------------------
-# Tool Class
-# ---------------------------------------------------------------------------
-
 class Tool:
     def __init__(self, tool_data=None, tool_path=None):
         """Initialize a tool from data or file path"""
@@ -322,29 +324,20 @@ class Tool:
                 "fnmatch": fnmatch,
                 "pathlib": pathlib,
                 "subprocess": subprocess,
-                # Include LLM response functions if needed
-                "get_llm_response": get_llm_response if 'get_llm_response' in globals() else lambda x: {"response": f"Mock response to {x}"}
-            }
+                "get_llm_response": get_llm_response}
             
-            try:
-                # Execute the code
-                exec_locals = {}
-                exec(rendered_code, exec_globals, exec_locals)
-                
-                # Update context with results
-                context.update(exec_locals)
-                
-                # Handle explicit output
-                if "output" in exec_locals:
-                    context["output"] = exec_locals["output"]
-                    context[step_name] = exec_locals["output"]
-            except Exception as e:
-                # Simplified error handling
-                tb_str = traceback.format_exc()
-                error_msg = f"Error in Python step {step_name}: {str(e)}\n{tb_str}"
-                print(error_msg)
-                context[step_name] = {"error": error_msg}
-                
+            
+            # Execute the code
+            exec_locals = {}
+            exec(rendered_code, exec_globals, exec_locals)
+            
+            # Update context with results
+            context.update(exec_locals)
+            
+            # Handle explicit output
+            if "output" in exec_locals:
+                context["output"] = exec_locals["output"]
+                context[step_name] = exec_locals["output"]
         else:
             # Handle unknown engine
             context[step_name] = {"error": f"Unsupported engine: {rendered_engine}"}
@@ -446,6 +439,7 @@ class NPC:
     def __init__(
         self,
         file: str,
+        name: str = None,
         primary_directive: str = None,
         tools: list = None,
         model: str = None,
@@ -461,20 +455,18 @@ class NPC:
         Args:
             file: Path to .npc file or name for the NPC
             primary_directive: System prompt/directive for the NPC
-            tools: List of tools available to the NPC
+            tools: List of tools available to the NPC or "*" to load all tools
             model: LLM model to use
             provider: LLM provider to use
             api_url: API URL for LLM
             api_key: API key for LLM
             db_conn: Database connection
-            use_global_tools: Whether to use global tools
         """
         self.tools_directory = os.path.abspath("./npc_team/tools")        
         if file.endswith(".npc"):
             self._load_from_file(file)
         else:
-            # Use provided parameters
-            self.name = file  # Use file as name
+            self.name = name            
             self.primary_directive = primary_directive
             self.model = model or os.environ.get("NPCSH_CHAT_MODEL", "llama3.2")
             self.provider = provider or os.environ.get("NPCSH_CHAT_PROVIDER", "ollama")
@@ -497,22 +489,22 @@ class NPC:
             self._setup_db()
             
         # Load tools
-        self.all_tools = []
-        self._load_npc_tools()
+        self.tools = self._load_npc_tools()
         
         # Set up shared context for NPC
         self.shared_context = {
             "dataframes": {},
             "current_data": None,
-            "computation_results": {},
+            "computation_results": [],
+            "memories":{}
         }
         
         # Add any additional attributes
         for key, value in kwargs.items():
             setattr(self, key, value)
             
-        # Initialize logging
-        init_db_tables()
+        if db_conn is not None:
+            init_db_tables()
         
     def _load_from_file(self, file):
         """Load NPC configuration from file"""
@@ -532,14 +524,26 @@ class NPC:
             self.name = os.path.splitext(os.path.basename(file))[0]
             
         self.primary_directive = npc_data.get("primary_directive")
-        self.tools = npc_data.get("tools", [])
-        self.model = npc_data.get("model", os.environ.get("NPCSH_CHAT_MODEL", "llama3.2"))
-        self.provider = npc_data.get("provider", os.environ.get("NPCSH_CHAT_PROVIDER", "ollama"))
-        self.api_url = npc_data.get("api_url", os.environ.get("NPCSH_API_URL"))
-        self.api_key = npc_data.get("api_key")
         
+        # Handle wildcard tools specification
+        tools_spec = npc_data.get("tools", [])
+        if tools_spec == "*":
+            # Will be loaded in _load_npc_tools
+            self.tools = "*" 
+        else:
+            self.tools = tools_spec
+            
+        self.model = npc_data.get("model", NPCSH_CHAT_MODEL)
+        self.provider = npc_data.get("provider", NPCSH_CHAT_PROVIDER)
+        self.api_url = npc_data.get("api_url", NPCSH_API_URL)
+        self.api_key = npc_data.get("api_key")
+        self.name = npc_data.get("name", self.name)
+
         # Store path for future reference
         self.npc_path = file
+        
+        # Set NPC-specific tools directory path
+        self.npc_tools_directory = os.path.join(os.path.dirname(file), "tools")
             
     def _setup_db(self):
         """Set up database tables and determine type"""
@@ -572,22 +576,32 @@ class NPC:
     
     def _load_npc_tools(self):
         """Load and process NPC-specific tools"""
-        # Initialize tool dictionaries
-        self.tools_dict = {}
-        self.all_tools_dict = {tool.tool_name: tool for tool in self.all_tools}
-        
-        # Process tools specified for this NPC
         npc_tools = []
+        
+        # Handle wildcard case - load all tools from the tools directory
+        if self.tools == "*":
+            # Try to find tools in NPC-specific tools dir first
+            if hasattr(self, 'npc_tools_directory') and os.path.exists(self.npc_tools_directory):
+                npc_tools.extend(load_tools_from_directory(self.npc_tools_directory))
+                
+            # Then load from global tools directory
+            if os.path.exists(self.tools_directory):
+                npc_tools.extend(load_tools_from_directory(self.tools_directory))
+                
+            # Return all loaded tools
+            self.tools_dict = {tool.tool_name: tool for tool in npc_tools}
+            return npc_tools
+            
+        # Handle normal case - specified tools
         for tool in self.tools:
+            #need to add a block here for mcp tools.
+                
             if isinstance(tool, Tool):
                 npc_tools.append(tool)
             elif isinstance(tool, dict):
                 npc_tools.append(Tool(tool_data=tool))
+                
             elif isinstance(tool, str):
-                # Try to find the tool by name in all_tools first
-                if tool in self.all_tools_dict:
-                    npc_tools.append(self.all_tools_dict[tool])
-                    continue
                     
                 # Try to load from file
                 tool_path = None
@@ -595,12 +609,17 @@ class NPC:
                 if not tool_name.endswith(".tool"):
                     tool_name += ".tool"
                 
-                # Check project tools directory first, then global
-                for dir_path in [self.project_tools_directory, self.global_tools_directory]:
-                    candidate_path = os.path.join(dir_path, tool_name)
+                # Check NPC-specific tools directory first
+                if hasattr(self, 'npc_tools_directory') and os.path.exists(self.npc_tools_directory):
+                    candidate_path = os.path.join(self.npc_tools_directory, tool_name)
                     if os.path.exists(candidate_path):
                         tool_path = candidate_path
-                        break
+                        
+                # Then check global tools directory
+                if tool_path is None and os.path.exists(self.tools_directory):
+                    candidate_path = os.path.join(self.tools_directory, tool_name)
+                    if os.path.exists(candidate_path):
+                        tool_path = candidate_path
                         
                 if tool_path:
                     try:
@@ -609,14 +628,12 @@ class NPC:
                     except Exception as e:
                         print(f"Error loading tool {tool_path}: {e}")
         
-        # Update tools list and dictionary
-        self.tools = npc_tools
-        self.tools_dict = {tool.tool_name: tool for tool in self.tools}
+        # Update tools dictionary
+        self.tools_dict = {tool.tool_name: tool for tool in npc_tools}
+        return npc_tools
     
-    def get_llm_response(self, request, **kwargs):
+    def _get_llm_response(self, request, **kwargs):
         """Get a response from the LLM"""
-        # Log the request
-        log_entry(self.name, "llm_request", {"prompt": request})
         
         # Call the LLM
         response = get_llm_response(
@@ -625,10 +642,11 @@ class NPC:
             provider=self.provider, 
             npc=self, 
             **kwargs
-        )
-        
-        # Log the response
-        log_entry(self.name, "llm_response", {"response": response})
+        )        
+        if self.db_conn is not None:
+            # fix so these are the same as the ones in command_history.
+            log_entry(self.name, "llm_request", {"prompt": request})
+            log_entry(self.name, "llm_response", {"response": response})
         
         return response
     
@@ -637,15 +655,10 @@ class NPC:
         # Find the tool
         if tool_name in self.tools_dict:
             tool = self.tools_dict[tool_name]
-        elif tool_name in self.all_tools_dict:
-            tool = self.all_tools_dict[tool_name]
+        elif tool_name in self.tools_dict:
+            tool = self.tools_dict[tool_name]
         else:
             return {"error": f"Tool '{tool_name}' not found"}
-        
-        # Log the tool execution
-        log_entry(self.name, "tool_execution", {"tool": tool_name, "inputs": inputs})
-        
-        # Execute the tool
         result = tool.execute(
             input_values=inputs,
             tools_dict=self.tools_dict,
@@ -654,9 +667,9 @@ class NPC:
             provider=self.provider,
             npc=self
         )
-        
-        # Log the result
-        log_entry(self.name, "tool_result", {"tool": tool_name, "result": result})
+        if self.db_conn is not None:
+            log_entry(self.name, "tool_execution", {"tool": tool_name, "inputs": inputs})
+            log_entry(self.name, "tool_result", {"tool": tool_name, "result": result})
         
         return result
     
@@ -679,7 +692,7 @@ class NPC:
     
     def handle_agent_pass(self, npc_to_pass, command, messages=None, context=None, shared_context=None):
         """Pass a command to another NPC"""
-        # Handle case where npc_to_pass is already an NPC object
+        print('handling agent pass')
         if isinstance(npc_to_pass, NPC):
             target_npc = npc_to_pass
         else:
@@ -747,7 +760,11 @@ class NPC:
         return f"NPC: {self.name}\nDirective: {self.primary_directive}\nModel: {self.model}"
 
 class Team:
-    def __init__(self, team_path=None, npcs=None, db_conn=None):
+    def __init__(self, 
+                 team_path=None, 
+                 npcs=None, 
+                 tools=None,                   
+                 db_conn=None):
         """
         Initialize an NPC team from directory or list of NPCs
         
@@ -756,40 +773,39 @@ class Team:
             npcs: List of NPC objects
             db_conn: Database connection
         """
-        # Initialize basic attributes
         self.npcs = {}
         self.sub_teams = {}
-        self.tools = {}
+        self.tools_dict = tools or {}
         self.db_conn = db_conn
         self.team_path = os.path.expanduser(team_path) if team_path else None
         
-        # Set team name from path or default
         if team_path:
             self.team_name = os.path.basename(os.path.abspath(team_path))
         else:
             self.team_name = "custom_team"
         
-        # Load team from directory or list of NPCs
         if team_path:
+            print('loading npc team from directory')
             self._load_from_directory()
         elif npcs:
-            # Add NPCs directly
             for npc in npcs:
                 self.npcs[npc.name] = npc
             
-        # Set up shared context
         self.shared_context = {
-            "intermediate_results": {},  # Store results each NPC produces
-            "data": {},                  # Active data being analyzed
-            "execution_history": [],     # Track execution
-            "npc_messages": {}           # Track messages by NPC
-        }
+            "intermediate_results": {},
+            "dataframes": {},
+            "memories": {},          
+            
+            "execution_history": [],   
+            "npc_messages": {}                 
+            }
         
-        # Set up Jinja environment
         self.jinja_env = Environment(undefined=SilentUndefined)
         
-        # Initialize logging
-        init_db_tables()
+            
+        if db_conn is not None:
+            init_db_tables()
+            
         
     def _load_from_directory(self):
         """Load team from directory"""
@@ -801,11 +817,13 @@ class Team:
         
         # Load NPCs
         for filename in os.listdir(self.team_path):
+            print('filename: ', filename)
             if filename.endswith(".npc"):
                 try:
                     npc_path = os.path.join(self.team_path, filename)
                     npc = NPC(npc_path, db_conn=self.db_conn)
                     self.npcs[npc.name] = npc
+                    
                 except Exception as e:
                     print(f"Error loading NPC {filename}: {e}")
         
@@ -813,7 +831,7 @@ class Team:
         tools_dir = os.path.join(self.team_path, "tools")
         if os.path.exists(tools_dir):
             for tool in load_tools_from_directory(tools_dir):
-                self.tools[tool.tool_name] = tool
+                self.tools_dict[tool.tool_name] = tool
         
         # Load sub-teams (subfolders)
         self._load_sub_teams()
@@ -855,9 +873,8 @@ class Team:
     def get_foreman(self):
         """
         Get the foreman (coordinator) for this team.
-        The foreman is determined by:
-        1. Explicitly defined foreman in team.ctx
-        2. First NPC in the team as a fallback
+        The foreman is set only if explicitly defined in the context. 
+                
         """
         # Check for explicit foreman in context
         if hasattr(self, 'context') and self.context and 'foreman' in self.context:
@@ -873,11 +890,23 @@ class Team:
                         return self.npcs[foreman_name]
             elif foreman_ref in self.npcs:
                 return self.npcs[foreman_ref]
-        
-        # Default to first NPC
-        if self.npcs:
-            return list(self.npcs.values())[0]
-        
+        else:
+            foreman_model=self.context.get('model', NPCSH_CHAT_MODEL),
+            foreman_provider=self.context.get('model', NPCSH_CHAT_PROVIDER),
+            foreman_api_key=self.context.get('api_key', None),
+            foreman_api_url=self.context.get('api_url', None)
+            
+
+            foreman = NPC(name='foreman', 
+                          primary_directive="""You are the foreman of the team, coordinating activities 
+                                                between NPCs on the team, verifying that results from 
+                                                NPCs are high quality and can help to adequately answer 
+                                                user requests.""", 
+                            model=foreman_model,
+                            provider=foreman_provider,
+                            api_key=foreman_api_key,
+                            api_url=foreman_api_url,                            
+                                                )
         return None
     
     def get_npc(self, npc_ref):

@@ -4,6 +4,7 @@ import readline
 import atexit
 from inspect import isgenerator
 from termcolor import colored
+from sqlalchemy import create_engine
 from npcpy.npc_sysenv import (
     print_and_process_stream_with_markdown,
     NPCSH_STREAM_OUTPUT,
@@ -32,7 +33,7 @@ from npcpy.shell_helpers import (
     orange,  # For colored prompt
 )
 from npcpy.npc_compiler import (
-    NPC,
+    NPC, Team
 )
 
 import argparse
@@ -77,22 +78,6 @@ def main() -> None:
         db_path = os.path.expanduser("~/npcsh_history.db")
 
     command_history = CommandHistory(db_path)
-    valid_commands = [
-        "/compile",
-        "/com",
-        "/whisper",
-        "/notes",
-        "/data",
-        "/cmd",
-        "/command",
-        "/set",
-        "/sample",
-        "/spool",
-        "/sp",
-        "/help",
-        "/exit",
-        "/quit",
-    ]
 
     readline.set_completer_delims(" \t\n")
     readline.set_completer(complete)
@@ -159,8 +144,9 @@ def main() -> None:
     current_npc = None
     messages = None
     current_conversation_id = start_new_conversation()
-
-    # --- Minimal Piped Input Handling ---
+    team = Team(team_path=npc_directory)
+    sibiji = NPC(file=os.path.expanduser("~/.npcsh/npc_team/sibiji.npc")    )
+    npc = sibiji
     if not sys.stdin.isatty():
         for line in sys.stdin:
             user_input = line.strip()
@@ -172,7 +158,8 @@ def main() -> None:
             result = execute_command(
                 user_input,
                 db_path,
-                current_npc,
+                npc = npc,
+                team=team,
                 model=NPCSH_CHAT_MODEL,
                 provider=NPCSH_CHAT_PROVIDER,
                 messages=messages,
@@ -188,6 +175,7 @@ def main() -> None:
             model = result.get("model")
             provider = result.get("provider")
             npc = result.get("npc")
+            team = result.get("team")
             messages = result.get("messages")
             current_path = result.get("current_path")
             attachments = result.get("attachments")
@@ -196,7 +184,7 @@ def main() -> None:
                 if isinstance(npc, NPC)
                 else npc if isinstance(npc, str) else None
             )
-
+            
             save_conversation_message(
                 command_history,
                 conversation_id,
@@ -237,7 +225,9 @@ def main() -> None:
 
             prompt = readline_safe_prompt(prompt)
             user_input = get_multiline_input(prompt).strip()
-
+            if not user_input:
+                continue
+            
             if user_input.lower() in ["exit", "quit"]:
                 if current_npc:
                     print(f"Exiting {current_npc.name} mode.")
@@ -246,12 +236,12 @@ def main() -> None:
                 else:
                     print("Goodbye!")
                     break
-            # print(current_npc, "current npc fore command execution")
-            # Execute the command and capture the result
+            print(f"{npc.name}>", end="")
+
             result = execute_command(
                 user_input,
-                db_path,
-                current_npc=current_npc,
+                npc= npc,
+                team=team,
                 model=NPCSH_CHAT_MODEL,
                 provider=NPCSH_CHAT_PROVIDER,
                 messages=messages,
@@ -266,9 +256,9 @@ def main() -> None:
             # model, provider, npc, timestamp, role, content
             # also messages
 
-            if "current_npc" in result:
+            if "npc" in result:
 
-                current_npc = result["current_npc"]
+                npc = result["npc"]
             output = result.get("output")
 
             conversation_id = result.get("conversation_id")
@@ -298,6 +288,9 @@ def main() -> None:
                 attachments=attachments,
             )
 
+
+            #import pdb 
+            #pdb.set_trace()
             str_output = ""
             try:
                 if NPCSH_STREAM_OUTPUT and hasattr(output, "__iter__"):

@@ -269,7 +269,7 @@ def analyze_image(
                 if stream:
                     # print("going to stream")
                     return get_stream(
-                        messages, images=[image_info], npc=npc, **model_kwargs
+                        messages, images=[image_info], npc=npc
                     )
 
                 else:

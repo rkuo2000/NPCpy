@@ -154,18 +154,12 @@ def get_litellm_stream(
             if last_user_message not in messages:
                 messages.append(last_user_message)
 
-        # Prepare API call parameters
-        # print("provider", provider)
-        # print("model", model)
-
         api_params = {
             "messages": messages,
             "stream": True,
         }
-        # print(api_params["model"])
 
         if api_key is not None and provider == "openai-like":
-            #print(api_key)
             api_params["api_key"] = api_key
 
         if api_url is not None and provider == "openai-like":
@@ -177,11 +171,9 @@ def get_litellm_stream(
         else:
             model_str = model
         api_params["model"] = model_str
-        # Add tools if provided
         if tools:
             api_params["tools"] = tools
 
-        # Add tool choice if specified
         if tool_choice:
             api_params["tool_choice"] = tool_choice
         if kwargs:
@@ -201,7 +193,6 @@ def get_litellm_stream(
                     "user",
                 ]:
                     api_params[key] = value
-        # print(api_params)
         stream = completion(**api_params)
 
         for chunk in stream:
