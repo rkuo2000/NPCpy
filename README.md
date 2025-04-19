@@ -17,7 +17,7 @@ Interested to stay in the loop and to hear the latest and greatest about `npcpy`
 Build with sibiji the spider who will help you weave your agent web! 
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/cagostino/npcsh/main/npcsh/npcsh.png" alt="npcsh logo with sibiji the spider">
+  <img src="https://raw.githubusercontent.com/cagostino/npcsh/main/npcpy/npcsh.png" alt="npcsh logo with sibiji the spider">
 </p>
 
 
