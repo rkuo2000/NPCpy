@@ -3,10 +3,11 @@
 # NPC Toolkit
 
 
-- `npcpy` is a python-based AI Agent framework designed to easily integrate Large Language Models and AI agents into python systems.
+- `npcpy` is a python framework designed to easily integrate Large Language Models and AI agents into python systems.
 - The NPC Shell `npcsh` provides a drop-in replacement for one's bash shell with natural language processing capabilities and a suite of built-in tools (macros) for tasks like voice control, image generation, and web searching. Through it's simple REPL system, one can interact with agents and orchestrate agent teams.
 - With the `npc` CLI, users can use the same tools and macros of the NPC shell through a CLI and provides a quick and simple way to RESTfully serve an NPC Team to receive HTTP requests.
 - The NPC Toolkit integrates with local and enterprise LLM providers through its LiteLLM integration, allowing users to run inference from Ollama, LMStudio, OpenAI, Anthropic, Gemini, and Deepseek, making it a versatile tool for both simple commands and sophisticated AI-driven tasks. All agentic capabilities are built and tested using small local models (like `llama3.2`) to ensure the agentic capabilities function even at the edge of computing.
+
 
 Read the docs at [npcsh.readthedocs.io](https://npcsh.readthedocs.io/en/latest/)
 
@@ -14,11 +15,8 @@ There is a graphical user interface that makes use of the NPC Toolkit through th
 
 Interested to stay in the loop and to hear the latest and greatest about `npcpy` and `npcsh` ? Be sure to sign up for the [newsletter](https://forms.gle/n1NzQmwjsV4xv1B2A)!
 
-Build with sibiji the spider who will help you weave your agent web! 
 
-<p align="center">
-  <img src="https://raw.githubusercontent.com/cagostino/npcsh/main/npcpy/npcsh.png" alt="npcsh logo with sibiji the spider">
-</p>
+
 
 
 ## Star History
@@ -26,7 +24,7 @@ Build with sibiji the spider who will help you weave your agent web!
 [![Star History Chart](https://api.star-history.com/svg?repos=cagostino/npcsh&type=Date)](https://star-history.com/#cagostino/npcsh&Date)
 
 ## TLDR Cheat Sheet for NPC shell and cli
-Below is a cheat sheet that shows how to use the NPC Toolkit's macro commands in both the shell and the CLI. For the `npcsh`` commands to work, one must activate `npcsh` by typing it in a shell.
+The NPC shell and cli let users iterate and experiiment with AI in a natural way. Below is a cheat sheet that shows how to use the NPC Toolkit's macro commands in both the shell and the CLI. For the `npcsh` commands to work, one must activate `npcsh` by typing it in a shell.
 
 | Task | npc CLI | npcsh |
 |----------|----------|----------|
@@ -37,17 +35,24 @@ Below is a cheat sheet that shows how to use the NPC Toolkit's macro commands in
 | Enter a chat with an NPC (NPC needs to be compiled first) | npc chat -n npc_name | /spool npc=<npc_name> |
 | Generate image    | npc vixynt 'prompt'  | /vixynt prompt   |
 | Get a sample LLM response  | npc sample 'prompt'   | /sample prompt for llm  |
-| Search for a term in the npcsh_db only in conversations with a specific npc | npc rag -n 'npc_name' -f 'filename' -q 'query' | /rag -n 'npc_name' -f 'filename' -q 'query' |
 | Search the web | npc search -q "cal golden bears football schedule" -sp perplexity | /search -p perplexity 'cal bears football schedule' |
 | Serve an NPC team | npc serve --port 5337 --cors='http://localhost:5137/' | /serve --port 5337 --cors='http://localhost:5137/' |
 | Screenshot analysis  | npc ots |  /ots  |
 | Voice Chat    | npc whisper -n 'npc_name'   | /whisper   |
 
 
+When beginning, `npcsh` initializes a set of agents that you can use and tweak as you go. Our mascot agent is sibiji the spider and he will help you weave your agent web! 
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/cagostino/npcsh/main/npcpy/npcsh.png" alt="npcsh logo with sibiji the spider">
+</p>
+
+
+
 ## Python Examples
 Integrate `npcpy` into your Python projects for additional flexibility. Below are a few examples of how to use the library programmatically.
 
-### Example 1: using npcsh's get_llm_response and get_stream
+### Example 1: using npcpy's get_llm_response and get_stream
 
 ```python
 from npcpy.llm_funcs import get_llm_response
@@ -93,8 +98,14 @@ response = get_llm_response("What is the capital of France? Respond with a json 
 
 #stream responses
 
-response = get_stream("What is the capital of France? Respond with a json object containing 'capital' as the key and the capital as the value.", )
+#deepseek
+response = get_stream("What is the moon in the summer in the rain?", model='deepseek-chat', provider='deepseek')
 
+#gemini
+response = get_stream("What is the moon in the summer in the rain?", model='gemini-2.0-flash-lite', provider='gemini')
+
+#hugginface model cards
+response = get_stream("What is the moon in the summer in the rain?", model='hf.co/caug37/TinyTim', provider='ollama')
 
 ```
 
