@@ -46,7 +46,7 @@ try:
     import wave
     import queue
 
-    from npcpy.audio import (
+    from npcpy.data.audio import (
         cleanup_temp_files,
         FORMAT,
         CHANNELS,
@@ -75,7 +75,7 @@ except:
         "Could not load the sentence-transformers package. If you want to use it or other local AI features, please run `pip install npcsh[local]` ."
     )
 
-from npcpy.load_data import (
+from npcpy.data.load import (
     load_pdf,
     load_csv,
     load_json,
@@ -99,13 +99,13 @@ from npcpy.npc_sysenv import (
     NPCSH_VIDEO_GEN_PROVIDER,
     print_and_process_stream
 )
-from npcpy.command_history import (
+from npcpy.memory.command_history import (
     CommandHistory,
     save_attachment_to_message,
     save_conversation_message,
     start_new_conversation,
 )
-from npcpy.embeddings import search_similar_texts, chroma_client
+from npcpy.gen.embeddings import search_similar_texts, chroma_client
 
 from npcpy.llm_funcs import (
     execute_llm_command,
@@ -119,7 +119,7 @@ from npcpy.llm_funcs import (
     get_embeddings,
     get_stream,
 )
-from npcpy.plonk import plonk, action_space
+from npcpy.plonk.plonk import plonk, action_space
 from npcpy.helpers import get_db_npcs, get_npc_path
 
 from npcpy.npc_compiler import (
@@ -130,8 +130,8 @@ from npcpy.npc_compiler import (
 )
 
 
-from npcpy.search import rag_search, search_web
-from npcpy.image import capture_screenshot, analyze_image
+from npcpy.data.web import rag_search, search_web
+from npcpy.data.image import capture_screenshot, analyze_image
 
 # from npcpy.audio import calibrate_silence, record_audio, speak_text
 from rich.console import Console
@@ -402,6 +402,252 @@ def change_directory(command_parts: list, messages: list) -> dict:
         return {"messages": messages, "output": f"Permission denied: {new_dir}"}
 
 
+def enter_data_mode(npc: Any = None) -> None:
+    """
+    Function Description:
+        This function is used to enter the data mode.
+    Args:
+
+    Keyword Args:
+        npc : Any : The NPC object.
+    Returns:
+        None
+    """
+    npc_name = npc.name if npc else "data_analyst"
+    print(f"Entering data mode (NPC: {npc_name}). Type '/dq' to exit.")
+
+    exec_env = {
+        "pd": pd,
+        "np": np,
+        "plt": plt,
+        "os": os,
+        "npc": npc,
+    }
+
+    while True:
+        try:
+            user_input = input(f"{npc_name}> ").strip()
+            if user_input.lower() == "/dq":
+                break
+            elif user_input == "":
+                continue
+
+            # First check if input exists in exec_env
+            if user_input in exec_env:
+                result = exec_env[user_input]
+                if result is not None:
+                    if isinstance(result, pd.DataFrame):
+                        print(result.to_string())
+                    else:
+                        print(result)
+                continue
+
+            # Then check if it's a natural language query
+            if not any(
+                keyword in user_input
+                for keyword in [
+                    "=",
+                    "+",
+                    "-",
+                    "*",
+                    "/",
+                    "(",
+                    ")",
+                    "[",
+                    "]",
+                    "{",
+                    "}",
+                    "import",
+                ]
+            ):
+                if "df" in exec_env and isinstance(exec_env["df"], pd.DataFrame):
+                    df_info = {
+                        "shape": exec_env["df"].shape,
+                        "columns": list(exec_env["df"].columns),
+                        "dtypes": exec_env["df"].dtypes.to_dict(),
+                        "head": exec_env["df"].head().to_dict(),
+                        "summary": exec_env["df"].describe().to_dict(),
+                    }
+
+                    analysis_prompt = f"""Based on this DataFrame info: {df_info}
+                    Generate Python analysis commands to answer: {user_input}
+                    Return each command on a new line. Do not use markdown formatting or code blocks."""
+
+                    analysis_response = npc.get_llm_response(analysis_prompt).get(
+                        "response", ""
+                    )
+                    analysis_commands = [
+                        cmd.strip()
+                        for cmd in analysis_response.replace("```python", "")
+                        .replace("```", "")
+                        .split("\n")
+                        if cmd.strip()
+                    ]
+                    results = []
+
+                    print("\nAnalyzing data...")
+                    for cmd in analysis_commands:
+                        if cmd.strip():
+                            try:
+                                result = eval(cmd, exec_env)
+                                if result is not None:
+                                    render_markdown(f"\n{cmd} ")
+                                    if isinstance(result, pd.DataFrame):
+                                        render_markdown(result.to_string())
+                                    else:
+                                        render_markdown(result)
+                                    results.append((cmd, result))
+                            except SyntaxError:
+                                try:
+                                    exec(cmd, exec_env)
+                                except Exception as e:
+                                    print(f"Error in {cmd}: {str(e)}")
+                            except Exception as e:
+                                print(f"Error in {cmd}: {str(e)}")
+
+                    if results:
+                        interpretation_prompt = f"""Based on these analysis results:
+                        {[(cmd, str(result)) for cmd, result in results]}
+
+                        Provide a clear, concise interpretation of what we found in the data.
+                        Focus on key insights and patterns. Do not use markdown formatting."""
+
+                        print("\nInterpretation:")
+                        interpretation = npc.get_llm_response(
+                            interpretation_prompt
+                        ).get("response", "")
+                        interpretation = interpretation.replace("```", "").strip()
+                        render_markdown(interpretation)
+                    continue
+
+            # If not in exec_env and not natural language, try as Python code
+            try:
+                result = eval(user_input, exec_env)
+                if result is not None:
+                    if isinstance(result, pd.DataFrame):
+                        print(result.to_string())
+                    else:
+                        print(result)
+            except SyntaxError:
+                exec(user_input, exec_env)
+            except Exception as e:
+                print(f"Error: {str(e)}")
+
+        except KeyboardInterrupt:
+            print("\nKeyboardInterrupt detected. Exiting data mode.")
+            break
+        except Exception as e:
+            print(f"Error: {str(e)}")
+
+    return
+
+def enter_data_analysis_mode(npc: Any = None) -> None:
+    """
+    Function Description:
+        This function is used to enter the data analysis mode.
+    Args:
+
+    Keyword Args:
+        npc : Any : The NPC object.
+    Returns:
+        None
+    """
+
+    npc_name = npc.name if npc else "data_analyst"
+    print(f"Entering data analysis mode (NPC: {npc_name}). Type '/daq' to exit.")
+
+    dataframes = {}  # Dict to store dataframes by name
+    context = {"dataframes": dataframes}  # Context to store variables
+    messages = []  # For conversation history if needed
+
+    while True:
+        user_input = input(f"{npc_name}> ").strip()
+
+        if user_input.lower() == "/daq":
+            break
+
+        # Add user input to messages for context if interacting with LLM
+        messages.append({"role": "user", "content": user_input})
+
+        # Process commands
+        if user_input.lower().startswith("load "):
+            # Command format: load <file_path> as <df_name>
+            try:
+                parts = user_input.split()
+                file_path = parts[1]
+                if "as" in parts:
+                    as_index = parts.index("as")
+                    df_name = parts[as_index + 1]
+                else:
+                    df_name = "df"  # Default dataframe name
+                # Load data into dataframe
+                df = pd.read_csv(file_path)
+                dataframes[df_name] = df
+                print(f"Data loaded into dataframe '{df_name}'")
+            except Exception as e:
+                print(f"Error loading data: {e}")
+
+        elif user_input.lower().startswith("sql "):
+            # Command format: sql <SQL query>
+            try:
+                query = user_input[4:]  # Remove 'sql ' prefix
+                df = pd.read_sql_query(query, npc.db_conn)
+                print(df)
+                # Optionally store result in a dataframe
+                dataframes["sql_result"] = df
+                print("Result stored in dataframe 'sql_result'")
+
+            except Exception as e:
+                print(f"Error executing SQL query: {e}")
+
+        elif user_input.lower().startswith("plot "):
+            # Command format: plot <pandas plotting code>
+            try:
+                code = user_input[5:]  # Remove 'plot ' prefix
+                # Prepare execution environment
+                exec_globals = {"pd": pd, "plt": plt, **dataframes}
+                exec(code, exec_globals)
+                plt.show()
+            except Exception as e:
+                print(f"Error generating plot: {e}")
+
+        elif user_input.lower().startswith("exec "):
+            # Command format: exec <Python code>
+            try:
+                code = user_input[5:]  # Remove 'exec ' prefix
+                # Prepare execution environment
+                exec_globals = {"pd": pd, "plt": plt, **dataframes}
+                exec(code, exec_globals)
+                # Update dataframes with any new or modified dataframes
+                dataframes.update(
+                    {
+                        k: v
+                        for k, v in exec_globals.items()
+                        if isinstance(v, pd.DataFrame)
+                    }
+                )
+            except Exception as e:
+                print(f"Error executing code: {e}")
+
+        elif user_input.lower().startswith("help"):
+            # Provide help information
+            print(
+                """
+Available commands:
+- load <file_path> as <df_name>: Load CSV data into a dataframe.
+- sql <SQL query>: Execute SQL query.
+- plot <pandas plotting code>: Generate plots using matplotlib.
+- exec <Python code>: Execute arbitrary Python code.
+- help: Show this help message.
+- /daq: Exit data analysis mode.
+"""
+            )
+
+        else:
+            # Unrecognized command
+            print("Unrecognized command. Type 'help' for a list of available commands.")
+
+    print("Exiting data analysis mode.")
 def log_action(action: str, detail: str = "") -> None:
     """
     Function Description:
@@ -815,230 +1061,8 @@ def execute_splat_command():
     return
 
 
-def execute_rag_command(
-    command: str,
-    messages=None,
-) -> dict:
-    """
-    Execute the RAG command with support for embedding generation using
-    nomic-embed-text.
-    """
-
-    if messages is None:
-        messages = []
-
-    parts = command.split()
-    search_terms = []
-    params = {}
-    file_list = []
-
-    # Parse command parts
-    for i, part in enumerate(parts):
-        if "=" in part:  # This is a parameter
-            key, value = part.split("=", 1)
-            params[key.strip()] = value.strip()
-        elif part.startswith("-f"):  # Handle the file list
-            if i + 1 < len(parts):
-                wildcard_pattern = parts[i + 1]
-                file_list.extend(glob.glob(wildcard_pattern))
-        else:  # This is part of the search term
-            search_terms.append(part)
-
-    # print(params)
-    # -top_k  will also be a flaggable param
-    if "-top_k" in params:
-        top_k = int(params["-top_k"])
-    else:
-        top_k = 5
-
-    # If no files found, inform the user
-    if not file_list:
-        return {
-            "messages": messages,
-            "output": "No files found matching the specified pattern.",
-        }
-
-    search_term = " ".join(search_terms)
-    docs_to_embed = []
-
-    # try:
-    # Load each file and generate embeddings
-    for filename in file_list:
-        extension = os.path.splitext(filename)[1].lower()
-        if os.path.exists(filename):
-            if extension in [
-                ".txt",
-                ".csv",
-                ".yaml",
-                ".json",
-                ".md",
-                ".r",
-                ".c",
-                ".java",
-                ".cpp",
-                ".h",
-                ".hpp",
-                ".xlsx",
-                ".py",
-                ".js",
-                ".ts",
-                ".html",
-                ".css",
-                ".ipynb",
-                ".pdf",
-                ".docx",
-                ".pptx",
-                ".ppt",
-                ".npc",
-                ".tool",
-                ".doc",
-                ".xls",
-            ]:
-                if extension == ".csv":
-                    df = pd.read_csv(filename)
-                    file_texts = df.apply(
-                        lambda row: " ".join(row.values.astype(str)), axis=1
-                    ).tolist()
-                else:
-                    with open(filename, "r", encoding="utf-8") as file:
-                        file_texts = file.readlines()
-                    file_texts = [
-                        line.strip() for line in file_texts if line.strip() != ""
-                    ]
-                    docs_to_embed.extend(file_texts)
-            else:
-                return {
-                    "messages": messages,
-                    "output": f"Unsupported file type: {extension} for file {filename}",
-                }
-
-    similar_texts = search_similar_texts(
-        search_term,
-        docs_to_embed=docs_to_embed,
-        top_k=top_k,  # Adjust as necessary
-    )
-
-    # Format results
-    output = "Found similar texts:\n\n"
-    if similar_texts:
-        for result in similar_texts:
-            output += f"Score: {result['score']:.3f}\n"
-            output += f"Text: {result['text']}\n"
-            if "id" in result:
-                output += f"ID: {result['id']}\n"
-            output += "\n"
-    else:
-        output = "No similar texts found in the database."
-
-    # Additional information about processed files
-    output += "\nProcessed Files:\n"
-    output += "\n".join(file_list)
-
-    return {"messages": messages, "output": output}
-
-    # except Exception as e:
-    #    return {
-    #        "messages": messages,
-    #        "output": f"Error during RAG search: {str(e)}",
-    #    }
 
 
-def filter_by_date(
-    similar_texts: List[dict], start_date: str, end_date: str
-) -> List[dict]:
-    """
-    Filter the similar texts based on start and end dates.
-    Args:
-        similar_texts (List[dict]): The similar texts to filter.
-        start_date (str): The start date in 'YYYY-MM-DD' format.
-        end_date (str): The end date in 'YYYY-MM-DD' format.
-
-    Returns:
-        List[dict]: Filtered similar texts.
-    """
-    filtered_results = []
-    start = datetime.strptime(start_date, "%Y-%m-%d")
-    end = datetime.strptime(end_date, "%Y-%m-%d")
-
-    for text in similar_texts:
-        text_date = datetime.strptime(
-            text["date"], "%Y-%m-%d"
-        )  # Assuming 'date' is an attribut
-
-        if start <= text_date <= end:
-            filtered_results.append(text)
-
-    return filtered_results
-
-
-def execute_search_command(
-    command: str,
-    messages=None,
-    provider: str = None,
-):
-    """
-    Function Description:
-        Executes a search command.
-    Args:
-        command : str : Command
-        db_path : str : Database path
-
-    Keyword Args:
-        embedding_model : None : Embedding model
-        current_npc : None : Current NPC
-        text_data : None : Text data
-        text_data_embedded : None : Embedded text data
-        messages : None : Messages
-    Returns:
-        dict : dict : Dictionary
-
-    """
-    # search commands will bel ike :
-    # '/search -p default = google "search term" '
-    # '/search -p perplexity ..
-    # '/search -p google ..
-    # extract provider if its there
-    # check for either -p or --p
-
-    search_command = command.split()
-    if any("-p" in s for s in search_command) or any(
-        "--provider" in s for s in search_command
-    ):
-        provider = (
-            search_command[search_command.index("-p") + 1]
-            if "-p" in search_command
-            else search_command[search_command.index("--provider") + 1]
-        )
-    else:
-        provider = None
-    if any("-n" in s for s in search_command) or any(
-        "--num_results" in s for s in search_command
-    ):
-        num_results = (
-            search_command[search_command.index("-n") + 1]
-            if "-n" in search_command
-            else search_command[search_command.index("--num_results") + 1]
-        )
-    else:
-        num_results = 5
-
-    # remove the -p and provider from the command string
-    command = command.replace(f"-p {provider}", "").replace(
-        f"--provider {provider}", ""
-    )
-    result = search_web(command, num_results=num_results, provider=provider)
-    if messages is None:
-        messages = []
-        messages.append({"role": "user", "content": command})
-
-    messages.append(
-        {"role": "assistant", "content": result[0] + f" \n Citation Links: {result[1]}"}
-    )
-
-    return {
-        "messages": messages,
-        "output": result[0] + f"\n\n\n Citation Links: {result[1]}",
-    }
 
 
 def extract_tool_inputs(args: List[str], tool: Tool) -> Dict[str, Any]:
@@ -2214,22 +2238,6 @@ def execute_set_command(command: str, value: str) -> str:
     return f"{command.capitalize()} has been set to: {value}"
 
 
-def flush_messages(n: int, messages: list) -> dict:
-    if n <= 0:
-        return {
-            "messages": messages,
-            "output": "Error: 'n' must be a positive integer.",
-        }
-
-    removed_count = min(n, len(messages))  # Calculate how many to remove
-    del messages[-removed_count:]  # Remove the last n messages
-
-    return {
-        "messages": messages,
-        "output": f"Flushed {removed_count} message(s). Context count is now {len(messages)} messages.",
-    }
-
-
 def rehash_last_message(
     conversation_id: str,
     model: str,
@@ -2722,416 +2730,6 @@ def execute_command_stream(
             )
 
 
-def enter_whisper_mode(
-    messages: list = None,
-    npc: Any = None,
-    team: Team = None,
-    spool=False,
-    continuous=False,
-    stream=True,
-    tts_model="kokoro",
-    voice="af_heart",  # Default voice,
-) -> Dict[str, Any]:
-    # Initialize state
-    running = True
-    is_recording = False
-    recording_data = []
-    buffer_data = []
-    last_speech_time = 0
-
-    print("Entering whisper mode. Initializing...")
-
-    # Update the system message to encourage concise responses
-    concise_instruction = "Please provide brief responses of 1-2 sentences unless the user specifically asks for more detailed information. Keep responses clear and concise."
-
-    model = select_model() if npc is None else npc.model or NPCSH_CHAT_MODEL
-    provider = (
-        NPCSH_CHAT_PROVIDER if npc is None else npc.provider or NPCSH_CHAT_PROVIDER
-    )
-    api_url = NPCSH_API_URL if npc is None else npc.api_url or NPCSH_API_URL
-
-    print(f"\nUsing model: {model} with provider: {provider}")
-
-    system_message = get_system_message(npc) if npc else "You are a helpful assistant."
-
-    # Add conciseness instruction to the system message
-    system_message = system_message + " " + concise_instruction
-
-    if messages is None:
-        messages = [{"role": "system", "content": system_message}]
-    elif messages and messages[0]["role"] == "system":
-        # Update the existing system message
-        messages[0]["content"] = messages[0]["content"] + " " + concise_instruction
-    else:
-        messages.insert(0, {"role": "system", "content": system_message})
-
-    kokoro_pipeline = None
-    if tts_model == "kokoro":
-        try:
-            from kokoro import KPipeline
-            import soundfile as sf
-
-            kokoro_pipeline = KPipeline(lang_code="a")
-            print("Kokoro TTS model initialized")
-        except ImportError:
-            print("Kokoro not installed, falling back to gTTS")
-            tts_model = "gtts"
-
-    # Initialize PyAudio
-    pyaudio_instance = pyaudio.PyAudio()
-    audio_stream = None  # We'll open and close as needed
-    transcription_queue = queue.Queue()
-
-    # Create and properly use the is_speaking event
-    is_speaking = threading.Event()
-    is_speaking.clear()  # Not speaking initially
-
-    speech_queue = queue.Queue(maxsize=20)
-    speech_thread_active = threading.Event()
-    speech_thread_active.set()
-
-    def speech_playback_thread():
-        nonlocal running, audio_stream
-
-        while running and speech_thread_active.is_set():
-            try:
-                # Get next speech item from queue
-                if not speech_queue.empty():
-                    text_to_speak = speech_queue.get(timeout=0.1)
-
-                    # Only process if there's text to speak
-                    if text_to_speak.strip():
-                        # IMPORTANT: Set is_speaking flag BEFORE starting audio output
-                        is_speaking.set()
-
-                        # Safely close the audio input stream before speaking
-                        current_audio_stream = audio_stream
-                        audio_stream = (
-                            None  # Set to None to prevent capture thread from using it
-                        )
-
-                        if current_audio_stream and current_audio_stream.is_active():
-                            current_audio_stream.stop_stream()
-                            current_audio_stream.close()
-
-                        print(f"Speaking full response...")
-
-                        # Generate and play speech
-                        generate_and_play_speech(text_to_speak)
-
-                        # Delay after speech to prevent echo
-                        time.sleep(0.005 * len(text_to_speak))
-                        print(len(text_to_speak))
-
-                        # Clear the speaking flag to allow listening again
-                        is_speaking.clear()
-                else:
-                    time.sleep(0.5)
-            except Exception as e:
-                print(f"Error in speech thread: {e}")
-                is_speaking.clear()  # Make sure to clear the flag if there's an error
-                time.sleep(0.1)
-
-    def safely_close_audio_stream(stream):
-        """Safely close an audio stream with error handling"""
-        if stream:
-            try:
-                if stream.is_active():
-                    stream.stop_stream()
-                stream.close()
-            except Exception as e:
-                print(f"Error closing audio stream: {e}")
-
-    # Start speech thread
-    speech_thread = threading.Thread(target=speech_playback_thread)
-    speech_thread.daemon = True
-    speech_thread.start()
-
-    def generate_and_play_speech(text):
-        try:
-            # Create a temporary file for audio
-            unique_id = str(time.time()).replace(".", "")
-            temp_dir = tempfile.gettempdir()
-            wav_file = os.path.join(temp_dir, f"temp_{unique_id}.wav")
-
-            # Generate speech based on selected TTS model
-            if tts_model == "kokoro" and kokoro_pipeline:
-                # Use Kokoro for generation
-                generator = kokoro_pipeline(text, voice=voice)
-
-                # Get the audio from the generator
-                for _, _, audio in generator:
-                    # Save audio to WAV file
-                    import soundfile as sf
-
-                    sf.write(wav_file, audio, 24000)
-                    break  # Just use the first chunk for now
-            else:
-                # Fall back to gTTS
-                mp3_file = os.path.join(temp_dir, f"temp_{unique_id}.mp3")
-                tts = gTTS(text=text, lang="en", slow=False)
-                tts.save(mp3_file)
-                convert_mp3_to_wav(mp3_file, wav_file)
-
-            # Play the audio
-            wf = wave.open(wav_file, "rb")
-            p = pyaudio.PyAudio()
-
-            stream = p.open(
-                format=p.get_format_from_width(wf.getsampwidth()),
-                channels=wf.getnchannels(),
-                rate=wf.getframerate(),
-                output=True,
-            )
-
-            data = wf.readframes(4096)
-            while data and running:
-                stream.write(data)
-                data = wf.readframes(4096)
-
-            stream.stop_stream()
-            stream.close()
-            p.terminate()
-
-            # Cleanup temp files
-            try:
-                if os.path.exists(wav_file):
-                    os.remove(wav_file)
-                if tts_model == "gtts" and "mp3_file" in locals():
-                    if os.path.exists(mp3_file):
-                        os.remove(mp3_file)
-            except Exception as e:
-                print(f"Error removing temp file: {e}")
-
-        except Exception as e:
-            print(f"Error in TTS process: {e}")
-
-    # Modified speak_text function that just queues text
-    def speak_text(text):
-        speech_queue.put(text)
-
-    def process_input(user_input):
-        nonlocal messages
-
-        # Add user message
-        messages.append({"role": "user", "content": user_input})
-
-        # Process with LLM and collect the ENTIRE response first
-        try:
-            full_response = ""
-
-            # Use get_stream for streaming response
-            check = check_llm_command(
-                user_input,
-                npc=npc,
-                team=team,
-                messages=messages,
-                model=model,
-                provider=provider,
-                stream=True,
-                whisper=True,
-            )
-
-            # Collect the entire response first
-            for chunk in check:
-                if chunk:
-                    chunk_content = "".join(
-                        choice.delta.content
-                        for choice in chunk.choices
-                        if choice.delta.content is not None
-                    )
-
-                    full_response += chunk_content
-
-                    # Show progress in console
-                    print(chunk_content, end="", flush=True)
-
-            print("\n")  # End the progress display
-
-            # Process and speak the entire response at once
-            if full_response.strip():
-                processed_text = process_text_for_tts(full_response)
-                speak_text(processed_text)
-
-            # Add assistant's response to messages
-            messages.append({"role": "assistant", "content": full_response})
-
-        except Exception as e:
-            print(f"Error in LLM response: {e}")
-            speak_text("I'm sorry, there was an error processing your request.")
-
-    # Function to capture and process audio
-    def capture_audio():
-        nonlocal is_recording, recording_data, buffer_data, last_speech_time, running, is_speaking
-        nonlocal audio_stream, transcription_queue
-
-        # Don't try to record if we're speaking
-        if is_speaking.is_set():
-            return False
-
-        try:
-            # Only create a new audio stream if we don't have one
-            if audio_stream is None and not is_speaking.is_set():
-                audio_stream = pyaudio_instance.open(
-                    format=FORMAT,
-                    channels=CHANNELS,
-                    rate=RATE,
-                    input=True,
-                    frames_per_buffer=CHUNK,
-                )
-
-            # Initialize or reset the recording variables
-            is_recording = False
-            recording_data = []
-            buffer_data = []
-
-            print("\nListening for speech...")
-
-            while (
-                running
-                and audio_stream
-                and audio_stream.is_active()
-                and not is_speaking.is_set()
-            ):
-                try:
-                    data = audio_stream.read(CHUNK, exception_on_overflow=False)
-                    if data:
-                        audio_array = np.frombuffer(data, dtype=np.int16)
-                        audio_float = audio_array.astype(np.float32) / 32768.0
-
-                        tensor = torch.from_numpy(audio_float).to(device)
-                        speech_prob = vad_model(tensor, RATE).item()
-                        current_time = time.time()
-
-                        if speech_prob > 0.5:  # VAD threshold
-                            last_speech_time = current_time
-                            if not is_recording:
-                                is_recording = True
-                                print("\nSpeech detected, listening...")
-                                recording_data.extend(buffer_data)
-                                buffer_data = []
-                            recording_data.append(data)
-                        else:
-                            if is_recording:
-                                if (
-                                    current_time - last_speech_time > 1
-                                ):  # silence duration
-                                    is_recording = False
-                                    print("Speech ended, transcribing...")
-
-                                    # Stop stream before transcribing
-                                    safely_close_audio_stream(audio_stream)
-                                    audio_stream = None
-
-                                    # Transcribe in this thread to avoid race conditions
-                                    transcription = transcribe_recording(recording_data)
-                                    if transcription:
-                                        transcription_queue.put(transcription)
-                                    recording_data = []
-                                    return True  # Got speech
-                            else:
-                                buffer_data.append(data)
-                                if len(buffer_data) > int(
-                                    0.65 * RATE / CHUNK
-                                ):  # buffer duration
-                                    buffer_data.pop(0)
-
-                    # Check frequently if we need to stop capturing
-                    if is_speaking.is_set():
-                        safely_close_audio_stream(audio_stream)
-                        audio_stream = None
-                        return False
-
-                except Exception as e:
-                    print(f"Error processing audio frame: {e}")
-                    time.sleep(0.1)
-
-        except Exception as e:
-            print(f"Error in audio capture: {e}")
-
-        # Close stream if we exit without finding speech
-        safely_close_audio_stream(audio_stream)
-        audio_stream = None
-
-        return False
-
-    def process_text_for_tts(text):
-        # Remove special characters that might cause issues in TTS
-        text = re.sub(r"[*<>{}()\[\]&%#@^_=+~]", "", text)
-        text = text.strip()
-        # Add spaces after periods that are followed by words (for better pronunciation)
-        text = re.sub(r"(\w)\.(\w)\.", r"\1 \2 ", text)
-        text = re.sub(r"([.!?])(\w)", r"\1 \2", text)
-        return text
-
-    # Now that functions are defined, play welcome messages
-    speak_text("Entering whisper mode. Please wait.")
-
-    try:
-
-        while running:
-
-            # First check for typed input (non-blocking)
-            import select
-            import sys
-
-            # Don't spam the console with prompts when speaking
-            if not is_speaking.is_set():
-                print(
-                    "\Speak or type your message (or 'exit' to quit): ",
-                    end="",
-                    flush=True,
-                )
-
-            rlist, _, _ = select.select([sys.stdin], [], [], 0.1)
-            if rlist:
-                user_input = sys.stdin.readline().strip()
-                if user_input.lower() in ("exit", "quit", "goodbye"):
-                    print("\nExiting whisper mode.")
-                    break
-                if user_input:
-                    print(f"\nYou (typed): {user_input}")
-                    process_input(user_input)
-                    continue  # Skip audio capture this cycle
-
-            # Then try to capture some audio (if no typed input)
-            if not is_speaking.is_set():  # Only capture if not currently speaking
-                got_speech = capture_audio()
-
-                # If we got speech, process it
-                if got_speech:
-                    try:
-                        transcription = transcription_queue.get_nowait()
-                        print(f"\nYou (spoke): {transcription}")
-                        process_input(transcription)
-                    except queue.Empty:
-                        pass
-            else:
-                # If we're speaking, just wait a bit without spamming the console
-                time.sleep(0.1)
-
-    except KeyboardInterrupt:
-        print("\nInterrupted by user.")
-
-    finally:
-        # Set running to False to signal threads to exit
-        running = False
-        speech_thread_active.clear()
-
-        # Clean up audio resources
-        safely_close_audio_stream(audio_stream)
-
-        if pyaudio_instance:
-            pyaudio_instance.terminate()
-
-        print("\nExiting whisper mode.")
-        speak_text("Exiting whisper mode. Goodbye!")
-        time.sleep(1)
-        cleanup_temp_files()
-
-    return {"messages": messages, "output": "Whisper mode session ended."}
-
-
 def get_context_string(messages):
     context = []
     for message in messages[-5:]:  # Get last 5 messages for context
@@ -3153,650 +2751,7 @@ def input_with_timeout(prompt, timeout=0.1):
     return None
 
 
-def enter_notes_mode(npc: Any = None) -> None:
-    """
-    Function Description:
 
-    Args:
-
-    Keyword Args:
-        npc : Any : The NPC object.
-    Returns:
-        None
-
-    """
-
-    npc_name = npc.name if npc else "sibiji"
-    print(f"Entering notes mode (NPC: {npc_name}). Type '/nq' to exit.")
-
-    while True:
-        note = input("Enter your note (or '/nq' to quit): ").strip()
-
-        if note.lower() == "/nq":
-            break
-
-        save_note(note, npc)
-
-    print("Exiting notes mode.")
-
-
-def save_note(note: str, db_conn, npc: Any = None) -> None:
-    """
-    Function Description:
-        This function is used to save a note.
-    Args:
-        note : str : The note to save.
-
-    Keyword Args:
-        npc : Any : The NPC object.
-    Returns:
-        None
-    """
-    current_dir = os.getcwd()
-    timestamp = datetime.datetime.now().isoformat()
-    npc_name = npc.name if npc else "base"
-    cursor = conn.cursor()
-
-    # Create notes table if it doesn't exist
-    cursor.execute(
-        """
-    CREATE TABLE IF NOT EXISTS notes (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        timestamp TEXT,
-        note TEXT,
-        npc TEXT,
-        directory TEXT
-    )
-    """
-    )
-
-    # Insert the note into the database
-    cursor.execute(
-        """
-    INSERT INTO notes (timestamp, note, npc, directory)
-    VALUES (?, ?, ?, ?)
-    """,
-        (timestamp, note, npc_name, current_dir),
-    )
-
-    conn.commit()
-
-    print("Note saved to database.")
-    # save the note with the current datestamp to the current working directory
-    with open(f"{current_dir}/note_{timestamp}.txt", "w") as f:
-        f.write(note)
-
-
-def enter_data_analysis_mode(npc: Any = None) -> None:
-    """
-    Function Description:
-        This function is used to enter the data analysis mode.
-    Args:
-
-    Keyword Args:
-        npc : Any : The NPC object.
-    Returns:
-        None
-    """
-
-    npc_name = npc.name if npc else "data_analyst"
-    print(f"Entering data analysis mode (NPC: {npc_name}). Type '/daq' to exit.")
-
-    dataframes = {}  # Dict to store dataframes by name
-    context = {"dataframes": dataframes}  # Context to store variables
-    messages = []  # For conversation history if needed
-
-    while True:
-        user_input = input(f"{npc_name}> ").strip()
-
-        if user_input.lower() == "/daq":
-            break
-
-        # Add user input to messages for context if interacting with LLM
-        messages.append({"role": "user", "content": user_input})
-
-        # Process commands
-        if user_input.lower().startswith("load "):
-            # Command format: load <file_path> as <df_name>
-            try:
-                parts = user_input.split()
-                file_path = parts[1]
-                if "as" in parts:
-                    as_index = parts.index("as")
-                    df_name = parts[as_index + 1]
-                else:
-                    df_name = "df"  # Default dataframe name
-                # Load data into dataframe
-                df = pd.read_csv(file_path)
-                dataframes[df_name] = df
-                print(f"Data loaded into dataframe '{df_name}'")
-            except Exception as e:
-                print(f"Error loading data: {e}")
-
-        elif user_input.lower().startswith("sql "):
-            # Command format: sql <SQL query>
-            try:
-                query = user_input[4:]  # Remove 'sql ' prefix
-                df = pd.read_sql_query(query, npc.db_conn)
-                print(df)
-                # Optionally store result in a dataframe
-                dataframes["sql_result"] = df
-                print("Result stored in dataframe 'sql_result'")
-
-            except Exception as e:
-                print(f"Error executing SQL query: {e}")
-
-        elif user_input.lower().startswith("plot "):
-            # Command format: plot <pandas plotting code>
-            try:
-                code = user_input[5:]  # Remove 'plot ' prefix
-                # Prepare execution environment
-                exec_globals = {"pd": pd, "plt": plt, **dataframes}
-                exec(code, exec_globals)
-                plt.show()
-            except Exception as e:
-                print(f"Error generating plot: {e}")
-
-        elif user_input.lower().startswith("exec "):
-            # Command format: exec <Python code>
-            try:
-                code = user_input[5:]  # Remove 'exec ' prefix
-                # Prepare execution environment
-                exec_globals = {"pd": pd, "plt": plt, **dataframes}
-                exec(code, exec_globals)
-                # Update dataframes with any new or modified dataframes
-                dataframes.update(
-                    {
-                        k: v
-                        for k, v in exec_globals.items()
-                        if isinstance(v, pd.DataFrame)
-                    }
-                )
-            except Exception as e:
-                print(f"Error executing code: {e}")
-
-        elif user_input.lower().startswith("help"):
-            # Provide help information
-            print(
-                """
-Available commands:
-- load <file_path> as <df_name>: Load CSV data into a dataframe.
-- sql <SQL query>: Execute SQL query.
-- plot <pandas plotting code>: Generate plots using matplotlib.
-- exec <Python code>: Execute arbitrary Python code.
-- help: Show this help message.
-- /daq: Exit data analysis mode.
-"""
-            )
-
-        else:
-            # Unrecognized command
-            print("Unrecognized command. Type 'help' for a list of available commands.")
-
-    print("Exiting data analysis mode.")
-
-
-def enter_data_mode(npc: Any = None) -> None:
-    """
-    Function Description:
-        This function is used to enter the data mode.
-    Args:
-
-    Keyword Args:
-        npc : Any : The NPC object.
-    Returns:
-        None
-    """
-    npc_name = npc.name if npc else "data_analyst"
-    print(f"Entering data mode (NPC: {npc_name}). Type '/dq' to exit.")
-
-    exec_env = {
-        "pd": pd,
-        "np": np,
-        "plt": plt,
-        "os": os,
-        "npc": npc,
-    }
-
-    while True:
-        try:
-            user_input = input(f"{npc_name}> ").strip()
-            if user_input.lower() == "/dq":
-                break
-            elif user_input == "":
-                continue
-
-            # First check if input exists in exec_env
-            if user_input in exec_env:
-                result = exec_env[user_input]
-                if result is not None:
-                    if isinstance(result, pd.DataFrame):
-                        print(result.to_string())
-                    else:
-                        print(result)
-                continue
-
-            # Then check if it's a natural language query
-            if not any(
-                keyword in user_input
-                for keyword in [
-                    "=",
-                    "+",
-                    "-",
-                    "*",
-                    "/",
-                    "(",
-                    ")",
-                    "[",
-                    "]",
-                    "{",
-                    "}",
-                    "import",
-                ]
-            ):
-                if "df" in exec_env and isinstance(exec_env["df"], pd.DataFrame):
-                    df_info = {
-                        "shape": exec_env["df"].shape,
-                        "columns": list(exec_env["df"].columns),
-                        "dtypes": exec_env["df"].dtypes.to_dict(),
-                        "head": exec_env["df"].head().to_dict(),
-                        "summary": exec_env["df"].describe().to_dict(),
-                    }
-
-                    analysis_prompt = f"""Based on this DataFrame info: {df_info}
-                    Generate Python analysis commands to answer: {user_input}
-                    Return each command on a new line. Do not use markdown formatting or code blocks."""
-
-                    analysis_response = npc.get_llm_response(analysis_prompt).get(
-                        "response", ""
-                    )
-                    analysis_commands = [
-                        cmd.strip()
-                        for cmd in analysis_response.replace("```python", "")
-                        .replace("```", "")
-                        .split("\n")
-                        if cmd.strip()
-                    ]
-                    results = []
-
-                    print("\nAnalyzing data...")
-                    for cmd in analysis_commands:
-                        if cmd.strip():
-                            try:
-                                result = eval(cmd, exec_env)
-                                if result is not None:
-                                    render_markdown(f"\n{cmd} ")
-                                    if isinstance(result, pd.DataFrame):
-                                        render_markdown(result.to_string())
-                                    else:
-                                        render_markdown(result)
-                                    results.append((cmd, result))
-                            except SyntaxError:
-                                try:
-                                    exec(cmd, exec_env)
-                                except Exception as e:
-                                    print(f"Error in {cmd}: {str(e)}")
-                            except Exception as e:
-                                print(f"Error in {cmd}: {str(e)}")
-
-                    if results:
-                        interpretation_prompt = f"""Based on these analysis results:
-                        {[(cmd, str(result)) for cmd, result in results]}
-
-                        Provide a clear, concise interpretation of what we found in the data.
-                        Focus on key insights and patterns. Do not use markdown formatting."""
-
-                        print("\nInterpretation:")
-                        interpretation = npc.get_llm_response(
-                            interpretation_prompt
-                        ).get("response", "")
-                        interpretation = interpretation.replace("```", "").strip()
-                        render_markdown(interpretation)
-                    continue
-
-            # If not in exec_env and not natural language, try as Python code
-            try:
-                result = eval(user_input, exec_env)
-                if result is not None:
-                    if isinstance(result, pd.DataFrame):
-                        print(result.to_string())
-                    else:
-                        print(result)
-            except SyntaxError:
-                exec(user_input, exec_env)
-            except Exception as e:
-                print(f"Error: {str(e)}")
-
-        except KeyboardInterrupt:
-            print("\nKeyboardInterrupt detected. Exiting data mode.")
-            break
-        except Exception as e:
-            print(f"Error: {str(e)}")
-
-    return
-
-
-def enter_spool_mode(
-    inherit_last: int = 0,
-    model: str = None,
-    provider: str = None,
-    npc: Any = None,
-    files: List[str] = None,  # New files parameter
-    rag_similarity_threshold: float = 0.3,
-    device: str = "cpu",
-    messages: List[Dict] = None,
-    conversation_id: str = None,
-    stream: bool = False,
-) -> Dict:
-    """
-    Function Description:
-        This function is used to enter the spool mode where files can be loaded into memory.
-    Args:
-
-        inherit_last : int : The number of last commands to inherit.
-        npc : Any : The NPC object.
-        files : List[str] : List of file paths to load into the context.
-    Returns:
-        Dict : The messages and output.
-
-    """
-
-    command_history = CommandHistory()
-    npc_info = f" (NPC: {npc.name})" if npc else ""
-    print(f"Entering spool mode{npc_info}. Type '/sq' to exit spool mode.")
-
-    spool_context = (
-        messages.copy() if messages else []
-    )  # Initialize context with messages
-
-    loaded_content = {}  # New dictionary to hold loaded content
-
-    # Create conversation ID if not provided
-    if not conversation_id:
-        conversation_id = start_new_conversation()
-
-    command_history = CommandHistory()
-    # Load specified files if any
-    if files:
-        for file in files:
-            extension = os.path.splitext(file)[1].lower()
-            try:
-                if extension == ".pdf":
-                    content = load_pdf(file)["texts"].iloc[0]
-                elif extension == ".csv":
-                    content = load_csv(file)
-                else:
-                    print(f"Unsupported file type: {file}")
-                    continue
-                loaded_content[file] = content
-                print(f"Loaded content from: {file}")
-            except Exception as e:
-                print(f"Error loading {file}: {str(e)}")
-
-    # Add system message to context
-    system_message = get_system_message(npc) if npc else "You are a helpful assistant."
-    if len(spool_context) > 0:
-        if spool_context[0]["role"] != "system":
-            spool_context.insert(0, {"role": "system", "content": system_message})
-    else:
-        spool_context.append({"role": "system", "content": system_message})
-    # Inherit last n messages if specified
-    if inherit_last > 0:
-        last_commands = command_history.get_all(limit=inherit_last)
-        for cmd in reversed(last_commands):
-            spool_context.append({"role": "user", "content": cmd[2]})
-            spool_context.append({"role": "assistant", "content": cmd[4]})
-
-    if npc is not None:
-        if model is None:
-            model = npc.model
-        if provider is None:
-            provider = npc.provider
-
-    while True:
-        try:
-            user_input = input("spool> ").strip()
-            if len(user_input) == 0:
-                continue
-            if user_input.lower() == "/sq":
-                print("Exiting spool mode.")
-                break
-            if user_input.lower() == "/rehash":  # Check for whisper command
-                # send the most recent message
-                print("Rehashing last message...")
-                output = rehash_last_message(
-                    conversation_id,
-                    model=model,
-                    provider=provider,
-                    npc=npc,
-                    stream=stream,
-                )
-                print(output["output"])
-                messages = output.get("messages", [])
-                output = output.get("output", "")
-
-            if user_input.lower() == "/whisper":  # Check for whisper command
-                messages = enter_whisper_mode(spool_context, npc)
-                # print(messages)  # Optionally print output from whisper mode
-                continue  # Continue with spool mode after exiting whisper mode
-
-            if user_input.startswith("/ots"):
-                command_parts = user_input.split()
-                file_path = None
-                filename = None
-
-                # Handle image loading/capturing
-                if len(command_parts) > 1:
-                    filename = command_parts[1]
-                    file_path = os.path.join(os.getcwd(), filename)
-                else:
-                    output = capture_screenshot(npc=npc)
-                    if output and "file_path" in output:
-                        file_path = output["file_path"]
-                        filename = output["filename"]
-
-                if not file_path or not os.path.exists(file_path):
-                    print(f"Error: Image file not found at {file_path}")
-                    continue
-
-                # Get user prompt about the image
-                user_prompt = input(
-                    "Enter a prompt for the LLM about this image (or press Enter to skip): "
-                )
-
-                # Read image file as binary data
-                try:
-                    with open(file_path, "rb") as img_file:
-                        img_data = img_file.read()
-
-                    # Create an attachment for the image
-                    image_attachment = {
-                        "name": filename,
-                        "type": guess_mime_type(filename),
-                        "data": img_data,
-                        "size": len(img_data),
-                    }
-
-                    # Save user message with image attachment
-                    message_id = save_conversation_message(
-                        command_history,
-                        conversation_id,
-                        "user",
-                        (
-                            user_prompt
-                            if user_prompt
-                            else f"Please analyze this image: {filename}"
-                        ),
-                        wd=os.getcwd(),
-                        model=model,
-                        provider=provider,
-                        npc=npc.name if npc else None,
-                        attachments=[image_attachment],
-                    )
-
-                    # Now use analyze_image which will process the image
-                    output = analyze_image(
-                        command_history,
-                        user_prompt,
-                        file_path,
-                        filename,
-                        npc=npc,
-                        stream=stream,
-                        message_id=message_id,  # Pass the message ID for reference
-                    )
-
-                    # Save assistant's response
-                    if output and isinstance(output, str):
-                        save_conversation_message(
-                            command_history,
-                            conversation_id,
-                            "assistant",
-                            output,
-                            wd=os.getcwd(),
-                            model=model,
-                            provider=provider,
-                            npc=npc.name if npc else None,
-                        )
-
-                    # Update spool context with this exchange
-                    spool_context.append(
-                        {"role": "user", "content": user_prompt, "image": file_path}
-                    )
-                    spool_context.append({"role": "assistant", "content": output})
-
-                    if isinstance(output, dict) and "filename" in output:
-                        message = f"Screenshot captured: {output['filename']}\nFull path: {output['file_path']}\nLLM-ready data available."
-                    else:
-                        message = output
-
-                    render_markdown(
-                        output["response"]
-                        if isinstance(output["response"], str)
-                        else str(output["response"])
-                    )
-                    continue
-
-                except Exception as e:
-                    print(f"Error processing image: {str(e)}")
-                    continue
-
-            # Prepare kwargs for get_conversation
-            kwargs_to_pass = {}
-            if npc:
-                kwargs_to_pass["npc"] = npc
-                if npc.model:
-                    kwargs_to_pass["model"] = npc.model
-
-                if npc.provider:
-                    kwargs_to_pass["provider"] = npc.provider
-
-            # Incorporate the loaded content into the prompt for conversation
-            if loaded_content:
-                context_content = ""
-                for filename, content in loaded_content.items():
-                    # now do a rag search with the loaded_content
-                    retrieved_docs = rag_search(
-                        user_input,
-                        content,
-                        similarity_threshold=rag_similarity_threshold,
-                        device=device,
-                    )
-                    if retrieved_docs:
-                        context_content += (
-                            f"\n\nLoaded content from: {filename}\n{content}\n\n"
-                        )
-                if len(context_content) > 0:
-                    user_input += f"""
-                    Here is the loaded content that may be relevant to your query:
-                        {context_content}
-                    Please reference it explicitly in your response and use it for answering.
-                    """
-
-            # Add user input to spool context
-            spool_context.append({"role": "user", "content": user_input})
-
-            # Save user message to conversation history
-            message_id = save_conversation_message(
-                command_history,
-                conversation_id,
-                "user",
-                user_input,
-                wd=os.getcwd(),
-                model=model,
-                provider=provider,
-                npc=npc.name if npc else None,
-            )
-
-            if stream:
-                conversation_result = ""
-                output = get_stream(spool_context, **kwargs_to_pass)
-                conversation_result = print_and_process_stream(output, model, provider)
-                conversation_result = spool_context + [
-                    {"role": "assistant", "content": conversation_result}
-                ]
-            else:
-                conversation_result = get_conversation(spool_context, **kwargs_to_pass)
-
-            # Handle potential errors in conversation_result
-            if isinstance(conversation_result, str) and "Error" in conversation_result:
-                print(conversation_result)  # Print the error message
-                continue  # Skip to the next loop iteration
-            elif (
-                not isinstance(conversation_result, list)
-                or len(conversation_result) == 0
-            ):
-                print("Error: Invalid response from get_conversation")
-                continue
-
-            spool_context = conversation_result  # update spool_context
-
-            # Extract assistant's reply, handling potential KeyError
-            try:
-                # print(spool_context[-1])
-                # print(provider)
-                if provider == "gemini":
-                    assistant_reply = spool_context[-1]["parts"][0]
-                else:
-                    assistant_reply = spool_context[-1]["content"]
-
-            except (KeyError, IndexError) as e:
-                print(f"Error extracting assistant's reply: {e}")
-                print(spool_context[-1])
-                print(
-                    f"Conversation result: {conversation_result}"
-                )  # Print for debugging
-                continue
-
-            # Save assistant's response to conversation history
-            save_conversation_message(
-                command_history,
-                conversation_id,
-                "assistant",
-                assistant_reply,
-                wd=os.getcwd(),
-                model=model,
-                provider=provider,
-                npc=npc.name if npc else None,
-            )
-
-            # sometimes claude responds with unfinished markdown notation. so we need to check if there are two sets
-            # of markdown notation and if not, we add it. so if # markdown notations is odd we add one more
-            if assistant_reply.count("```") % 2 != 0:
-                assistant_reply = assistant_reply + "```"
-
-            if not stream:
-                render_markdown(assistant_reply)
-
-        except (KeyboardInterrupt, EOFError):
-            print("\nExiting spool mode.")
-            break
-
-    return {
-        "messages": spool_context,
-        "output": "\n".join(
-            [msg["content"] for msg in spool_context if msg["role"] == "assistant"]
-        ),
-    }
 
 
 def guess_mime_type(filename):

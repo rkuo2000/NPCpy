@@ -3,18 +3,12 @@ import sys
 import time
 import re
 import pytest
-from npcpy.command_history import CommandHistory
+from npcpy.memory.command_history import CommandHistory
 from npcpy.llm_funcs import (
     get_llm_response,
     execute_llm_command,
     generate_image,
     check_llm_command,
-)
-from npcpy.helpers import (
-    setup_npcsh_config,
-    initialize_base_npcs_if_needed,
-    load_all_files,
-    is_npcsh_initialized,
 )
 
 

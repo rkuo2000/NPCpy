@@ -18,11 +18,11 @@ from jinja2 import Environment, FileSystemLoader, Template, Undefined
 from sqlalchemy import create_engine
 
 from npcpy.llm_funcs import get_llm_response, get_stream, check_llm_command
-from npcpy.helpers import get_npc_path
 from npcpy.npc_sysenv import (
     NPCSH_CHAT_MODEL,
     NPCSH_CHAT_PROVIDER,
     NPCSH_API_URL,
+    get_npc_path,
     )
 
 class SilentUndefined(Undefined):

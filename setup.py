@@ -115,7 +115,7 @@ extra_files = package_files("npcpy/npc_team/")
 
 setup(
     name="npcpy",
-    version="0.3.33",
+    version="0.3.34",
     packages=find_packages(exclude=["tests*"]),
     install_requires=base_requirements,  # Only install base requirements by default
     extras_require={
@@ -126,8 +126,14 @@ setup(
     },
     entry_points={
         "console_scripts": [
-            "npcsh=npcpy.shell:main",
-            "npc=npcpy.cli:main",
+            "npcsh=npcpy.modes.shell:main",
+            "npc=npcpy.modes.cli:main",
+            "pti=npcpy.modes.pti:main",
+            "guac=npcpy.modes.guac:main",
+            "wander=npcpy.modes.wander:main",
+            "deep_research=npcpy.modes.deep_search:main",
+            "spool=npcpy.modes.spool:main",
+            "sleep=npcpy.modes.sleep:main",
         ],
     },
     author="Christopher Agostino",

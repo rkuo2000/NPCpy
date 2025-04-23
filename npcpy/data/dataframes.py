@@ -13,7 +13,7 @@ from npcpy.llm_funcs import get_llm_response
 # from npcpy.audio import process_audio
 # from npcpy.video import process_video
 
-from npcpy.load_data import (
+from npcpy.data.load import (
     load_pdf,
     load_csv,
     load_json,

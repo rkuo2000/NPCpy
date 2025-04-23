@@ -15,28 +15,20 @@ import yaml
 from PIL import Image
 from PIL import ImageFile
 
-from npcpy.command_history import (
+from npcpy.memory.command_history import (
     CommandHistory,
     save_conversation_message,
 )
 from npcpy.npc_compiler import  Tool, NPC
-from npcpy.npc_sysenv import (
-    get_model_and_provider,
-    get_available_models,
-    get_system_message,
-    NPCSH_STREAM_OUTPUT,
-)
-
 
 from npcpy.llm_funcs import (
-    check_llm_command,
+    
     get_llm_response,
     get_stream,
-    get_conversation,
+    
 )
-from npcpy.helpers import get_directory_npcs, get_db_npcs, get_npc_path
 from npcpy.npc_compiler import NPC
-from npcpy.shell_helpers import execute_command, execute_command_stream
+from npcpy.modes.shell_helpers import execute_command, 
 import base64
 
 import json

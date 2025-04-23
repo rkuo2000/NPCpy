@@ -15,7 +15,7 @@ from npcpy.npc_sysenv import (
     NPCSH_SEARCH_PROVIDER,
     print_and_process_stream
 )
-from npcpy.serve import start_flask_server
+from npcpy.modes.serve import start_flask_server
 from npcpy.npc_compiler import (
     
     conjure_team,
@@ -32,9 +32,9 @@ from npcpy.llm_funcs import (
     get_stream,
     get_conversation,
 )
-from npcpy.plonk import plonk, action_space
-from npcpy.search import search_web
-from npcpy.shell_helpers import *
+from npcpy.plonk.plonk import plonk, action_space
+from npcpy.data.web import search_web
+from npcpy.modes.shell_helpers import *
 import os
 import sqlite3
 

@@ -11,19 +11,20 @@ from npcpy.npc_sysenv import (
     NPCSH_CHAT_MODEL,
     NPCSH_CHAT_PROVIDER,
     NPCSH_API_URL,
+    setup_npcsh_config,
+    is_npcsh_initialized,
+    initialize_base_npcs_if_needed,
+    
 )
 
-from npcpy.command_history import (
+from npcpy.memory.command_history import (
     CommandHistory,
     start_new_conversation,
     save_conversation_message,
 )
 from npcpy.helpers import (
-    setup_npcsh_config,
-    is_npcsh_initialized,
-    initialize_base_npcs_if_needed,
 )
-from npcpy.shell_helpers import (
+from npcpy.modes.shell_helpers import (
     complete,  # For command completion
     readline_safe_prompt,
     get_multiline_input,
