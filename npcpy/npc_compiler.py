@@ -1236,51 +1236,6 @@ class Pipeline:
             print(f"Error processing data source {table_name}: {e}")
             return f"Error: {str(e)}"
 
-def ensure_npcshrc_exists() -> str:
-    """
-    Function Description:
-        This function ensures that the .npcshrc file exists in the user's home directory.
-    Args:
-        None
-    Keyword Args:
-        None
-    Returns:
-        The path to the .npcshrc file.
-    """
-
-    npcshrc_path = os.path.expanduser("~/.npcshrc")
-    if not os.path.exists(npcshrc_path):
-        with open(npcshrc_path, "w") as npcshrc:
-            npcshrc.write("# NPCSH Configuration File\n")
-            npcshrc.write("export NPCSH_INITIALIZED=0\n")
-            npcshrc.write("export NPCSH_DEFAULT_MODE='chat'\n")
-            npcshrc.write("export NPCSH_CHAT_PROVIDER='ollama'\n")
-            npcshrc.write("export NPCSH_CHAT_MODEL='llama3.2'\n")
-            npcshrc.write("export NPCSH_REASONING_PROVIDER='ollama'\n")
-            npcshrc.write("export NPCSH_REASONING_MODEL='deepseek-r1'\n")
-
-            npcshrc.write("export NPCSH_EMBEDDING_PROVIDER='ollama'\n")
-            npcshrc.write("export NPCSH_EMBEDDING_MODEL='nomic-embed-text'\n")
-            npcshrc.write("export NPCSH_VISION_PROVIDER='ollama'\n")
-            npcshrc.write("export NPCSH_VISION_MODEL='llava7b'\n")
-            npcshrc.write(
-                "export NPCSH_IMAGE_GEN_MODEL='runwayml/stable-diffusion-v1-5'\n"
-            )
-
-            npcshrc.write("export NPCSH_IMAGE_GEN_PROVIDER='diffusers'\n")
-            npcshrc.write(
-                "export NPCSH_VIDEO_GEN_MODEL='runwayml/stable-diffusion-v1-5'\n"
-            )
-
-            npcshrc.write("export NPCSH_VIDEO_GEN_PROVIDER='diffusers'\n")
-
-            npcshrc.write("export NPCSH_API_URL=''\n")
-            npcshrc.write("export NPCSH_DB_PATH='~/npcsh_history.db'\n")
-            npcshrc.write("export NPCSH_VECTOR_DB_PATH='~/npcsh_chroma.db'\n")
-            npcshrc.write("export NPCSH_STREAM_OUTPUT=0")
-    return npcshrc_path
-
-
 
 def handle_tool_call(
     command: str,

@@ -587,6 +587,51 @@ def add_npcshrc_to_shell_config() -> None:
         else:
             print(f".npcshrc already sourced in {config_file}")
 
+def ensure_npcshrc_exists() -> str:
+    """
+    Function Description:
+        This function ensures that the .npcshrc file exists in the user's home directory.
+    Args:
+        None
+    Keyword Args:
+        None
+    Returns:
+        The path to the .npcshrc file.
+    """
+
+    npcshrc_path = os.path.expanduser("~/.npcshrc")
+    if not os.path.exists(npcshrc_path):
+        with open(npcshrc_path, "w") as npcshrc:
+            npcshrc.write("# NPCSH Configuration File\n")
+            npcshrc.write("export NPCSH_INITIALIZED=0\n")
+            npcshrc.write("export NPCSH_DEFAULT_MODE='chat'\n")
+            npcshrc.write("export NPCSH_CHAT_PROVIDER='ollama'\n")
+            npcshrc.write("export NPCSH_CHAT_MODEL='llama3.2'\n")
+            npcshrc.write("export NPCSH_REASONING_PROVIDER='ollama'\n")
+            npcshrc.write("export NPCSH_REASONING_MODEL='deepseek-r1'\n")
+
+            npcshrc.write("export NPCSH_EMBEDDING_PROVIDER='ollama'\n")
+            npcshrc.write("export NPCSH_EMBEDDING_MODEL='nomic-embed-text'\n")
+            npcshrc.write("export NPCSH_VISION_PROVIDER='ollama'\n")
+            npcshrc.write("export NPCSH_VISION_MODEL='llava7b'\n")
+            npcshrc.write(
+                "export NPCSH_IMAGE_GEN_MODEL='runwayml/stable-diffusion-v1-5'\n"
+            )
+
+            npcshrc.write("export NPCSH_IMAGE_GEN_PROVIDER='diffusers'\n")
+            npcshrc.write(
+                "export NPCSH_VIDEO_GEN_MODEL='runwayml/stable-diffusion-v1-5'\n"
+            )
+
+            npcshrc.write("export NPCSH_VIDEO_GEN_PROVIDER='diffusers'\n")
+
+            npcshrc.write("export NPCSH_API_URL=''\n")
+            npcshrc.write("export NPCSH_DB_PATH='~/npcsh_history.db'\n")
+            npcshrc.write("export NPCSH_VECTOR_DB_PATH='~/npcsh_chroma.db'\n")
+            npcshrc.write("export NPCSH_STREAM_OUTPUT=0")
+    return npcshrc_path
+
+
 
 def setup_npcsh_config() -> None:
     """
@@ -1145,56 +1190,28 @@ def print_and_process_stream_with_markdown(response,
                                            model, 
                                            provider):
     str_output = ""
-    in_code = False
-    code_buffer = ""
-
-
+    dot_count = 0  # Keep track of how many dots we've printed
+    
     for chunk in response:
         # Get chunk content based on provider
-        if provider == "ollama" :
+        print('.', end="", flush=True)
+        dot_count += 1
+
+        if provider == "ollama":
             chunk_content = chunk["message"]["content"]
         else:
             chunk_content = "".join(
                 c.delta.content for c in chunk.choices if c.delta.content
             )
-        
-        
         if not chunk_content:
             continue
-
-        str_output += chunk_content
-
-        # Process chunk
-        if "```" in chunk_content:
-            parts = chunk_content.split("```")
-
-            for i, part in enumerate(parts):
-                if i == 0:  # First part (before any backticks)
-                    if in_code:
-                        code_buffer += part
-                    else:
-                        print(part, end="")
-                elif i % 2 == 1:  # Inside a code block
-                    if not in_code:  # Starting a new code block
-                        in_code = True
-                        code_buffer = part
-                    else:  # Shouldn't happen but handle anyway
-                        code_buffer += part
-                else:  # Outside a code block
-                    if in_code:  # Just finished a code block
-                        in_code = False
-                        # Render the code block
-                        render_code_block(code_buffer)
-                        code_buffer = ""
-                    print(part, end="")
-        else:
-            if in_code:
-                code_buffer += chunk_content
-            else:
-                print(chunk_content, end="")
-    if in_code and code_buffer:
-        render_code_block(code_buffer)
+        str_output += chunk_content         
+    
+    # Clear the dots by returning to the start of line and printing spaces
+    print('\r' + ' ' * dot_count*2 + '\r', end="", flush=True)
+    
     print('\n')
+    render_markdown('\n' + str_output)       
     return str_output
 def print_and_process_stream(response, model, provider):
     conversation_result = ""

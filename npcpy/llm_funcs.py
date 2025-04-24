@@ -19,6 +19,7 @@ from npcpy.npc_sysenv import (
     get_system_message,
     get_available_models,
     get_model_and_provider,
+    render_markdown,
     lookup_provider,
     NPCSH_CHAT_PROVIDER,
     NPCSH_CHAT_MODEL,
@@ -196,6 +197,8 @@ def get_llm_response(
         api_key=api_key,
         images=images,
         context=context,
+        stream=stream,
+        
         **kwargs,
     )
 
@@ -785,13 +788,12 @@ ReAct choices then will enter reasoning flow
     action = response_content_parsed.get("action")
     explanation = response_content_parsed.get("explanation")
 
-    print(f"action chosen: {action}")
-    print(f"explanation given: {explanation}")
+    render_markdown(f"### Action chosen: {action}\n")
+    render_markdown(f"### Explanation given: {explanation}\n")
 
     # print(response_content)
     if response_content_parsed.get("tool_name"):
         print(f"tool name: {response_content_parsed.get('tool_name')}")
-    print(action, type(action))
     if action == "execute_command":
 
         result = execute_llm_command(

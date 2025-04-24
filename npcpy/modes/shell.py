@@ -14,29 +14,29 @@ from npcpy.npc_sysenv import (
     setup_npcsh_config,
     is_npcsh_initialized,
     initialize_base_npcs_if_needed,
+    get_available_models,
+    orange, 
+    interactive_commands, 
+    BASH_COMMANDS, 
+    get_help,
+    log_action
+    
     
 )
+import shlex
 
+import re
 from npcpy.memory.command_history import (
     CommandHistory,
     start_new_conversation,
     save_conversation_message,
 )
-from npcpy.helpers import (
-)
-from npcpy.modes.shell_helpers import (
-    complete,  # For command completion
-    readline_safe_prompt,
-    get_multiline_input,
-    setup_readline,
-    execute_command,
-
-    orange,  # For colored prompt
-)
 from npcpy.npc_compiler import (
     NPC, Team
 )
+from npcpy.llm_funcs import check_llm_command, get_llm_response
 
+from datetime import datetime
 import argparse
 import importlib.metadata  
 try:
@@ -45,6 +45,8 @@ try:
     )  
 except importlib.metadata.PackageNotFoundError:
     VERSION = "unknown"  
+    
+from typing import Optional, List, Dict, Any
 
 
 TERMINAL_EDITORS = ["vim", "emacs", "nano"]
@@ -241,6 +243,292 @@ def get_multiline_input(prompt: str) -> str:
     return "\n".join(lines)
 
 
+def execute_command( 
+    command: str,
+    npc: NPC = None,
+    team: Team = None,
+    model: str = None,
+    provider: str = None,
+    api_key: str = None,
+    api_url: str = None,
+    messages: list = None,
+    conversation_id: str = None,
+    stream: bool = False,
+    embedding_model=None,
+):
+    """
+    Function Description:
+        Executes a command, with support for piping outputs between commands.
+    Args:
+        command : str : Command
+
+        db_path : str : Database path
+
+    Keyword Args:
+        embedding_model :  Embedding model
+        current_npc : NPC : Current NPC
+        messages : list : Messages
+    Returns:
+        dict : dict : Dictionary
+    """
+    output = ""
+    if len(command.strip()) == 0:
+        return {"messages": messages, "output": output, "current_npc": npc}
+
+    if messages is None:
+        messages = []
+
+    # Split commands by pipe, preserving the original parsing logic
+    commands = command.split("|")
+    # print(commands)
+    available_models = get_available_models()
+
+    # Track piped output between commands
+    piped_outputs = []
+
+    for idx, single_command in enumerate(commands):
+        # Modify command if there's piped output from previous command
+
+        if idx > 0:
+            single_command, additional_args = parse_piped_command(single_command)
+            if len(piped_outputs) > 0:
+                single_command = replace_pipe_outputs(
+                    single_command, piped_outputs, idx
+                )
+            if len(additional_args) > 0:
+                single_command = f"{single_command} {' '.join(additional_args)}"
+
+        messages.append({"role": "user", "content": single_command})
+        # print(messages)
+
+        if model is None:
+            # note the only situation where id expect this to take precedent is when a frontend is specifying the model
+            # to pass through at each time
+            model_override, provider_override, command = get_model_and_provider(
+                single_command, available_models[0]
+            )
+            if model_override is None:
+                model_override = os.getenv("NPCSH_CHAT_MODEL")
+            if provider_override is None:
+                provider_override = os.getenv("NPCSH_CHAT_PROVIDER")
+        else:
+            model_override = model
+            provider_override = provider
+        if single_command.startswith("/"):
+            result = execute_slash_command(
+                single_command,
+                npc=npc,
+                messages=messages,
+                model=model_override,
+                provider=provider_override,
+                stream=stream,
+            )
+            ## deal with stream here
+
+            output = result.get("output", "")
+            new_messages = result.get("messages", None)
+            npc = result.get("current_npc", npc)
+        else:
+            # print(single_command)
+            try:
+                command_parts = shlex.split(single_command)
+                # print(command_parts)
+            except ValueError as e:
+                if "No closing quotation" in str(e):
+                    # Attempt to close unclosed quotes
+                    if single_command.count('"') % 2 == 1:
+                        single_command += '"'
+                    elif single_command.count("'") % 2 == 1:
+                        single_command += "'"
+                    try:
+                        command_parts = shlex.split(single_command)
+                    except ValueError:
+                        # fall back to regular split
+                        command_parts = single_command.split()
+            if command_parts[0] in interactive_commands:
+                print(f"Starting interactive {command_parts[0]} session...")
+                return_code = start_interactive_session(
+                    interactive_commands[command_parts[0]]
+                )
+                return {
+                    "messages": messages,
+                    "output": f"Interactive {command_parts[0]} session ended with return code {return_code}",
+                    "npc": npc,
+                }
+            elif command_parts[0] == "cd":
+                change_dir_result = change_directory(command_parts, messages)
+                messages = change_dir_result["messages"]
+                output = change_dir_result["output"]
+            elif command_parts[0] in BASH_COMMANDS:
+                if command_parts[0] in TERMINAL_EDITORS:
+                    return {
+                        "messages": messages,
+                        "output": open_terminal_editor(command),
+                        "npc": npc,
+                    }
+                elif command_parts[0] in ["cat", "find", "who", "open", "which"]:
+                    if not validate_bash_command(command_parts):
+                        output = "Error: Invalid command syntax or arguments"
+                        output = check_llm_command(
+                            command,
+                            npc=npc,
+                            team=team,
+                            messages=messages,
+                            model=model_override,
+                            provider=provider_override,
+                            stream=stream,
+                        )
+
+                    else:
+                        try:
+                            result = subprocess.run(
+                                command_parts, capture_output=True, text=True
+                            )
+                            output = result.stdout + result.stderr
+                        except Exception as e:
+                            output = f"Error executing command: {e}"
+
+                elif command.startswith("open "):
+                    try:
+                        path_to_open = os.path.expanduser(
+                            single_command.split(" ", 1)[1]
+                        )
+                        absolute_path = os.path.abspath(path_to_open)
+                        expanded_command = [
+                            "open",
+                            absolute_path,
+                        ]
+                        subprocess.run(expanded_command, check=True)
+                        output = f"Launched: {command}"
+                    except subprocess.CalledProcessError as e:
+                        output = colored(f"Error opening: {e}", "red")
+                    except Exception as e:
+                        output = colored(f"Error executing command: {str(e)}", "red")
+
+                # Rest of BASH_COMMANDS handling remains the same
+                else:
+                    try:
+                        result = subprocess.run(
+                            command_parts, capture_output=True, text=True
+                        )
+                        output = result.stdout
+                        if result.stderr:
+                            output += colored(f"\nError: {result.stderr}", "red")
+
+                        colored_output = ""
+                        for line in output.split("\n"):
+                            parts = line.split()
+                            if parts:
+                                filepath = parts[-1]
+                                color, attrs = get_file_color(filepath)
+                                colored_filepath = colored(filepath, color, attrs=attrs)
+                                colored_line = " ".join(parts[:-1] + [colored_filepath])
+                                colored_output += colored_line + "\n"
+                            else:
+                                colored_output += line
+                        output = colored_output.rstrip()
+
+                        if not output and result.returncode == 0:
+                            output = colored(
+                                f"Command '{single_command}' executed successfully (no output).",
+                                "green",
+                            )
+                        print(output)
+                    except Exception as e:
+                        output = colored(f"Error executing command: {e}", "red")
+
+            else:
+                output = check_llm_command(
+                    single_command,
+                    npc=npc,
+                    team=team,
+                    messages=messages,
+                    model=model_override,
+                    provider=provider_override,
+                    stream=stream,
+                    api_key=api_key,
+                    api_url=api_url,
+                )
+
+        if isinstance(output, dict):
+            response = output.get("output", "")
+            new_messages = output.get("messages", None)
+            if new_messages is not None:
+                messages = new_messages
+            output = response
+        if output:
+            if npc is not None:
+                print(f"{npc.name}> ", end="")
+            
+            if not stream:
+                try:
+                    render_markdown(output)
+                except AttributeError:
+                    print(output)
+
+                piped_outputs.append(f'"{output}"')
+
+                try:
+                    # Prepare text to embed (both command and response)
+                    texts_to_embed = [command, str(output) if output else ""]
+
+                    # Generate embeddings
+                    embeddings = get_embeddings(
+                        texts_to_embed,
+                    )
+
+                    # Prepare metadata
+                    metadata = [
+                        {
+                            "type": "command",
+                            "timestamp": datetime.datetime.now().isoformat(),
+                            "path": os.getcwd(),
+                            "npc": npc.name if npc else None,
+                            "conversation_id": conversation_id,
+                        },
+                        {
+                            "type": "response",
+                            "timestamp": datetime.datetime.now().isoformat(),
+                            "path": os.getcwd(),
+                            "npc": npc.name if npc else None,
+                            "conversation_id": conversation_id,
+                        },
+                    ]
+                    embedding_model = os.environ.get("NPCSH_EMBEDDING_MODEL")
+                    embedding_provider = os.environ.get("NPCSH_EMBEDDING_PROVIDER")
+                    collection_name = (
+                        f"{embedding_provider}_{embedding_model}_embeddings"
+                    )
+
+                    try:
+                        collection = chroma_client.get_collection(collection_name)
+                    except Exception as e:
+                        print(f"Warning: Failed to get collection: {str(e)}")
+                        print("Creating new collection...")
+                        collection = chroma_client.create_collection(collection_name)
+                    date_str = datetime.datetime.now().isoformat()
+                    current_ids = [f"cmd_{date_str}", f"resp_{date_str}"]
+
+                    collection.add(
+                        embeddings=embeddings,
+                        documents=texts_to_embed,  
+                        metadatas=metadata, 
+                        ids=current_ids,
+                    )
+
+                except Exception as e:
+                    print(f"Warning: Failed to store embeddings: {str(e)}")
+
+    return {
+        "messages": messages,
+        "output": output,
+        "conversation_id": conversation_id,
+        "model": model,
+        "current_path": os.getcwd(),
+        "provider": provider,
+        "npc": npc ,
+        "team": team,
+    }
 def execute_slash_command(
     command: str,
     npc: NPC = None,
@@ -282,8 +570,6 @@ def execute_slash_command(
             current_npc = team.npcs.get(command_name)
             output = f"Switched to NPC: {current_npc.name}"
         return {"messages": messages, "output": output, "current_npc": current_npc}
-    print(command)
-    print(command_name == "ots")
        
     if command_name == "compile" or command_name == "com":
         try:
@@ -541,14 +827,26 @@ def execute_slash_command(
         output = output["output"]
         # print(output, type(output))
     elif command_name == "sample":
+        
+        prompt = " ".join(command.split()[1:])
+        
         output = get_llm_response(
-            " ".join(command.split()[1:]),  # Skip the command name
+            prompt,  # Skip the command name
             npc=npc,
             messages=[],
             model=model,
             provider=provider,
             stream=stream,
         )
+        messages = output["messages"]
+        # print(output, type(output))
+        output = output["response"]
+        return {
+            "messages": messages,
+            "output": output,
+            "current_npc": current_npc,
+        }
+        
     elif command_name == "spool" or command_name == "sp":
         inherit_last = 0
         device = "cpu"
@@ -776,6 +1074,7 @@ def complete(text: str, state: int) -> str:
             return None
 
     return None
+
 def main() -> None:
     """
     Main function for the npcsh shell and server.
@@ -981,11 +1280,8 @@ def main() -> None:
                 api_url=NPCSH_API_URL,
             )
 
+            
             messages = result.get("messages", messages)
-
-            # need to adjust the output for the messages to all have
-            # model, provider, npc, timestamp, role, content
-            # also messages
 
             if "npc" in result:
 
@@ -1020,88 +1316,15 @@ def main() -> None:
             )
 
 
-            #import pdb 
-            #pdb.set_trace()
-            str_output = ""
             try:
                 if NPCSH_STREAM_OUTPUT and hasattr(output, "__iter__"):
-
-                    buffer = ""
-                    in_code = False
-                    code_buffer = ""
-
-                    for chunk in output:
-
-                        chunk_content = "".join(
-                            c.delta.content for c in chunk.choices if c.delta.content
-                        )
-                        if not chunk_content:
-                            continue
-
-                        str_output += chunk_content
-                        # print(str_output, "str_output")
-                        # Process the content character by character
-                        for char in chunk_content:
-                            buffer += char
-
-                            # Check for triple backticks
-                            if buffer.endswith("```"):
-                                if not in_code:
-                                    # Start of code block
-                                    in_code = True
-                                    # Print everything before the backticks
-                                    print(buffer[:-3], end="")
-                                    buffer = ""
-                                    code_buffer = ""
-                                else:
-                                    # End of code block
-                                    in_code = False
-                                    # Remove the backticks from the end of the buffer
-                                    buffer = buffer[:-3]
-                                    # Add buffer to code content and render
-                                    code_buffer += buffer
-
-                                    # Check for and strip language tag
-                                    if (
-                                        "\n" in code_buffer
-                                        and code_buffer.index("\n") < 15
-                                    ):
-                                        first_line, rest = code_buffer.split("\n", 1)
-                                        if (
-                                            first_line.strip()
-                                            and not "```" in first_line
-                                        ):
-                                            code_buffer = rest
-
-                                    # Render the code block
-                                    render_code_block(code_buffer)
-
-                                    # Reset buffers
-                                    buffer = ""
-                                    code_buffer = ""
-                            elif in_code:
-                                # Just add to code buffer
-                                code_buffer += char
-                                if len(buffer) >= 3:  # Keep buffer small while in code
-                                    buffer = buffer[-3:]
-                            else:
-                                # Regular text - print if buffer gets too large
-                                if len(buffer) > 100:
-                                    print(buffer[:-3], end="")
-                                    buffer = buffer[
-                                        -3:
-                                    ]  # Keep last 3 chars to check for backticks
-
-                    # Handle any remaining content
-                    if in_code:
-                        render_code_block(code_buffer)
-                    else:
-                        print(buffer, end="")
-
-                    if str_output:
-                        output = str_output
+                    str_output = print_and_process_stream_with_markdown(
+                        output, model, provider
+                    )
+                    output = str_output
             except:
                 output = None
+                
 
             print("\n")
 
