@@ -491,32 +491,17 @@ def execute_llm_command(
                 """
             messages.append({"role": "user", "content": prompt})
             # print(messages, stream)
-            if stream:
-                response = get_stream(
-                    messages,
-                    model=model,
-                    provider=provider,
-                    api_url=api_url,
-                    api_key=api_key,
-                    npc=npc,
-                )
-                return response
-
-            else:
-                response = get_llm_response(
-                    prompt,
-                    model=model,
-                    provider=provider,
-                    api_url=api_url,
-                    api_key=api_key,
-                    npc=npc,
-                    messages=messages,
-                    context=context,
-                )
+            response = get_llm_response(
+                prompt,
+                model=model,
+                provider=provider,
+                api_url=api_url,
+                api_key=api_key,
+                npc=npc,
+                messages=messages,
+                context=context,
+            )
             output = response.get("response", "")
-
-            # render_markdown(output)
-
             return {"messages": messages, "output": output}
         except subprocess.CalledProcessError as e:
             print(f"Command failed with error:")
@@ -580,10 +565,10 @@ def execute_llm_command(
 
 def check_llm_command(
     command: str,
-    model: str = NPCSH_CHAT_MODEL,
-    provider: str = NPCSH_CHAT_PROVIDER,
-    reasoning_model: str = NPCSH_REASONING_MODEL,
-    reasoning_provider: str = NPCSH_REASONING_PROVIDER,
+    model: str = None, 
+    provider: str  = None, 
+    reasoning_model: str = None,
+    reasoning_provider: str  = None,
     api_url: str = NPCSH_API_URL,
     api_key: str = None,
     npc: Any = None,
@@ -806,7 +791,7 @@ ReAct choices then will enter reasoning flow
     # print(response_content)
     if response_content_parsed.get("tool_name"):
         print(f"tool name: {response_content_parsed.get('tool_name')}")
-
+    print(action, type(action))
     if action == "execute_command":
 
         result = execute_llm_command(
@@ -819,10 +804,8 @@ ReAct choices then will enter reasoning flow
             npc=npc,
             stream=stream,
         )
-        if stream:
-            return result
 
-        output = result.get("output", "")
+        output = result.get("response", "")
         messages = result.get("messages", messages)
         return {"messages": messages, "output": output}
 
@@ -841,35 +824,26 @@ ReAct choices then will enter reasoning flow
             npc=npc,
             stream=stream,
         )
-        if stream:
-            return result
+
         messages = result.get("messages", messages)
-        output = result.get("output", "")
+        output = result.get("response", "")
         return {"messages": messages, "output": output}
 
     elif action == "answer_question":
-        if ENTER_REASONING_FLOW:
-            print("entering reasoning flow")
-            result = enter_reasoning_human_in_the_loop(
-                messages, reasoning_model, reasoning_provider
-            )
-        else:
-            result = execute_llm_question(
-                command,
-                model=model,
-                provider=provider,
-                api_url=api_url,
-                api_key=api_key,
-                messages=messages,
-                npc=npc,
-                stream=stream,
-                images=images,
-            )
 
-        if stream:
-            return result
+        result = get_llm_response(
+            command,
+            model=model,
+            provider=provider,
+            api_url=api_url,
+            api_key=api_key,
+            messages=messages,
+            npc=npc,
+            stream=stream,
+            images=images,
+        )
         messages = result.get("messages", messages)
-        output = result.get("output", "")
+        output = result.get("response", "")
         return {"messages": messages, "output": output}
     elif action == "pass_to_npc":
         npc_to_pass = response_content_parsed.get("npc_name")
@@ -979,7 +953,7 @@ ReAct choices then will enter reasoning flow
                 # print(result)
                 results_tool_calls.append(result)
                 messages = result.get("messages", messages)
-                output += result.get("output", "")
+                output += result.get("response", "")
                 # print(results_tool_calls)
         else:
             print('agent pass')

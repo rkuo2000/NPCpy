@@ -24,7 +24,7 @@ from npcpy.npc_compiler import (
 from npcpy.llm_funcs import (
     check_llm_command,
     execute_llm_command,
-    execute_llm_question,
+    get_llm_response,
     handle_tool_call,
     generate_image,
     get_embeddings,

@@ -17,6 +17,7 @@ from npcpy.npc_sysenv import (
 from npcpy.llm_funcs import (get_llm_response,  rehash_last_message)
 from npcpy.npc_compiler import NPC
 from typing import Any, List, Dict, Union
+from npcpy.modes.whisper import enter_whisper_mode
 
 def enter_spool_mode(
     inherit_last: int = 0,
@@ -297,11 +298,10 @@ def enter_spool_mode(
     }
 def main():
     # Example usage
-    import argparse
-    
+    import argparse    
     parser = argparse.ArgumentParser(description="Enter spool mode for chatting with an LLM")
-    parser.add_argument("--model", default="gemma3", help="Model to use")
-    parser.add_argument("--provider", default="ollama", help="Provider to use")
+    parser.add_argument("--model", default=NPCSH_CHAT_MODEL, help="Model to use")
+    parser.add_argument("--provider", default=NPCSH_CHAT_PROVIDER, help="Provider to use")
     parser.add_argument("--files", nargs="*", help="Files to load into context")
     parser.add_argument("--stream", default="true", help="Use streaming mode")
     parser.add_argument("--npc", type=str, default=os.path.expanduser('~/.npcsh/npc_team/sibiji.npc'), help="Path to NPC file")

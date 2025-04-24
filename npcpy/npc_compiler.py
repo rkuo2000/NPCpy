@@ -611,6 +611,7 @@ class Team:
     def __init__(self, 
                  team_path=None, 
                  npcs=None, 
+                 foreman=None,
                  tools=None,                   
                  db_conn=None):
         """
@@ -626,7 +627,7 @@ class Team:
         self.tools_dict = tools or {}
         self.db_conn = db_conn
         self.team_path = os.path.expanduser(team_path) if team_path else None
-        
+        self.foreman = foreman
         if team_path:
             self.team_name = os.path.basename(os.path.abspath(team_path))
         else:

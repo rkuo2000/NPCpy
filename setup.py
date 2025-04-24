@@ -128,6 +128,7 @@ setup(
         "console_scripts": [
             "npcsh=npcpy.modes.shell:main",
             "npc=npcpy.modes.cli:main",
+            "yap=npcpy.modes.yap:main",
             "pti=npcpy.modes.pti:main",
             "guac=npcpy.modes.guac:main",
             "wander=npcpy.modes.wander:main",

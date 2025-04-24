@@ -69,11 +69,11 @@ def test_check_llm_command():
         assert result == "Command executed"
 
 
-def test_execute_llm_question():
+def test_get_llm_response():
     with patch(
         "llm_funcs.get_llm_response", return_value={"response": "This is an answer"}
     ):
-        result = execute_llm_question(
+        result = get_llm_response(
             "What is the capital of France?",
         )
         assert result == "This is an answer"

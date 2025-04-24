@@ -212,7 +212,7 @@ def get_litellm_response(
             model = "llama3.2"
     
     # Handle Ollama separately
-    if provider == "ollama" and 'hf.co' in model:
+    if provider == "ollama":
 
         return get_ollama_response(
             prompt=prompt, 
@@ -556,15 +556,12 @@ def process_tool_calls(response_dict, tool_map):
                     messages=result["messages"]
                 )
             else:
-                from npcpy.gen.response import get_litellm_response
                 follow_up = get_litellm_response(
                     model=model,
                     provider=provider,
                     messages=result["messages"]
                 )
         else:
-            # Default to Ollama if we can't determine
-            from npcpy.gen.response import get_ollama_response
             follow_up = get_ollama_response(
                 model=result.get("model", "llama3.2"),
                 messages=result["messages"]

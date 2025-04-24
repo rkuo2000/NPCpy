@@ -541,7 +541,7 @@ def execute_slash_command(
         output = output["output"]
         # print(output, type(output))
     elif command_name == "sample":
-        output = execute_llm_question(
+        output = get_llm_response(
             " ".join(command.split()[1:]),  # Skip the command name
             npc=npc,
             messages=[],

@@ -54,7 +54,7 @@ from npcpy.npc_compiler import (
 )
 from npcpy.memory.command_history import CommandHistory, save_conversation_message,start_new_conversation
 from typing import Dict, Any, List
-def enter_whisper_mode(
+def enter_yap_mode(
     messages: list = None,
     npc = None,
     model: str = NPCSH_CHAT_MODEL,
@@ -73,7 +73,7 @@ def enter_whisper_mode(
     buffer_data = []
     last_speech_time = 0
 
-    print("Entering whisper mode. Initializing...")
+    print("Entering yap mode. Initializing...")
 
     concise_instruction = "Please provide brief responses of 1-2 sentences unless the user specifically asks for more detailed information. Keep responses clear and concise."
 
@@ -525,7 +525,7 @@ def enter_whisper_mode(
 def main():
     # Example usage
     import argparse    
-    parser = argparse.ArgumentParser(description="Enter spool mode for chatting with an LLM")
+    parser = argparse.ArgumentParser(description="Enter yap mode for chatting with an LLM")
     parser.add_argument("--model", default=NPCSH_CHAT_MODEL, help="Model to use")
     parser.add_argument("--provider", default=NPCSH_CHAT_PROVIDER, help="Provider to use")
     parser.add_argument("--files", nargs="*", help="Files to load into context")
@@ -549,7 +549,7 @@ def main():
     else:
         provider = sibiji.provider        
     # Enter spool mode
-    enter_whisper_mode(
+    enter_yap_mode(
         messages=None,
         npc=sibiji,
         team = team,

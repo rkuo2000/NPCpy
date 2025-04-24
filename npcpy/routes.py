@@ -53,7 +53,7 @@ router = CommandRouter()
 
 
 from npcpy.npc_sysenv import render_code_block, render_markdown
-from npcpy.llm_funcs import get_llm_response, execute_llm_command, execute_llm_question, enter_spool_mode
+from npcpy.llm_funcs import get_llm_response, execute_llm_command, get_llm_response, enter_spool_mode
 from npcpy.data.web import execute_rag_command, execute_search_command
 
 from npcpy.work.plan import execute_plan_command
@@ -369,7 +369,7 @@ def rehash_handler(command: str, *args, **kwargs):
 def sample_handler(command: str, *args, **kwargs):
     """Route for the sample command."""
     # Implement sample command logic
-    output = execute_llm_question(
+    output = get_llm_response(
         " ".join(command.split()[1:]),  # Skip the command name
         npc=npc,
         messages=[],

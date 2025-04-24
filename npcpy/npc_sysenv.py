@@ -1151,7 +1151,7 @@ def print_and_process_stream_with_markdown(response,
 
     for chunk in response:
         # Get chunk content based on provider
-        if provider == "ollama" and 'hf.co' in model:
+        if provider == "ollama" :
             chunk_content = chunk["message"]["content"]
         else:
             chunk_content = "".join(
