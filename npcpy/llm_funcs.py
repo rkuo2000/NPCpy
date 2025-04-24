@@ -23,7 +23,6 @@ from npcpy.npc_sysenv import (
     NPCSH_CHAT_PROVIDER,
     NPCSH_CHAT_MODEL,
     NPCSH_API_URL,
-    EMBEDDINGS_DB_PATH,
     NPCSH_EMBEDDING_MODEL,
     NPCSH_EMBEDDING_PROVIDER,
     NPCSH_DEFAULT_MODE,
@@ -38,51 +37,7 @@ from npcpy.npc_sysenv import (
     available_reasoning_models,
     available_chat_models,
 )
-
-from npcpy.gen.stream import get_litellm_stream
-from npcpy.gen.conversation import (
-    get_litellm_conversation,
-)
-from npcpy.gen.response import (
-    get_litellm_response,
-)
-from npcpy.gen.image_gen import (
-    generate_image_litellm,
-)
-from npcpy.gen.video_gen import (
-    generate_video_diffusers,
-)
-
-from npcpy.gen.embeddings import (
-    get_ollama_embeddings,
-    get_openai_embeddings,
-    get_anthropic_embeddings,
-    store_embeddings_for_model,
-)
-
-import asyncio
-import sys
-from queue import Queue
-from threading import Thread
-import select
-
-
-def flush_messages(n: int, messages: list) -> dict:
-    if n <= 0:
-        return {
-            "messages": messages,
-            "output": "Error: 'n' must be a positive integer.",
-        }
-
-    removed_count = min(n, len(messages))  # Calculate how many to remove
-    del messages[-removed_count:]  # Remove the last n messages
-
-    return {
-        "messages": messages,
-        "output": f"Flushed {removed_count} message(s). Context count is now {len(messages)} messages.",
-    }
-
-
+from npcpy.gen.response import get_litellm_response
 
 def generate_image(
     prompt: str,
@@ -153,6 +108,98 @@ def generate_image(
             print(f"Error saving image: {e}")
 
 
+def generate_video(
+    prompt,
+    model: str = NPCSH_VIDEO_GEN_MODEL,
+    provider: str = NPCSH_VIDEO_GEN_PROVIDER,
+    npc: Any = None,
+    device: str = "cpu",
+    output_path="",
+    num_inference_steps=10,
+    num_frames=10,
+    height=256,
+    width=256,
+    messages: list = None,
+):
+    """
+    Function Description:
+        This function generates a video using the Stable Diffusion API.
+    Args:
+        prompt (str): The prompt for generating the video.
+        model_id (str): The Hugging Face model ID to use for Stable Diffusion.
+        device (str): The device to run the model on ('cpu' or 'cuda').
+    Returns:
+        PIL.Image: The generated image.
+    """
+    output_path = generate_video_diffusers(
+        prompt,
+        model,
+        npc=npc,
+        device=device,
+        output_path=output_path,
+        num_inference_steps=num_inference_steps,
+        num_frames=num_frames,
+        height=height,
+        width=width,
+    )
+    if provider == "diffusers":
+        return {"output": "output path at " + output_path, "messages": messages}
+
+
+def get_llm_response(
+    messages: List[Dict[str, str]],
+    provider: str = NPCSH_CHAT_PROVIDER,
+    model: str = NPCSH_CHAT_MODEL,
+    npc: Any = None,
+    team: Any = None,
+    images: List[Dict[str, str]] = None,
+    api_url: str = NPCSH_API_URL,
+    api_key: str = None,
+    context=None,
+    stream=False,
+    **kwargs,
+) -> List[Dict[str, str]]:
+    """This function generates a streaming response using the specified provider and model
+    Args:
+        messages (List[Dict[str, str]]): The list of messages in the conversation.
+    Keyword Args:
+        provider (str): The provider to use for the conversation.
+        model (str): The model to use for the conversation.
+        npc (Any): The NPC object.
+        api_url (str): The URL of the API endpoint.
+        api_key (str): The API key for accessing the API.
+    Returns:
+        List[Dict[str, str]]: The list of messages in the conversation.
+    """
+    if model is not None and provider is not None:
+        pass
+    elif model is not None and provider is None:
+        provider = lookup_provider(model)
+    elif npc is not None:
+        if npc.provider is not None:
+            provider = npc.provider
+        if npc.model is not None:
+            model = npc.model
+        if npc.api_url is not None:
+            api_url = npc.api_url
+    else:
+        provider = "ollama"
+        model = "llama3.2"
+
+    return get_litellm_response(
+        messages,
+        model=model,
+        provider=provider,
+        npc=npc,
+        team=team,
+        api_url=api_url,
+        api_key=api_key,
+        images=images,
+        context=context,
+        **kwargs,
+    )
+
+
 def get_embeddings(
     texts: List[str],
     model: str = NPCSH_EMBEDDING_MODEL,
@@ -204,7 +251,7 @@ def get_llm_response(
     # print(provider, model)
 
     response = get_litellm_response(
-        prompt,
+        prompt= prompt,
         model=model,
         provider=provider,
         npc=npc,
@@ -218,188 +265,118 @@ def get_llm_response(
     return response
 
 
-def get_stream(
-    messages: List[Dict[str, str]],
-    provider: str = NPCSH_CHAT_PROVIDER,
-    model: str = NPCSH_CHAT_MODEL,
-    npc: Any = None,
-    team: Any = None,
-    images: List[Dict[str, str]] = None,
-    api_url: str = NPCSH_API_URL,
-    api_key: str = None,
-    context=None,
-    **kwargs,
-) -> List[Dict[str, str]]:
-    """This function generates a streaming response using the specified provider and model
-    Args:
-        messages (List[Dict[str, str]]): The list of messages in the conversation.
-    Keyword Args:
-        provider (str): The provider to use for the conversation.
-        model (str): The model to use for the conversation.
-        npc (Any): The NPC object.
-        api_url (str): The URL of the API endpoint.
-        api_key (str): The API key for accessing the API.
-    Returns:
-        List[Dict[str, str]]: The list of messages in the conversation.
-    """
-    if model is not None and provider is not None:
-        pass
-    elif model is not None and provider is None:
-        provider = lookup_provider(model)
-    elif npc is not None:
-        if npc.provider is not None:
-            provider = npc.provider
-        if npc.model is not None:
-            model = npc.model
-        if npc.api_url is not None:
-            api_url = npc.api_url
-    else:
-        provider = "ollama"
-        model = "llama3.2"
-
-    return get_litellm_stream(
-        messages,
-        model=model,
-        provider=provider,
-        npc=npc,
-        team=team,
-        api_url=api_url,
-        api_key=api_key,
-        images=images,
-        context=context,
-        **kwargs,
-    )
 
 
-def generate_video(
-    prompt,
-    model: str = NPCSH_VIDEO_GEN_MODEL,
-    provider: str = NPCSH_VIDEO_GEN_PROVIDER,
-    npc: Any = None,
-    device: str = "cpu",
-    output_path="",
-    num_inference_steps=10,
-    num_frames=10,
-    height=256,
-    width=256,
-    messages: list = None,
-):
-    """
-    Function Description:
-        This function generates a video using the Stable Diffusion API.
-    Args:
-        prompt (str): The prompt for generating the video.
-        model_id (str): The Hugging Face model ID to use for Stable Diffusion.
-        device (str): The device to run the model on ('cpu' or 'cuda').
-    Returns:
-        PIL.Image: The generated image.
-    """
-    output_path = generate_video_diffusers(
-        prompt,
-        model,
-        npc=npc,
-        device=device,
-        output_path=output_path,
-        num_inference_steps=num_inference_steps,
-        num_frames=num_frames,
-        height=height,
-        width=width,
-    )
-    if provider == "diffusers":
-        return {"output": "output path at " + output_path, "messages": messages}
-
-
-def get_conversation(
-    messages: List[Dict[str, str]],
-    provider: str = NPCSH_CHAT_PROVIDER,
-    model: str = NPCSH_CHAT_MODEL,
-    images: List[Dict[str, str]] = None,
-    npc: Any = None,
-    api_url: str = NPCSH_API_URL,
-    context=None,
-    **kwargs,
-) -> List[Dict[str, str]]:
-    """This function generates a conversation using the specified provider and model.
-    Args:
-        messages (List[Dict[str, str]]): The list of messages in the conversation.
-    Keyword Args:
-        provider (str): The provider to use for the conversation.
-        model (str): The model to use for the conversation.
-        npc (Any): The NPC object.
-    Returns:
-        List[Dict[str, str]]: The list of messages in the conversation.
-    """
-    if model is not None and provider is not None:
-        pass  # Use explicitly provided model and provider
-    elif model is not None and provider is None:
-        provider = lookup_provider(model)
-    elif npc is not None and (npc.provider is not None or npc.model is not None):
-        provider = npc.provider if npc.provider else provider
-        model = npc.model if npc.model else model
-        api_url = npc.api_url if npc.api_url else api_url
-    else:
-        provider = "ollama"
-        model = "llava:7b" if images is not None else "llama3.2"
-
-    return get_litellm_conversation(
-        messages,
-        model=model,
-        provider=provider,
-        npc=npc,
-        api_url=api_url,
-        images=images,
-        context=context,
-        **kwargs,
-    )
-
-def execute_llm_question(
+def decide_plan(
     command: str,
-    model: str = NPCSH_CHAT_MODEL,
-    provider: str = NPCSH_CHAT_PROVIDER,
-    api_url: str = NPCSH_API_URL,
-    api_key: str = None,
-    npc: Any = None,
-    messages: List[Dict[str, str]] = None,
-    stream: bool = False,
-    images: List[Dict[str, str]] = None,
-    context=None,
-):
-    if messages is None or len(messages) == 0:
-        messages = []
-        messages.append({"role": "user", "content": command})
+    possible_actions: Dict[str, str],
+    responder = None,
+    messages: Optional[List[Dict[str, str]]] = None, 
+    model: Optional[str] = None,
+    provider: Optional[str] = None,
+    api_url: Optional[str] = None,
+    api_key: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Gets a plan by asking LLM to choose from possible_actions.
+    Prompt includes only command, actions, and potential delegation targets (if responder is Team).
+    Relies on get_llm_response to handle all other context via the passed npc object.
 
-    if stream:
-        # print("beginning stream")
-        response = get_stream(
-            messages,
-            model=model,
-            provider=provider,
-            npc=npc,
-            images=images,
-            api_url=api_url,
-            api_key=api_key,
-            context=context,
-        )
-        return {'messages': messages, 'output':response}
-    else:
-        response = get_conversation(
-            messages,
-            model=model,
-            provider=provider,
-            npc=npc,
-            images=images,
-            api_url=api_url,
-            api_key=api_key,
-        )
-    if isinstance(response, str) and "Error" in response:
-        output = response
-    elif isinstance(response, list) and len(response) > 0:
-        messages = response  
-        output = response[-1]["content"]
-    else:
-        output = "Error: Invalid response from conversation function"
-    return {"messages": messages, "output": output}
+    Args:
+        command: User input.
+        possible_actions: Dictionary of valid action names and descriptions.
+        responder: The NPC or Team object, or None.
+        messages: Conversation history (passed to get_llm_response).
+        model, provider, api_url, api_key: LLM configuration overrides.
 
+    Returns:
+        Plan dictionary: {"chosen_action":..., "parameters":..., "explanation":..., "error":...}.
+    """
+    if not possible_actions:
+        return {"error": "No possible actions provided."}
+
+
+    prompt = f"User Request: \"{command}\"\n\n"
+    prompt += "## Possible Actions:\nChoose ONE action:\n"
+    for name, desc in possible_actions.items():
+        prompt += f"- {name}: {desc}\n"
+
+    # Add delegation targets ONLY if responder is a Team    
+    if hasattr(responder, 'npcs'):
+        foreman = decision_npc_obj # Already fetched
+        entities = []
+        for name, npc_obj in responder.npcs.items():
+             if npc_obj != foreman: # Don't list the foreman itself
+                 entities.append(f"- {name} (NPC)")
+        for name, team_obj in responder.sub_teams.items():
+             entities.append(f"- {name} (Team)")
+        if entities:
+            prompt += "\n### Potential Delegation Targets:\n" + "\n".join(entities) + "\n"
+
+    # Instructions for LLM
+    prompt += """
+# Instructions:
+1. Select the single most appropriate action from 'Possible Actions'.
+2. Determine parameters identifying the action's target (e.g., 'tool_name', 'target_entity'). DO NOT determine tool arguments.
+3. Explain reasoning.
+
+# Required Output Format (JSON Only, NO MARKDOWN):
+{
+  "chosen_action": "action_name",
+  "parameters": { /* "tool_name": "...", "target_entity": "..." */ },
+  "explanation": "Your reasoning."
+}
+"""
+
+    # --- 3. Call LLM ---
+    # Pass decision_npc_obj - get_llm_response handles its context (directive etc.)
+    llm_response = get_llm_response(
+        prompt=prompt,
+        model=effective_model,
+        provider=effective_provider,
+        api_url=effective_api_url,
+        api_key=effective_api_key,
+        npc=decision_npc_obj, # Pass the relevant NPC/Foreman object or None
+        format="json",
+        messages=messages # Pass history if get_llm_response uses it
+    )
+
+    # --- 4. Parse and Validate ---
+    plan = {"error": None}
+    if "error" in llm_response or "Error" in llm_response:
+        plan["error"] = f"LLM Error: {llm_response.get('error', llm_response.get('Error'))}"
+        print(plan["error"])
+        return plan
+
+    response_content = llm_response.get("response", {})
+    parsed_json = None
+    try:
+        if isinstance(response_content, str): parsed_json = json.loads(response_content.strip())
+        elif isinstance(response_content, dict): parsed_json = response_content
+        else: raise TypeError("Response is not str or dict")
+
+        if not all(k in parsed_json for k in ["chosen_action", "parameters", "explanation"]) or \
+           not isinstance(parsed_json.get("parameters"), dict) or \
+           not isinstance(parsed_json.get("chosen_action"), str) or \
+           not parsed_json.get("chosen_action"):
+            raise ValueError("LLM plan has invalid structure or missing keys.")
+
+        chosen_action = parsed_json["chosen_action"]
+        if chosen_action not in possible_actions:
+            raise ValueError(f"LLM chose an invalid action '{chosen_action}'. Valid: {list(possible_actions.keys())}")
+
+        plan["chosen_action"] = chosen_action
+        plan["parameters"] = parsed_json.get("parameters", {})
+        plan["explanation"] = parsed_json.get("explanation", "")
+
+    except (json.JSONDecodeError, TypeError, ValueError) as e:
+        plan["error"] = f"LLM plan processing error: {e}. Response: {str(response_content)[:200]}..."
+        print(plan["error"])
+        return plan
+
+
+    print(f"Plan Determined: Action='{plan['chosen_action']}', Params='{plan['parameters']}'")
+    return plan
 
 def execute_llm_command(
     command: str,
@@ -601,117 +578,6 @@ def execute_llm_command(
         "output": "Max attempts reached. Unable to execute the command successfully.",
     }
 
-
-def decide_plan(
-    command: str,
-    possible_actions: Dict[str, str],
-    responder = None,
-    messages: Optional[List[Dict[str, str]]] = None, 
-    model: Optional[str] = None,
-    provider: Optional[str] = None,
-    api_url: Optional[str] = None,
-    api_key: Optional[str] = None,
-) -> Dict[str, Any]:
-    """
-    Gets a plan by asking LLM to choose from possible_actions.
-    Prompt includes only command, actions, and potential delegation targets (if responder is Team).
-    Relies on get_llm_response to handle all other context via the passed npc object.
-
-    Args:
-        command: User input.
-        possible_actions: Dictionary of valid action names and descriptions.
-        responder: The NPC or Team object, or None.
-        messages: Conversation history (passed to get_llm_response).
-        model, provider, api_url, api_key: LLM configuration overrides.
-
-    Returns:
-        Plan dictionary: {"chosen_action":..., "parameters":..., "explanation":..., "error":...}.
-    """
-    if not possible_actions:
-        return {"error": "No possible actions provided."}
-
-
-    prompt = f"User Request: \"{command}\"\n\n"
-    prompt += "## Possible Actions:\nChoose ONE action:\n"
-    for name, desc in possible_actions.items():
-        prompt += f"- {name}: {desc}\n"
-
-    # Add delegation targets ONLY if responder is a Team    
-    if hasattr(responder, 'npcs'):
-        foreman = decision_npc_obj # Already fetched
-        entities = []
-        for name, npc_obj in responder.npcs.items():
-             if npc_obj != foreman: # Don't list the foreman itself
-                 entities.append(f"- {name} (NPC)")
-        for name, team_obj in responder.sub_teams.items():
-             entities.append(f"- {name} (Team)")
-        if entities:
-            prompt += "\n### Potential Delegation Targets:\n" + "\n".join(entities) + "\n"
-
-    # Instructions for LLM
-    prompt += """
-# Instructions:
-1. Select the single most appropriate action from 'Possible Actions'.
-2. Determine parameters identifying the action's target (e.g., 'tool_name', 'target_entity'). DO NOT determine tool arguments.
-3. Explain reasoning.
-
-# Required Output Format (JSON Only, NO MARKDOWN):
-{
-  "chosen_action": "action_name",
-  "parameters": { /* "tool_name": "...", "target_entity": "..." */ },
-  "explanation": "Your reasoning."
-}
-"""
-
-    # --- 3. Call LLM ---
-    # Pass decision_npc_obj - get_llm_response handles its context (directive etc.)
-    llm_response = get_llm_response(
-        prompt=prompt,
-        model=effective_model,
-        provider=effective_provider,
-        api_url=effective_api_url,
-        api_key=effective_api_key,
-        npc=decision_npc_obj, # Pass the relevant NPC/Foreman object or None
-        format="json",
-        messages=messages # Pass history if get_llm_response uses it
-    )
-
-    # --- 4. Parse and Validate ---
-    plan = {"error": None}
-    if "error" in llm_response or "Error" in llm_response:
-        plan["error"] = f"LLM Error: {llm_response.get('error', llm_response.get('Error'))}"
-        print(plan["error"])
-        return plan
-
-    response_content = llm_response.get("response", {})
-    parsed_json = None
-    try:
-        if isinstance(response_content, str): parsed_json = json.loads(response_content.strip())
-        elif isinstance(response_content, dict): parsed_json = response_content
-        else: raise TypeError("Response is not str or dict")
-
-        if not all(k in parsed_json for k in ["chosen_action", "parameters", "explanation"]) or \
-           not isinstance(parsed_json.get("parameters"), dict) or \
-           not isinstance(parsed_json.get("chosen_action"), str) or \
-           not parsed_json.get("chosen_action"):
-            raise ValueError("LLM plan has invalid structure or missing keys.")
-
-        chosen_action = parsed_json["chosen_action"]
-        if chosen_action not in possible_actions:
-            raise ValueError(f"LLM chose an invalid action '{chosen_action}'. Valid: {list(possible_actions.keys())}")
-
-        plan["chosen_action"] = chosen_action
-        plan["parameters"] = parsed_json.get("parameters", {})
-        plan["explanation"] = parsed_json.get("explanation", "")
-
-    except (json.JSONDecodeError, TypeError, ValueError) as e:
-        plan["error"] = f"LLM plan processing error: {e}. Response: {str(response_content)[:200]}..."
-        print(plan["error"])
-        return plan
-
-
-    print(f"Plan Determined: Action='{plan['chosen_action']}', Params='{plan['parameters']}'")
-    return plan
 def check_llm_command(
     command: str,
     model: str = NPCSH_CHAT_MODEL,
@@ -1138,413 +1004,26 @@ ReAct choices then will enter reasoning flow
         return "Error: Invalid action in LLM response"
 
 
-def handle_tool_call(
-    command: str,
-    tool_name: str,
-    model: str = NPCSH_CHAT_MODEL,
-    provider: str = NPCSH_CHAT_PROVIDER,
-    api_url: str = NPCSH_API_URL,
-    api_key: str = None,
-    messages: List[Dict[str, str]] = None,
-    npc: Any = None,
-    stream=False,
-    n_attempts=3,
-    attempt=0,
-    context=None,
-) -> Union[str, Dict[str, Any]]:
-    """This function handles a tool call.
-    Args:
-        command (str): The command.
-        tool_name (str): The tool name.
-    Keyword Args:
-        model (str): The model to use for handling the tool call.
-        provider (str): The provider to use for handling the tool call.
-        messages (List[Dict[str, str]]): The list of messages.
-        npc (Any): The NPC object.
-    Returns:
-        Union[str, Dict[str, Any]]: The result of handling
-        the tool call.
-
-    """
-    print(npc)
-    print("handling tool call")
-    print(command)
-    if npc is None:
-        return f"No tools are available. "
-    else:
-        if tool_name not in npc.tools_dict:
-            print("not available")
-            print(f"Tool '{tool_name}' not found in NPC's tools_dict.")
-            return f"Tool '{tool_name}' not found."
-        elif tool_name in npc.tools_dict:
-            tool = npc.tools_dict[tool_name]
-        print(f"Tool found: {tool.tool_name}")
-        jinja_env = Environment(loader=FileSystemLoader("."), undefined=Undefined)
-
-        prompt = f"""
-        The user wants to use the tool '{tool_name}' with the following request:
-        '{command}'
-        Here is the tool file:
-        ```
-        {tool.to_dict()}
-        ```
-
-        Please determine the required inputs for the tool as a JSON object.
-        
-        
-        They must be exactly as they are named in the tool.
-        For example, if the tool has three inputs, you should respond with a list of three values that will pass for those args.
-        
-        Return only the JSON object without any markdown formatting.
-
-        """
-
-        if npc and hasattr(npc, "shared_context"):
-            if npc.shared_context.get("dataframes"):
-                context_info = "\nAvailable dataframes:\n"
-                for df_name in npc.shared_context["dataframes"].keys():
-                    context_info += f"- {df_name}\n"
-                prompt += f"""Here is contextual info that may affect your choice: {context_info}
-                """
-        if context is not None:
-            prompt += f"Here is some additional context: {context}"
-
-        # print(prompt)
-
-        # print(
-        # print(prompt)
-        response = get_llm_response(
-            prompt,
-            format="json",
-            model=model,
-            provider=provider,
-            api_url=api_url,
-            api_key=api_key,
-            npc=npc,
-        )
-        try:
-            # Clean the response of markdown formatting
-            response_text = response.get("response", "{}")
-            if isinstance(response_text, str):
-                response_text = (
-                    response_text.replace("```json", "").replace("```", "").strip()
-                )
-
-            # Parse the cleaned response
-            if isinstance(response_text, dict):
-                input_values = response_text
-            else:
-                input_values = json.loads(response_text)
-            # print(f"Extracted inputs: {input_values}")
-        except json.JSONDecodeError as e:
-            print(f"Error decoding input values: {e}. Raw response: {response}")
-            return f"Error extracting inputs for tool '{tool_name}'"
-        # Input validation (example):
-        required_inputs = tool.inputs
-        missing_inputs = []
-        for inp in required_inputs:
-            if not isinstance(inp, dict):
-                # dicts contain the keywords so its fine if theyre missing from the inputs.
-                if inp not in input_values or input_values[inp] == "":
-                    missing_inputs.append(inp)
-        if len(missing_inputs) > 0:
-            # print(f"Missing required inputs for tool '{tool_name}': {missing_inputs}")
-            if attempt < n_attempts:
-                print(f"attempt {attempt+1} to generate inputs failed, trying again")
-                print("missing inputs", missing_inputs)
-                print("llm response", response)
-                print("input values", input_values)
-                return handle_tool_call(
-                    command,
-                    tool_name,
-                    model=model,
-                    provider=provider,
-                    messages=messages,
-                    npc=npc,
-                    api_url=api_url,
-                    api_key=api_key,
-                    stream=stream,
-                    attempt=attempt + 1,
-                    n_attempts=n_attempts,
-                )
-            return {
-                "output": f"Missing inputs for tool '{tool_name}': {missing_inputs}",
-                "messages": messages,
-            }
-
-        # try:
-        print("Executing tool with input values:", input_values)
-
-        # try:
-        tool_output = tool.execute(
-            input_values,
-            npc.tools_dict,
-            jinja_env,
-            command,
-            model=model,
-            provider=provider,
-            npc=npc,
-            stream=stream,
-            messages=messages,
-        )
-        if not stream:
-            if "Error" in tool_output:
-                raise Exception(tool_output)
-            # except Exception as e:
-            # diagnose_problem = get_llm_response(
-            ##    f"""a problem has occurred.
-            #                                    Please provide a diagnosis of the problem and a suggested #fix.
-
-            #                                    The tool call failed with this error:
-            #                                    {e}
-            #                                    Please return a json object containing two fields
-            ##                                    -problem
-            #                                    -suggested solution.
-            #                                    do not include any additional markdown formatting or #leading json tags
-
-            #                                    """,
-            #    model=model,
-            #    provider=provider,
-            #    npc=npc,
-            ##    api_url=api_url,
-            #    api_ley=api_key,
-            #    format="json",
-            # )
-            # print(e)
-            # problem = diagnose_problem.get("response", {}).get("problem")
-            # suggested_solution = diagnose_problem.get("response", {}).get(
-            #    "suggested_solution"
-            # )
-            '''
-            print(f"An error occurred while executing the tool: {e}")
-            print(f"trying again, attempt {attempt+1}")
-            if attempt < n_attempts:
-                tool_output = handle_tool_call(
-                    command,
-                    tool_name,
-                    model=model,
-                    provider=provider,
-                    messages=messages,
-                    npc=npc,
-                    api_url=api_url,
-                    api_key=api_key,
-                    stream=stream,
-                    attempt=attempt + 1,
-                    n_attempts=n_attempts,
-                    context=f""" \n \n \n "tool failed: {e}  \n \n \n here was the previous attempt: {input_values}""",
-                )
-            else:
-                user_input = input(
-                    "the tool execution has failed after three tries, can you add more context to help or would you like to run again?"
-                )
-                return
-            '''
-        if stream:
-            return tool_output
-        # print(f"Tool output: {tool_output}")
-        # render_markdown(str(tool_output))
-        if messages is not None:  # Check if messages is not None
-            messages.append({"role": "assistant", "content": tool_output})
-        return {"messages": messages, "output": tool_output}
-        # except Exception as e:
-        #    print(f"Error executing tool {tool_name}: {e}")
-        #    return f"Error executing tool {tool_name}: {e}"
-
-
-
-
-
-def handle_request_input(
-    context: str,
-    model: str = NPCSH_CHAT_MODEL,
-    provider: str = NPCSH_CHAT_PROVIDER,
-    whisper: bool = False,
-):
-    """
-    Analyze text and decide what to request from the user
-    """
-    prompt = f"""
-    Analyze the text:
-    {context}
-    and determine what additional input is needed.
-    Return a JSON object with:
-    {{
-        "input_needed": boolean,
-        "request_reason": string explaining why input is needed,
-        "request_prompt": string to show user if input needed
-    }}
-
-    Do not include any additional markdown formatting or leading ```json tags. Your response
-    must be a valid JSON object.
-    """
-
-    response = get_llm_response(
-        prompt,
-        model=model,
-        provider=provider,
-        messages=[],
-        format="json",
-    )
-
-    result = response.get("response", {})
-    if isinstance(result, str):
-        result = json.loads(result)
-
-    user_input = request_user_input(
-        {"reason": result["request_reason"], "prompt": result["request_prompt"]},
-    )
-    return user_input
-
-
-def analyze_thoughts_for_input(
-    thought_text: str,
-    model: str = NPCSH_CHAT_MODEL,
-    provider: str = NPCSH_CHAT_PROVIDER,
-    api_url: str = NPCSH_API_URL,
-    api_key: str = None,
-) -> Optional[Dict[str, str]]:
-    """
-    Analyze accumulated thoughts to determine if user input is needed.
-
-    Args:
-        thought_text: Accumulated text from think block
-        messages: Conversation history
-
-    Returns:
-        Dict with input request details if needed, None otherwise
-    """
-
-    prompt = (
-        f"""
-         Analyze these thoughts:
-         {thought_text}
-         and determine if additional user input would be helpful.
-        Return a JSON object with:"""
-        + """
-        {
-            "input_needed": boolean,
-            "request_reason": string explaining why input is needed,
-            "request_prompt": string to show user if input needed
-        }
-        Consider things like:
-        - Ambiguity in the user's request
-        - Missing context that would help provide a better response
-        - Clarification needed about user preferences/requirements
-        Only request input if it would meaningfully improve the response.
-        Do not include any additional markdown formatting or leading ```json tags. Your response
-        must be a valid JSON object.
-        """
-    )
-
-    response = get_llm_response(
-        prompt,
-        model=model,
-        provider=provider,
-        api_url=api_url,
-        api_key=api_key,
-        messages=[],
-        format="json",
-    )
-
-    result = response.get("response", {})
-    if isinstance(result, str):
-        result = json.loads(result)
-
-    if result.get("input_needed"):
-        return {
-            "reason": result["request_reason"],
-            "prompt": result["request_prompt"],
-        }
-
-
-def request_user_input(input_request: Dict[str, str]) -> str:
-    """
-    Request and get input from user.
-
-    Args:
-        input_request: Dict with reason and prompt for input
-
-    Returns:
-        User's input text
-    """
-    print(f"\nAdditional input needed: {input_request['reason']}")
-    return input(f"{input_request['prompt']}: ")
-
-
-def check_user_input() -> Optional[str]:
-    """
-    Non-blocking check for user input.
-    Returns None if no input is available, otherwise returns the input string.
-    """
-    if select.select([sys.stdin], [], [], 0.0)[0]:
-        return input()
-    return None
-
-
-def input_listener(input_queue: Queue):
-    """
-    Continuously listen for user input in a separate thread.
-    """
-    while True:
-        try:
-            user_input = input()
-            input_queue.put(user_input)
-        except EOFError:
-            break
-
-
-def stream_with_interrupts(
-    messages: List[Dict[str, str]],
+def rehash_last_message(
+    conversation_id: str,
     model: str,
     provider: str,
     npc: Any = None,
-    context=None,
-) -> Generator[str, None, None]:
-    """Stream responses with basic Ctrl+C handling and recursive conversation loop."""
-    response_stream = get_stream(
-        messages, model=model, provider=provider, npc=npc, context=context
+    stream: bool = False,
+) -> dict:
+    from npcpy.memory.command_history import CommandHistory    
+    command_history = CommandHistory()
+    last_message = command_history.get_last_conversation(conversation_id)
+    if last_message is None:
+        convo_id = command_history.get_most_recent_conversation_id()[0]
+        last_message = command_history.get_last_conversation(convo_id)
+
+    user_command = last_message[3]  # Assuming content is in the 4th column
+    return check_llm_command(
+        user_command,
+        model=model,
+        provider=provider,
+        npc=npc,
+        messages=None,
+        stream=stream,
     )
-
-    try:
-        # Flag to track if streaming is complete
-        streaming_complete = False
-
-        for chunk in response_stream:
-            if provider == "ollama" and 'hf.co' in model:
-                chunk_content = chunk.get("message", {}).get("content", "")
-            else:
-                chunk_content = "".join(
-                    choice.delta.content
-                    for choice in chunk.choices
-                    if choice.delta.content is not None
-                )
-            yield chunk_content
-
-            # Optional: Mark streaming as complete when no more chunks
-            if not chunk_content:
-                streaming_complete = True
-
-    except KeyboardInterrupt:
-        # Handle keyboard interrupt by getting user input
-        user_input = input("\n> ")
-        messages.append({"role": "user", "content": user_input})
-        yield from stream_with_interrupts(
-            messages, model=model, provider=provider, npc=npc, context=context
-        )
-
-    finally:
-        # Prompt for next input and continue conversation
-        while True:
-            user_input = input("\n> ")
-
-            # Option to exit the loop
-            if user_input.lower() in ["exit", "quit", "q"]:
-                break
-
-            # Add user input to messages
-            messages.append({"role": "user", "content": user_input})
-
-            # Recursively continue the conversation
-            yield from stream_with_interrupts(
-                messages, model=model, provider=provider, npc=npc, context=context
-            )

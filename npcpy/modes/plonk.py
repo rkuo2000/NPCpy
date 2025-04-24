@@ -1,5 +1,6 @@
 
-def plonk(request, action_space, model=None, provider=None, npc=None):
+from npcpy.data.image import capture_screenshot
+def execute_plonk_command(request, action_space, model=None, provider=None, npc=None):
     """
     Main interaction loop with LLM for action determination
 

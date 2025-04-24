@@ -1,26 +1,45 @@
+from npcpy.memory.command_history import CommandHistory, start_new_conversation, save_conversation_message
+from npcpy.data.load import load_pdf, load_csv, load_json, load_excel, load_txt
+from npcpy.data.image import capture_screenshot
+from npcpy.data.text import rag_search
+
+import os
+from npcpy.npc_sysenv import (
+    orange, 
+    get_system_message, 
+    render_markdown,
+    render_code_block, 
+    print_and_process_stream_with_markdown,
+    NPCSH_VISION_MODEL, NPCSH_VISION_PROVIDER, 
+    NPCSH_CHAT_MODEL, NPCSH_CHAT_PROVIDER,
+    NPCSH_STREAM_OUTPUT
+    )
+from npcpy.llm_funcs import (get_llm_response,  rehash_last_message)
+from npcpy.npc_compiler import NPC
+from typing import Any, List, Dict, Union
+
 def enter_spool_mode(
     inherit_last: int = 0,
-    model: str = None,
-    provider: str = None,
-    npc: Any = None,
-    files: List[str] = None,  # New files parameter
+    model: str = NPCSH_CHAT_MODEL, 
+    provider: str =  NPCSH_CHAT_PROVIDER,
+    vision_model:str = NPCSH_VISION_MODEL,
+    vision_provider:str = NPCSH_VISION_PROVIDER,
+    npc = None,
+    files: List[str] = None,
     rag_similarity_threshold: float = 0.3,
-    device: str = "cpu",
     messages: List[Dict] = None,
     conversation_id: str = None,
-    stream: bool = False,
+    stream: bool = NPCSH_STREAM_OUTPUT,
 ) -> Dict:
     """
     Function Description:
         This function is used to enter the spool mode where files can be loaded into memory.
     Args:
-
         inherit_last : int : The number of last commands to inherit.
         npc : Any : The NPC object.
         files : List[str] : List of file paths to load into the context.
     Returns:
         Dict : The messages and output.
-
     """
 
     command_history = CommandHistory()
@@ -76,152 +95,141 @@ def enter_spool_mode(
             provider = npc.provider
 
     while True:
+        kwargs_to_pass = {}
+        if npc:
+            kwargs_to_pass["npc"] = npc
+            if npc.model:
+                kwargs_to_pass["model"] = npc.model
+            if npc.provider:
+                kwargs_to_pass["provider"] = npc.provider
+
+                
         try:
-            user_input = input("spool> ").strip()
+            
+            user_input = input("spool:in> ").strip()
             if len(user_input) == 0:
                 continue
             if user_input.lower() == "/sq":
                 print("Exiting spool mode.")
                 break
-            if user_input.lower() == "/rehash":  # Check for whisper command
+            if user_input.lower() == "/rehash":  # Check for rehash command
                 # send the most recent message
                 print("Rehashing last message...")
                 output = rehash_last_message(
                     conversation_id,
-                    model=model,
-                    provider=provider,
-                    npc=npc,
                     stream=stream,
+                    **kwargs_to_pass
                 )
                 print(output["output"])
                 messages = output.get("messages", [])
                 output = output.get("output", "")
+                continue
 
             if user_input.lower() == "/whisper":  # Check for whisper command
                 messages = enter_whisper_mode(spool_context, npc)
-                # print(messages)  # Optionally print output from whisper mode
-                continue  # Continue with spool mode after exiting whisper mode
+                continue
 
             if user_input.startswith("/ots"):
                 command_parts = user_input.split()
-                file_path = None
-                filename = None
-
+                image_paths = []
+                print('using vision model: ', vision_model)
+                
                 # Handle image loading/capturing
                 if len(command_parts) > 1:
-                    filename = command_parts[1]
-                    file_path = os.path.join(os.getcwd(), filename)
+                    # User provided image path(s)
+                    for img_path in command_parts[1:]:
+                        full_path = os.path.join(os.getcwd(), img_path)
+                        if os.path.exists(full_path):
+                            image_paths.append(full_path)
+                        else:
+                            print(f"Error: Image file not found at {full_path}")
                 else:
+                    # Capture screenshot
                     output = capture_screenshot(npc=npc)
                     if output and "file_path" in output:
-                        file_path = output["file_path"]
-                        filename = output["filename"]
-
-                if not file_path or not os.path.exists(file_path):
-                    print(f"Error: Image file not found at {file_path}")
+                        image_paths.append(output["file_path"])
+                        print(f"Screenshot captured: {output['filename']}")
+                
+                if not image_paths:
+                    print("No valid images provided.")
                     continue
-
-                # Get user prompt about the image
+                
+                # Get user prompt about the image(s)
                 user_prompt = input(
-                    "Enter a prompt for the LLM about this image (or press Enter to skip): "
+                    "Enter a prompt for the LLM about these images (or press Enter to skip): "
                 )
+                if not user_prompt:
+                    user_prompt = "Please analyze these images."
+                
+                kwargs_to_pass['model']= vision_model
+                kwargs_to_pass['provider']= vision_provider
+                # Save the user message
+                message_id = save_conversation_message(
+                    command_history,
+                    conversation_id,
+                    "user",
+                    user_prompt,
+                    wd=os.getcwd(),
+                    model=vision_model,
+                    provider=vision_provider,
+                    npc=npc.name if npc else None,
+                    
+                )
+                
+                # Process the request with our unified approach
+                response = get_llm_response(
+                    user_prompt, 
+                    messages=spool_context,
+                    images=image_paths,
+                    stream=stream, 
+                    **kwargs_to_pass
+                )
+                
+                # Extract the assistant's response
+                assistant_reply = response['response']
+                
+                spool_context = response['messages']
+                
+                if stream:
+                    print(orange(f'spool:{npc.name}:{vision_model}>'), end='', flush=True)
+                    
+                    assistant_reply = print_and_process_stream_with_markdown(assistant_reply, model=model, provider=provider)
+                
+                    spool_context.append({"role": "assistant", "content": assistant_reply})
+                if assistant_reply.count("```") % 2 != 0:
+                    assistant_reply = assistant_reply + "```"
+                # Save the assistant's response
+                save_conversation_message(
+                    command_history,
+                    conversation_id,
+                    "assistant",
+                    assistant_reply,
+                    wd=os.getcwd(),
+                    model=vision_model,
+                    provider=vision_provider,
+                    npc=npc.name if npc else None,
+                    
 
-                # Read image file as binary data
-                try:
-                    with open(file_path, "rb") as img_file:
-                        img_data = img_file.read()
+                )
+                                
 
-                    # Create an attachment for the image
-                    image_attachment = {
-                        "name": filename,
-                        "type": guess_mime_type(filename),
-                        "data": img_data,
-                        "size": len(img_data),
-                    }
+                
+                # Display the response
+                if not stream:
+                    render_markdown(assistant_reply)
+                
+                continue
 
-                    # Save user message with image attachment
-                    message_id = save_conversation_message(
-                        command_history,
-                        conversation_id,
-                        "user",
-                        (
-                            user_prompt
-                            if user_prompt
-                            else f"Please analyze this image: {filename}"
-                        ),
-                        wd=os.getcwd(),
-                        model=model,
-                        provider=provider,
-                        npc=npc.name if npc else None,
-                        attachments=[image_attachment],
-                    )
 
-                    # Now use analyze_image which will process the image
-                    output = analyze_image(
-                        command_history,
-                        user_prompt,
-                        file_path,
-                        filename,
-                        npc=npc,
-                        stream=stream,
-                        message_id=message_id,  # Pass the message ID for reference
-                    )
-
-                    # Save assistant's response
-                    if output and isinstance(output, str):
-                        save_conversation_message(
-                            command_history,
-                            conversation_id,
-                            "assistant",
-                            output,
-                            wd=os.getcwd(),
-                            model=model,
-                            provider=provider,
-                            npc=npc.name if npc else None,
-                        )
-
-                    # Update spool context with this exchange
-                    spool_context.append(
-                        {"role": "user", "content": user_prompt, "image": file_path}
-                    )
-                    spool_context.append({"role": "assistant", "content": output})
-
-                    if isinstance(output, dict) and "filename" in output:
-                        message = f"Screenshot captured: {output['filename']}\nFull path: {output['file_path']}\nLLM-ready data available."
-                    else:
-                        message = output
-
-                    render_markdown(
-                        output["response"]
-                        if isinstance(output["response"], str)
-                        else str(output["response"])
-                    )
-                    continue
-
-                except Exception as e:
-                    print(f"Error processing image: {str(e)}")
-                    continue
-
-            # Prepare kwargs for get_conversation
-            kwargs_to_pass = {}
-            if npc:
-                kwargs_to_pass["npc"] = npc
-                if npc.model:
-                    kwargs_to_pass["model"] = npc.model
-
-                if npc.provider:
-                    kwargs_to_pass["provider"] = npc.provider
-
-            # Incorporate the loaded content into the prompt for conversation
+            
+            # Handle RAG context
             if loaded_content:
                 context_content = ""
                 for filename, content in loaded_content.items():
-                    # now do a rag search with the loaded_content
                     retrieved_docs = rag_search(
                         user_input,
                         content,
                         similarity_threshold=rag_similarity_threshold,
-                        device=device,
                     )
                     if retrieved_docs:
                         context_content += (
@@ -234,10 +242,7 @@ def enter_spool_mode(
                     Please reference it explicitly in your response and use it for answering.
                     """
 
-            # Add user input to spool context
-            spool_context.append({"role": "user", "content": user_input})
-
-            # Save user message to conversation history
+            # Save user message
             message_id = save_conversation_message(
                 command_history,
                 conversation_id,
@@ -248,48 +253,20 @@ def enter_spool_mode(
                 provider=provider,
                 npc=npc.name if npc else None,
             )
+            
+            # Use the simplified get_llm_response function
+            response = get_llm_response(
+                user_input, 
+                messages=spool_context, 
+                stream=stream,
+                **kwargs_to_pass
+            )
 
+            assistant_reply, spool_context = response['response'], response['messages']
             if stream:
-                conversation_result = ""
-                output = get_stream(spool_context, **kwargs_to_pass)
-                conversation_result = print_and_process_stream(output, model, provider)
-                conversation_result = spool_context + [
-                    {"role": "assistant", "content": conversation_result}
-                ]
-            else:
-                conversation_result = get_conversation(spool_context, **kwargs_to_pass)
-
-            # Handle potential errors in conversation_result
-            if isinstance(conversation_result, str) and "Error" in conversation_result:
-                print(conversation_result)  # Print the error message
-                continue  # Skip to the next loop iteration
-            elif (
-                not isinstance(conversation_result, list)
-                or len(conversation_result) == 0
-            ):
-                print("Error: Invalid response from get_conversation")
-                continue
-
-            spool_context = conversation_result  # update spool_context
-
-            # Extract assistant's reply, handling potential KeyError
-            try:
-                # print(spool_context[-1])
-                # print(provider)
-                if provider == "gemini":
-                    assistant_reply = spool_context[-1]["parts"][0]
-                else:
-                    assistant_reply = spool_context[-1]["content"]
-
-            except (KeyError, IndexError) as e:
-                print(f"Error extracting assistant's reply: {e}")
-                print(spool_context[-1])
-                print(
-                    f"Conversation result: {conversation_result}"
-                )  # Print for debugging
-                continue
-
-            # Save assistant's response to conversation history
+                print(orange(f'spool:{npc.name}:{npc.model}>'), end='', flush=True)
+                assistant_reply = print_and_process_stream_with_markdown(assistant_reply, model=model, provider=provider)
+            # Save assistant message
             save_conversation_message(
                 command_history,
                 conversation_id,
@@ -301,8 +278,7 @@ def enter_spool_mode(
                 npc=npc.name if npc else None,
             )
 
-            # sometimes claude responds with unfinished markdown notation. so we need to check if there are two sets
-            # of markdown notation and if not, we add it. so if # markdown notations is odd we add one more
+            # Fix unfinished markdown notation
             if assistant_reply.count("```") % 2 != 0:
                 assistant_reply = assistant_reply + "```"
 
@@ -319,4 +295,31 @@ def enter_spool_mode(
             [msg["content"] for msg in spool_context if msg["role"] == "assistant"]
         ),
     }
+def main():
+    # Example usage
+    import argparse
+    
+    parser = argparse.ArgumentParser(description="Enter spool mode for chatting with an LLM")
+    parser.add_argument("--model", default="gemma3", help="Model to use")
+    parser.add_argument("--provider", default="ollama", help="Provider to use")
+    parser.add_argument("--files", nargs="*", help="Files to load into context")
+    parser.add_argument("--stream", default="true", help="Use streaming mode")
+    parser.add_argument("--npc", type=str, default=os.path.expanduser('~/.npcsh/npc_team/sibiji.npc'), help="Path to NPC file")
+    
+    
+    args = parser.parse_args()
+    
+    npc = NPC(file=args.npc)
+    print('npc: ', args.npc)
+    print(args.stream)
+    # Enter spool mode
+    enter_spool_mode(
+        npc=npc,
+        model=args.model,
+        provider=args.provider,
+        files=args.files,
+        stream= args.stream.lower() == "true",
+    )
 
+if __name__ == "__main__":
+    main()

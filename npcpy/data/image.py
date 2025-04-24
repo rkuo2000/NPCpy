@@ -1,14 +1,11 @@
-# image.py
-# import os
+
 import time
 import platform
 import subprocess
 from typing import Dict, Any
-from PIL import ImageGrab  # Import ImageGrab from Pillow
-
-from npcpy.npc_sysenv import NPCSH_VISION_MODEL, NPCSH_VISION_PROVIDER, NPCSH_API_URL
-from npcpy.llm_funcs import get_llm_response, get_stream
 import os
+import io
+from PIL import Image
 
 
 def _windows_snip_to_file(file_path: str) -> bool:
@@ -187,112 +184,26 @@ def capture_screenshot(npc: Any = None, full=False) -> Dict[str, str]:
         print("Screenshot capture failed or was cancelled.")
         return None
 
+def compress_image(image_bytes, max_size=(800, 600)):
+    # Create a copy of the bytes in memory
+    buffer = io.BytesIO(image_bytes)
+    img = Image.open(buffer)
 
-def analyze_image_base(
-    user_prompt: str,
-    file_path: str,
-    filename: str,
-    npc: Any = None,
-    stream: bool = False,
-    **model_kwargs,
-) -> Dict[str, str]:
-    """
-    Function Description:
-        This function analyzes an image using the LLM model and returns the response.
-    Args:
-        user_prompt: The user prompt to provide to the LLM model.
-        file_path: The path to the image file.
-        filename: The name of the image file.
-    Keyword Args:
-        npc: The NPC object representing the current NPC.
-    Returns:
-        The response from the LLM model
+    # Force loading of image data
+    img.load()
 
-    """
+    # Convert RGBA to RGB if necessary
+    if img.mode == "RGBA":
+        background = Image.new("RGB", img.size, (255, 255, 255))
+        background.paste(img, mask=img.split()[3])
+        img = background
 
-    if os.path.exists(file_path):
-        image_info = {"filename": filename, "file_path": file_path}
+    # Resize if needed
+    if img.size[0] > max_size[0] or img.size[1] > max_size[1]:
+        img.thumbnail(max_size)
 
-        if user_prompt:
-            try:
-                response = get_llm_response(
-                    user_prompt, images=[image_info], npc=npc, **model_kwargs
-                )
-                return response
-            except Exception as e:
-                error_message = f"Error during LLM processing: {e}"
-                print(error_message)
-                return {"response": error_message}
-        else:
-            print("Skipping LLM processing.")
-            return {"response": str(image_info)}
-    else:
-        print("Screenshot capture failed or was cancelled.")
-        return {"response": "Screenshot capture failed or was cancelled."}
+    # Save with minimal compression
+    out_buffer = io.BytesIO()
+    img.save(out_buffer, format="JPEG", quality=95, optimize=False)
+    return out_buffer.getvalue()
 
-
-def analyze_image(
-    user_prompt: str,
-    file_path: str,
-    filename: str,
-    npc: Any = None,
-    stream: bool = False,
-    messages: list = None,
-    model: str = NPCSH_VISION_MODEL,
-    provider: str = NPCSH_VISION_PROVIDER,
-    api_key: str = None,
-    api_url: str = NPCSH_API_URL,
-) -> Dict[str, str]:
-    """
-    Function Description:
-        This function captures a screenshot, analyzes it using the LLM model, and returns the response.
-    Args:
-
-        user_prompt: The user prompt to provide to the LLM model.
-        file_path: The path to the image file.
-        filename: The name of the image file.
-    Keyword Args:
-        npc: The NPC object representing the current NPC.
-        model_kwargs: Additional keyword arguments for the LLM model.
-    Returns:
-        The response from the LLM model.
-    """
-
-    if os.path.exists(file_path):
-        image_info = {"filename": filename, "file_path": file_path}
-
-        if user_prompt:
-            try:
-                # print("Analyzing image...")
-                # print(model_kwargs)
-                # print("stream", stream)
-                if stream:
-                    # print("going to stream")
-                    return get_stream(
-                        messages, images=[image_info], npc=npc
-                    )
-
-                else:
-                    response = get_llm_response(
-                        user_prompt,
-                        images=[image_info],
-                        npc=npc,
-                        model=model,
-                        provider=provider,
-                        api_url=api_url,
-                        api_key=api_key,
-                    )
-
-                    return response
-
-            except Exception as e:
-                error_message = f"Error during LLM processing: {e}"
-                print(error_message)
-                return error_message
-
-        else:  # This part needs to be inside the outer 'if os.path.exists...' block
-            print("Skipping LLM processing.")
-            return image_info  # Return image info if no prompt is given
-    else:  # This else also needs to be part of the outer 'if os.path.exists...' block
-        print("Screenshot capture failed or was cancelled.")
-        return None

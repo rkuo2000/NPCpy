@@ -1,8 +1,37 @@
 
+try:
+    from faster_whisper import WhisperModel
+    from gtts import gTTS
+    import torch
+    import pyaudio
+    import wave
+    import queue
+
+    from npcpy.data.audio import (
+        cleanup_temp_files,
+        FORMAT,
+        CHANNELS,
+        RATE,
+        device,
+        vad_model,
+        CHUNK,
+        whisper_model,
+        transcribe_recording,
+        convert_mp3_to_wav,
+    )
+
+
+except Exception as e:
+    print(
+        "Exception: "
+        + str(e)
+        + "\n"
+        + "Could not load the whisper package. If you want to use tts/stt features, please run `pip install npcsh[audio]` and follow the instructions in the npcsh github readme to  ensure your OS can handle the audio dependencies."
+    )
 def enter_whisper_mode(
     messages: list = None,
-    npc: Any = None,
-    team: Team = None,
+    npc= None,
+    team=  None,
     spool=False,
     continuous=False,
     stream=True,

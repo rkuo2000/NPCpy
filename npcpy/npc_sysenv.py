@@ -31,101 +31,515 @@ try:
 except Exception as e:
     print(f"Error importing sentence_transformers: {e}")
 
+import os
+import pandas as pd
 
-def get_shell_config_file() -> str:
+import threading
+
+from typing import Dict, Any, List, Optional, Union
+import numpy as np
+import readline
+from colorama import Fore, Back, Style
+import re
+import tempfile
+import sqlite3
+import wave
+from datetime import datetime
+import glob
+import shlex
+import logging
+import textwrap
+import subprocess
+from termcolor import colored
+import sys
+import termios
+import tty
+import pty
+import select
+import signal
+import platform
+import time
+
+import tempfile
+
+from rich.console import Console
+from rich.markdown import Markdown
+from rich.syntax import Syntax
+import warnings
+
+# Global variables
+running = True
+is_recording = False
+recording_data = []
+buffer_data = []
+last_speech_time = 0
+\
+warnings.filterwarnings("ignore", module="whisper.transcribe")
+
+warnings.filterwarnings("ignore", category=FutureWarning)
+warnings.filterwarnings("ignore", module="torch.serialization")
+os.environ["PYTHONWARNINGS"] = "ignore"
+os.environ["SDL_AUDIODRIVER"] = "dummy"
+
+
+def validate_bash_command(command_parts: list) -> bool:
     """
-
     Function Description:
-        This function returns the path to the shell configuration file.
+        Validate if the command sequence is a valid bash command with proper arguments/flags.
     Args:
-        None
+        command_parts : list : Command parts
     Keyword Args:
         None
     Returns:
-        The path to the shell configuration file.
+        bool : bool : Boolean
     """
-    # Check the current shell
-    shell = os.environ.get("SHELL", "")
+    if not command_parts:
+        return False
 
-    if "zsh" in shell:
-        return os.path.expanduser("~/.zshrc")
-    elif "bash" in shell:
-        # On macOS, use .bash_profile for login shells
-        if platform.system() == "Darwin":
-            return os.path.expanduser("~/.bash_profile")
+    COMMAND_PATTERNS = {
+        "cat": {
+            "flags": ["-n", "-b", "-E", "-T", "-s", "--number", "-A", "--show-all"],
+            "requires_arg": True,
+        },
+        "find": {
+            "flags": [
+                "-name",
+                "-type",
+                "-size",
+                "-mtime",
+                "-exec",
+                "-print",
+                "-delete",
+                "-maxdepth",
+                "-mindepth",
+                "-perm",
+                "-user",
+                "-group",
+            ],
+            "requires_arg": True,
+        },
+        "who": {
+            "flags": [
+                "-a",
+                "-b",
+                "-d",
+                "-H",
+                "-l",
+                "-p",
+                "-q",
+                "-r",
+                "-s",
+                "-t",
+                "-u",
+                "--all",
+                "--count",
+                "--heading",
+            ],
+            "requires_arg": True,
+        },
+        "open": {
+            "flags": ["-a", "-e", "-t", "-f", "-F", "-W", "-n", "-g", "-h"],
+            "requires_arg": True,
+        },
+        "which": {"flags": ["-a", "-s", "-v"], "requires_arg": True},
+    }
+
+    base_command = command_parts[0]
+
+    if base_command not in COMMAND_PATTERNS:
+        return True  # Allow other commands to pass through
+
+    pattern = COMMAND_PATTERNS[base_command]
+    args = []
+    flags = []
+
+    for i in range(1, len(command_parts)):
+        part = command_parts[i]
+        if part.startswith("-"):
+            flags.append(part)
+            if part not in pattern["flags"]:
+                return False  # Invalid flag
         else:
-            return os.path.expanduser("~/.bashrc")
+            args.append(part)
+
+    # Check if 'who' has any arguments (it shouldn't)
+    if base_command == "who" and args:
+        return False
+
+    # Handle 'which' with '-a' flag
+    if base_command == "which" and "-a" in flags:
+        return True  # Allow 'which -a' with or without arguments.
+
+    # Check if any required arguments are missing
+    if pattern.get("requires_arg", False) and not args:
+        return False
+
+    return True
+
+
+
+
+def log_action(action: str, detail: str = "") -> None:
+    """
+    Function Description:
+        This function logs an action with optional detail.
+    Args:
+        action: The action to log.
+        detail: Additional detail to log.
+    Keyword Args:
+        None
+    Returns:
+        None
+    """
+    logging.info(f"{action}: {detail}")
+
+
+
+def start_interactive_session(command: list) -> int:
+    """
+    Function Description:
+        Starts an interactive session.
+    Args:
+        command : list : Command to execute
+    Keyword Args:
+        None
+    Returns:
+        returncode : int : Return code
+
+    """
+    # Save the current terminal settings
+    old_tty = termios.tcgetattr(sys.stdin)
+    try:
+        # Create a pseudo-terminal
+        master_fd, slave_fd = pty.openpty()
+
+        # Start the process
+        p = subprocess.Popen(
+            command,
+            stdin=slave_fd,
+            stdout=slave_fd,
+            stderr=slave_fd,
+            shell=True,
+            preexec_fn=os.setsid,  # Create a new process group
+        )
+
+        # Set the terminal to raw mode
+        tty.setraw(sys.stdin.fileno())
+
+        def handle_timeout(signum, frame):
+            raise TimeoutError("Process did not terminate in time")
+
+        while p.poll() is None:
+            r, w, e = select.select([sys.stdin, master_fd], [], [], 0.1)
+            if sys.stdin in r:
+                d = os.read(sys.stdin.fileno(), 10240)
+                os.write(master_fd, d)
+            elif master_fd in r:
+                o = os.read(master_fd, 10240)
+                if o:
+                    os.write(sys.stdout.fileno(), o)
+                else:
+                    break
+
+        # Wait for the process to terminate with a timeout
+        signal.signal(signal.SIGALRM, handle_timeout)
+        signal.alarm(5)  # 5 second timeout
+        try:
+            p.wait()
+        except TimeoutError:
+            print("\nProcess did not terminate. Force killing...")
+            os.killpg(os.getpgid(p.pid), signal.SIGTERM)
+            time.sleep(1)
+            if p.poll() is None:
+                os.killpg(os.getpgid(p.pid), signal.SIGKILL)
+        finally:
+            signal.alarm(0)
+
+    finally:
+        # Restore the terminal settings
+        termios.tcsetattr(sys.stdin, termios.TCSAFLUSH, old_tty)
+
+    return p.returncode
+
+def preprocess_code_block(code_text):
+    """
+    Preprocess code block text to remove leading spaces.
+    """
+    lines = code_text.split("\n")
+    return "\n".join(line.lstrip() for line in lines)
+
+
+def preprocess_markdown(md_text):
+    """
+    Preprocess markdown text to handle code blocks separately.
+    """
+    lines = md_text.split("\n")
+    processed_lines = []
+
+    inside_code_block = False
+    current_code_block = []
+
+    for line in lines:
+        if line.startswith("```"):  # Toggle code block
+            if inside_code_block:
+                # Close code block, unindent, and append
+                processed_lines.append("```")
+                processed_lines.extend(
+                    textwrap.dedent("\n".join(current_code_block)).split("\n")
+                )
+                processed_lines.append("```")
+                current_code_block = []
+            inside_code_block = not inside_code_block
+        elif inside_code_block:
+            current_code_block.append(line)
+        else:
+            processed_lines.append(line)
+
+    return "\n".join(processed_lines)
+
+
+BASH_COMMANDS = [
+    "npc",
+    "npm",
+    "npx",
+    "open",
+    "alias",
+    "bg",
+    "bind",
+    "break",
+    "builtin",
+    "case",
+    "command",
+    "compgen",
+    "complete",
+    "continue",
+    "declare",
+    "dirs",
+    "disown",
+    "echo",
+    "enable",
+    "eval",
+    "exec",
+    "exit",
+    "export",
+    "fc",
+    "fg",
+    "getopts",
+    "hash",
+    "help",
+    "history",
+    "if",
+    "jobs",
+    "kill",
+    "let",
+    "local",
+    "logout",
+    "ollama",
+    "popd",
+    "printf",
+    "pushd",
+    "pwd",
+    "read",
+    "readonly",
+    "return",
+    "set",
+    "shift",
+    "shopt",
+    "source",
+    "suspend",
+    "test",
+    "times",
+    "trap",
+    "type",
+    "typeset",
+    "ulimit",
+    "umask",
+    "unalias",
+    "unset",
+    "until",
+    "wait",
+    "while",
+    # Common Unix commands
+    "ls",
+    "cp",
+    "mv",
+    "rm",
+    "mkdir",
+    "rmdir",
+    "touch",
+    "cat",
+    "less",
+    "more",
+    "head",
+    "tail",
+    "grep",
+    "find",
+    "sed",
+    "awk",
+    "sort",
+    "uniq",
+    "wc",
+    "diff",
+    "chmod",
+    "chown",
+    "chgrp",
+    "ln",
+    "tar",
+    "gzip",
+    "gunzip",
+    "zip",
+    "unzip",
+    "ssh",
+    "scp",
+    "rsync",
+    "wget",
+    "curl",
+    "ping",
+    "netstat",
+    "ifconfig",
+    "route",
+    "traceroute",
+    "ps",
+    "top",
+    "htop",
+    "kill",
+    "killall",
+    "su",
+    "sudo",
+    "whoami",
+    "who",
+    "w",
+    "last",
+    "finger",
+    "uptime",
+    "free",
+    "df",
+    "du",
+    "mount",
+    "umount",
+    "fdisk",
+    "mkfs",
+    "fsck",
+    "dd",
+    "cron",
+    "at",
+    "systemctl",
+    "service",
+    "journalctl",
+    "man",
+    "info",
+    "whatis",
+    "whereis",
+    "which",
+    "date",
+    "cal",
+    "bc",
+    "expr",
+    "screen",
+    "tmux",
+    "git",
+    "vim",
+    "emacs",
+    "nano",
+    "pip",
+]
+
+
+interactive_commands = {
+    "ipython": ["ipython"],
+    "python": ["python", "-i"],
+    "sqlite3": ["sqlite3"],
+    "r": ["R", "--interactive"],
+}
+
+
+def render_markdown(text: str) -> None:
+    """
+    Renders markdown text, but handles code blocks as plain syntax-highlighted text.
+    """
+    lines = text.split("\n")
+    console = Console()
+
+    inside_code_block = False
+    code_lines = []
+    lang = None
+
+    for line in lines:
+        if line.startswith("```"):
+            if inside_code_block:
+                # End of code block - render the collected code
+                code = "\n".join(code_lines)
+                if code.strip():
+                    syntax = Syntax(
+                        code, lang or "python", theme="monokai", line_numbers=False
+                    )
+                    console.print(syntax)
+                code_lines = []
+            else:
+                # Start of code block - get language if specified
+                lang = line[3:].strip() or None
+            inside_code_block = not inside_code_block
+        elif inside_code_block:
+            code_lines.append(line)
+        else:
+            # Regular markdown
+            console.print(Markdown(line))
+
+
+
+
+
+
+def execute_set_command(command: str, value: str) -> str:
+    """
+    Function Description:
+        This function sets a configuration value in the .npcshrc file.
+    Args:
+        command: The command to execute.
+        value: The value to set.
+    Keyword Args:
+        None
+    Returns:
+        A message indicating the success or failure of the operation.
+    """
+
+    config_path = os.path.expanduser("~/.npcshrc")
+
+    # Map command to environment variable name
+    var_map = {
+        "model": "NPCSH_CHAT_MODEL",
+        "provider": "NPCSH_CHAT_PROVIDER",
+        "db_path": "NPCSH_DB_PATH",
+    }
+
+    if command not in var_map:
+        return f"Unknown setting: {command}"
+
+    env_var = var_map[command]
+
+    # Read the current configuration
+    if os.path.exists(config_path):
+        with open(config_path, "r") as f:
+            lines = f.readlines()
     else:
-        # Default to .bashrc if we can't determine the shell
-        return os.path.expanduser("~/.bashrc")
+        lines = []
 
+    # Check if the property exists and update it, or add it if it doesn't exist
+    property_exists = False
+    for i, line in enumerate(lines):
+        if line.startswith(f"export {env_var}="):
+            lines[i] = f"export {env_var}='{value}'\n"
+            property_exists = True
+            break
 
-def initial_table_print(cursor: sqlite3.Cursor) -> None:
-    """
-    Function Description:
-        This function is used to print the initial table.
-    Args:
-        cursor : sqlite3.Cursor : The SQLite cursor.
-    Keyword Args:
-        None
-    Returns:
-        None
-    """
+    if not property_exists:
+        lines.append(f"export {env_var}='{value}'\n")
 
-    cursor.execute(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name != 'command_history'"
-    )
-    tables = cursor.fetchall()
+    # Save the updated configuration
+    with open(config_path, "w") as f:
+        f.writelines(lines)
 
-    print("\nAvailable tables:")
-    for i, table in enumerate(tables, 1):
-        print(f"{i}. {table[0]}")
-
-
-def ensure_npcshrc_exists() -> str:
-    """
-    Function Description:
-        This function ensures that the .npcshrc file exists in the user's home directory.
-    Args:
-        None
-    Keyword Args:
-        None
-    Returns:
-        The path to the .npcshrc file.
-    """
-
-    npcshrc_path = os.path.expanduser("~/.npcshrc")
-    if not os.path.exists(npcshrc_path):
-        with open(npcshrc_path, "w") as npcshrc:
-            npcshrc.write("# NPCSH Configuration File\n")
-            npcshrc.write("export NPCSH_INITIALIZED=0\n")
-            npcshrc.write("export NPCSH_DEFAULT_MODE='chat'\n")
-            npcshrc.write("export NPCSH_CHAT_PROVIDER='ollama'\n")
-            npcshrc.write("export NPCSH_CHAT_MODEL='llama3.2'\n")
-            npcshrc.write("export NPCSH_REASONING_PROVIDER='ollama'\n")
-            npcshrc.write("export NPCSH_REASONING_MODEL='deepseek-r1'\n")
-
-            npcshrc.write("export NPCSH_EMBEDDING_PROVIDER='ollama'\n")
-            npcshrc.write("export NPCSH_EMBEDDING_MODEL='nomic-embed-text'\n")
-            npcshrc.write("export NPCSH_VISION_PROVIDER='ollama'\n")
-            npcshrc.write("export NPCSH_VISION_MODEL='llava7b'\n")
-            npcshrc.write(
-                "export NPCSH_IMAGE_GEN_MODEL='runwayml/stable-diffusion-v1-5'\n"
-            )
-
-            npcshrc.write("export NPCSH_IMAGE_GEN_PROVIDER='diffusers'\n")
-            npcshrc.write(
-                "export NPCSH_VIDEO_GEN_MODEL='runwayml/stable-diffusion-v1-5'\n"
-            )
-
-            npcshrc.write("export NPCSH_VIDEO_GEN_PROVIDER='diffusers'\n")
-
-            npcshrc.write("export NPCSH_API_URL=''\n")
-            npcshrc.write("export NPCSH_DB_PATH='~/npcsh_history.db'\n")
-            npcshrc.write("export NPCSH_VECTOR_DB_PATH='~/npcsh_chroma.db'\n")
-            npcshrc.write("export NPCSH_STREAM_OUTPUT=0")
-    return npcshrc_path
-
+    return f"{command.capitalize()} has been set to: {value}"
 
 # Function to check and download NLTK data if necessary
 def ensure_nltk_punkt() -> None:
@@ -145,66 +559,6 @@ def ensure_nltk_punkt() -> None:
     except LookupError:
         print("Downloading NLTK 'punkt' tokenizer...")
         nltk.download("punkt")
-
-
-def load_all_files(
-    directory: str, extensions: List[str] = None, depth: int = 1
-) -> Dict[str, str]:
-    """
-    Function Description:
-        This function loads all text files in a directory and its subdirectories.
-    Args:
-        directory: The directory to search.
-    Keyword Args:
-        extensions: A list of file extensions to include.
-        depth: The depth of subdirectories to search.
-    Returns:
-        A dictionary with file paths as keys and file contents as values.
-    """
-    text_data = {}
-    if depth < 1:
-        return text_data  # Reached the specified depth, stop recursion.
-
-    if extensions is None:
-        # Default to common text file extensions
-        extensions = [
-            ".txt",
-            ".md",
-            ".py",
-            ".java",
-            ".c",
-            ".cpp",
-            ".html",
-            ".css",
-            ".js",
-            ".ts",
-            ".tsx",
-            ".npc",
-            # Add more extensions if needed
-        ]
-
-    try:
-        # List all entries in the directory
-        entries = os.listdir(directory)
-    except Exception as e:
-        print(f"Could not list directory {directory}: {e}")
-        return text_data
-
-    for entry in entries:
-        path = os.path.join(directory, entry)
-        if os.path.isfile(path):
-            if any(path.endswith(ext) for ext in extensions):
-                try:
-                    with open(path, "r", encoding="utf-8", errors="ignore") as file:
-                        text_data[path] = file.read()
-                except Exception as e:
-                    print(f"Could not read file {path}: {e}")
-        elif os.path.isdir(path):
-            # Recurse into subdirectories, decreasing depth by 1
-            subdir_data = load_all_files(path, extensions, depth=depth - 1)
-            text_data.update(subdir_data)
-
-    return text_data
 
 
 def add_npcshrc_to_shell_config() -> None:
@@ -617,10 +971,87 @@ def read_file(args: List[str]) -> None:
         print(f"Error reading file: {e}")
 
 
+
+
+def guess_mime_type(filename):
+    """Guess the MIME type of a file based on its extension."""
+    extension = os.path.splitext(filename)[1].lower()
+    mime_types = {
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".png": "image/png",
+        ".gif": "image/gif",
+        ".bmp": "image/bmp",
+        ".webp": "image/webp",
+        ".pdf": "application/pdf",
+        ".txt": "text/plain",
+        ".csv": "text/csv",
+        ".json": "application/json",
+        ".md": "text/markdown",
+    }
+    return mime_types.get(extension, "application/octet-stream")
+
 import os
 import json
 from pathlib import Path
 
+def get_help():
+    output = """# Available Commands
+
+/com [npc_file1.npc npc_file2.npc ...] # Alias for /compile.
+
+/compile [npc_file1.npc npc_file2.npc ...] # Compiles specified NPC profile(s). If no arguments are provided, compiles all NPCs in the npc_profi
+
+/exit or /quit # Exits the current NPC mode or the npcsh shell.
+
+/help # Displays this help message.
+
+/init # Initializes a new NPC project.
+
+/notes # Enter notes mode.
+
+/ots [filename] # Analyzes an image from a specified filename or captures a screenshot for analysis.
+
+/rag <search_term> # Performs a RAG (Retrieval-Augmented Generation) search based on the search term provided.
+
+/sample <question> # Asks the current NPC a question.
+
+/set <model|provider|db_path> <value> # Sets the specified parameter. Enclose the value in quotes.
+
+/sp [inherit_last=<n>] # Alias for /spool.
+
+/spool [inherit_last=<n>] # Enters spool mode. Optionally inherits the last <n> messages.
+
+/vixynt [filename=<filename>] <prompt> # Captures a screenshot and generates an image with the specified prompt.
+
+/<subcommand> # Enters the specified NPC's mode.
+
+/cmd <command/> # Execute a command using the current NPC's LLM.
+
+/command <command/> # Alias for /cmd.
+
+Tools within your npc_team directory can also be used as macro commands.
+
+
+# Note
+Bash commands and other programs can be executed directly. """
+    return output
+
+
+
+def orange(text: str) -> str:
+    """
+    Function Description:
+        Returns orange text.
+    Args:
+        text : str : Text
+    Keyword Args:
+        None
+    Returns:
+        text : str : Text
+
+    """
+    return f"\033[38;2;255;165;0m{text}{Style.RESET_ALL}"
 
 def get_npcshrc_path_windows():
     return Path.home() / ".npcshrc"
@@ -650,7 +1081,7 @@ def get_setting_windows(key, default=None):
         return env_value
 
     # Fall back to .npcshrc file
-    config = read_rc_file_windows(get_npcshrc_path())
+    config = read_rc_file_windows(get_npcshrc_path_windows())
     return config.get(key, default)
 
 def get_model_and_provider(command: str, available_models: list) -> tuple:
@@ -718,7 +1149,7 @@ def print_and_process_stream_with_markdown(response,
     code_buffer = ""
 
 
-    for chunk in output:
+    for chunk in response:
         # Get chunk content based on provider
         if provider == "ollama" and 'hf.co' in model:
             chunk_content = chunk["message"]["content"]
@@ -761,13 +1192,10 @@ def print_and_process_stream_with_markdown(response,
                 code_buffer += chunk_content
             else:
                 print(chunk_content, end="")
-
-    # Handle any remaining code buffer
     if in_code and code_buffer:
         render_code_block(code_buffer)
-
-    if str_output:
-        output = str_output
+    print('\n')
+    return str_output
 def print_and_process_stream(response, model, provider):
     conversation_result = ""
     
@@ -805,7 +1233,7 @@ def get_available_models() -> list:
     """
     available_chat_models = []
     available_reasoning_models = []
-
+    available_vision_models = []
     ollama_chat_models = [
         "gemma3",
         "llama3.3",
@@ -835,10 +1263,10 @@ def get_available_models() -> list:
         "wizardlm2",
         "llava-llama3",
     ]
-    available_chat_models.extend(ollama_chat_models)
 
+    available_chat_models.extend(ollama_chat_models)
+    
     ollama_reasoning_models = ["deepseek-r1", "qwq"]
-    available_reasoning_models.extend(ollama_reasoning_models)
 
     # OpenAI models
     openai_chat_models = [
@@ -942,15 +1370,6 @@ def get_system_message(npc: Any) -> str:
 available_chat_models, available_reasoning_models = get_available_models()
 
 
-EMBEDDINGS_DB_PATH = os.path.expanduser("~/npcsh_chroma.db")
-
-try:
-    import chromadb
-
-    chroma_client = chromadb.PersistentClient(path=EMBEDDINGS_DB_PATH)
-except:
-    chroma_client = None
-
 
 # Load environment variables from .env file
 def load_env_from_execution_dir() -> None:
@@ -1048,28 +1467,6 @@ def lookup_provider(model: str) -> str:
     return None
 
 
-def compress_image(image_bytes, max_size=(800, 600)):
-    # Create a copy of the bytes in memory
-    buffer = io.BytesIO(image_bytes)
-    img = Image.open(buffer)
-
-    # Force loading of image data
-    img.load()
-
-    # Convert RGBA to RGB if necessary
-    if img.mode == "RGBA":
-        background = Image.new("RGB", img.size, (255, 255, 255))
-        background.paste(img, mask=img.split()[3])
-        img = background
-
-    # Resize if needed
-    if img.size[0] > max_size[0] or img.size[1] > max_size[1]:
-        img.thumbnail(max_size)
-
-    # Save with minimal compression
-    out_buffer = io.BytesIO()
-    img.save(out_buffer, format="JPEG", quality=95, optimize=False)
-    return out_buffer.getvalue()
 
 
 load_env_from_execution_dir()
@@ -1091,7 +1488,7 @@ NPCSH_VECTOR_DB_PATH = os.path.expanduser(
 )
 NPCSH_DEFAULT_MODE = os.path.expanduser(os.environ.get("NPCSH_DEFAULT_MODE", "chat"))
 
-NPCSH_VISION_MODEL = os.environ.get("NPCSH_VISION_MODEL", "llava7b")
+NPCSH_VISION_MODEL = os.environ.get("NPCSH_VISION_MODEL", "llava:7b")
 NPCSH_VISION_PROVIDER = os.environ.get("NPCSH_VISION_PROVIDER", "ollama")
 NPCSH_IMAGE_GEN_MODEL = os.environ.get(
     "NPCSH_IMAGE_GEN_MODEL", "runwayml/stable-diffusion-v1-5"

@@ -28,7 +28,6 @@ from npcpy.llm_funcs import (
     
 )
 from npcpy.npc_compiler import NPC
-from npcpy.modes.shell_helpers import execute_command, 
 import base64
 
 import json

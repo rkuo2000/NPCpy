@@ -2,45 +2,40 @@ from pydantic import BaseModel
 from typing import List, Dict
 
 
-class NPC(BaseModel):
+class NPC_Model(BaseModel):
     name: str
     primary_directive: str
     model: str
     provider: str
     api_url: str
     tools: List[str]
-    use_default_tools: bool
 
 
-class Tool(BaseModel):
+class Tool_Model(BaseModel):
     tool_name: str
     description: str
     steps: List[Dict[str, str]]
 
 
-class ToolStep(BaseModel):
+class ToolStep_Model(BaseModel):
     engine: str
     code: str
 
 
-class Context(BaseModel):
+class Context_Model(BaseModel):
     databases: List[str]
     files: List[str]
     vars: List[Dict[str, str]]
 
 
-class Pipeline(BaseModel):
+class Pipeline_Model(BaseModel):
     steps: List[Dict[str, str]]
 
 
-class PipelineStep(BaseModel):
+class PipelineStep_Model(BaseModel):
     tool: str
     args: List[str]
     model: str
     provider: str
     task: str
     npc: str
-
-
-class Fabrication(BaseModel):
-    spell: str

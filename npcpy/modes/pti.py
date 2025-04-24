@@ -1,5 +1,124 @@
 
 # pti
+
+def request_user_input(input_request: Dict[str, str]) -> str:
+    """
+    Request and get input from user.
+
+    Args:
+        input_request: Dict with reason and prompt for input
+
+    Returns:
+        User's input text
+    """
+    print(f"\nAdditional input needed: {input_request['reason']}")
+    return input(f"{input_request['prompt']}: ")
+
+
+
+
+
+def handle_request_input(
+    context: str,
+    model: str = NPCSH_CHAT_MODEL,
+    provider: str = NPCSH_CHAT_PROVIDER,
+    whisper: bool = False,
+):
+    """
+    Analyze text and decide what to request from the user
+    """
+    prompt = f"""
+    Analyze the text:
+    {context}
+    and determine what additional input is needed.
+    Return a JSON object with:
+    {{
+        "input_needed": boolean,
+        "request_reason": string explaining why input is needed,
+        "request_prompt": string to show user if input needed
+    }}
+
+    Do not include any additional markdown formatting or leading ```json tags. Your response
+    must be a valid JSON object.
+    """
+
+    response = get_llm_response(
+        prompt,
+        model=model,
+        provider=provider,
+        messages=[],
+        format="json",
+    )
+
+    result = response.get("response", {})
+    if isinstance(result, str):
+        result = json.loads(result)
+
+    user_input = request_user_input(
+        {"reason": result["request_reason"], "prompt": result["request_prompt"]},
+    )
+    return user_input
+
+
+def analyze_thoughts_for_input(
+    thought_text: str,
+    model: str = NPCSH_CHAT_MODEL,
+    provider: str = NPCSH_CHAT_PROVIDER,
+    api_url: str = NPCSH_API_URL,
+    api_key: str = None,
+) -> Optional[Dict[str, str]]:
+    """
+    Analyze accumulated thoughts to determine if user input is needed.
+
+    Args:
+        thought_text: Accumulated text from think block
+        messages: Conversation history
+
+    Returns:
+        Dict with input request details if needed, None otherwise
+    """
+
+    prompt = (
+        f"""
+         Analyze these thoughts:
+         {thought_text}
+         and determine if additional user input would be helpful.
+        Return a JSON object with:"""
+        + """
+        {
+            "input_needed": boolean,
+            "request_reason": string explaining why input is needed,
+            "request_prompt": string to show user if input needed
+        }
+        Consider things like:
+        - Ambiguity in the user's request
+        - Missing context that would help provide a better response
+        - Clarification needed about user preferences/requirements
+        Only request input if it would meaningfully improve the response.
+        Do not include any additional markdown formatting or leading ```json tags. Your response
+        must be a valid JSON object.
+        """
+    )
+
+    response = get_llm_response(
+        prompt,
+        model=model,
+        provider=provider,
+        api_url=api_url,
+        api_key=api_key,
+        messages=[],
+        format="json",
+    )
+
+    result = response.get("response", {})
+    if isinstance(result, str):
+        result = json.loads(result)
+
+    if result.get("input_needed"):
+        return {
+            "reason": result["request_reason"],
+            "prompt": result["request_prompt"],
+        }
 def enter_reasoning_human_in_the_loop(
     messages: List[Dict[str, str]],
     reasoning_model: str = NPCSH_REASONING_MODEL,

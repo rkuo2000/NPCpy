@@ -3,8 +3,8 @@ import os
 import sqlite3
 import tempfile
 from pathlib import Path
-from npcpy.shell_helpers import execute_command
-from npcpy.command_history import CommandHistory
+from npcpy.modes.shell_helpers import execute_command
+from npcpy.memory.command_history import CommandHistory
 from npcpy.npc_sysenv import (
     get_system_message,
     lookup_provider,

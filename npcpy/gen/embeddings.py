@@ -6,12 +6,7 @@
 #######
 from typing import List, Dict, Optional
 import numpy as np
-from npcpy.npc_sysenv import (
-    NPCSH_VECTOR_DB_PATH,
-    NPCSH_EMBEDDING_MODEL,
-    NPCSH_EMBEDDING_PROVIDER,
-    chroma_client,
-)
+
 try:
     from openai import OpenAI
     import anthropic
@@ -40,36 +35,15 @@ def get_openai_embeddings(
     return [embedding.embedding for embedding in response.data]
 
 
-def get_openai_like_embeddings(
-    texts: List[str], model, api_url=None, api_key=None
-) -> List[List[float]]:
-    """Generate embeddings using OpenAI."""
-    client = OpenAI(api_key=openai_api_key, base_url=api_url)
-    response = client.embeddings.create(input=texts, model=model)
-    return [embedding.embedding for embedding in response.data]
-
-
-def get_anthropic_embeddings(
-    texts: List[str], model: str = "claude-3-haiku-20240307"
-) -> List[List[float]]:
-    """Generate embeddings using Anthropic."""
-    client = anthropic.Anthropic(api_key=anthropic_api_key)
-    embeddings = []
-    for text in texts:
-        # response = client.messages.create(
-        #    model=model, max_tokens=1024, messages=[{"role": "user", "content": text}]
-        # )
-        # Placeholder for actual embedding
-        embeddings.append([0.0] * 1024)  # Replace with actual embedding when available
-    return embeddings
 
 
 def store_embeddings_for_model(
     texts,
     embeddings,
+    chroma_client,
     metadata=None,
-    model: str = NPCSH_EMBEDDING_MODEL,
-    provider: str = NPCSH_EMBEDDING_PROVIDER,
+    model: str ,
+    provider: str ,
 ):
     collection_name = f"{provider}_{model}_embeddings"
     collection = chroma_client.get_collection(collection_name)
@@ -97,11 +71,11 @@ def delete_embeddings_from_collection(collection, ids):
 
 def search_similar_texts(
     query: str,
+    chroma_client,    
+    embedding_model: str,
+    embedding_provider: str ,    
     docs_to_embed: Optional[List[str]] = None,
     top_k: int = 5,
-    db_path: str = NPCSH_VECTOR_DB_PATH,
-    embedding_model: str = NPCSH_EMBEDDING_MODEL,
-    embedding_provider: str = NPCSH_EMBEDDING_PROVIDER,
 ) -> List[Dict[str, any]]:
     """
     Search for similar texts using either a Chroma database or direct embedding comparison.

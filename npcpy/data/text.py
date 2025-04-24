@@ -1,3 +1,10 @@
+from typing import Any, Dict, List, Optional, Union
+import os
+import numpy as np
+try:
+    from sentence_transformers import SentenceTransformer, util
+except: 
+    pass
 
 def rag_search(
     query: str,
@@ -95,3 +102,65 @@ def rag_search(
                 results.append((filename, snippet))
         # print("results", results)
     return results
+
+
+
+
+def load_all_files(
+    directory: str, extensions: List[str] = None, depth: int = 1
+) -> Dict[str, str]:
+    """
+    Function Description:
+        This function loads all text files in a directory and its subdirectories.
+    Args:
+        directory: The directory to search.
+    Keyword Args:
+        extensions: A list of file extensions to include.
+        depth: The depth of subdirectories to search.
+    Returns:
+        A dictionary with file paths as keys and file contents as values.
+    """
+    text_data = {}
+    if depth < 1:
+        return text_data  # Reached the specified depth, stop recursion.
+
+    if extensions is None:
+        # Default to common text file extensions
+        extensions = [
+            ".txt",
+            ".md",
+            ".py",
+            ".java",
+            ".c",
+            ".cpp",
+            ".html",
+            ".css",
+            ".js",
+            ".ts",
+            ".tsx",
+            ".npc",
+            # Add more extensions if needed
+        ]
+
+    try:
+        # List all entries in the directory
+        entries = os.listdir(directory)
+    except Exception as e:
+        print(f"Could not list directory {directory}: {e}")
+        return text_data
+
+    for entry in entries:
+        path = os.path.join(directory, entry)
+        if os.path.isfile(path):
+            if any(path.endswith(ext) for ext in extensions):
+                try:
+                    with open(path, "r", encoding="utf-8", errors="ignore") as file:
+                        text_data[path] = file.read()
+                except Exception as e:
+                    print(f"Could not read file {path}: {e}")
+        elif os.path.isdir(path):
+            # Recurse into subdirectories, decreasing depth by 1
+            subdir_data = load_all_files(path, extensions, depth=depth - 1)
+            text_data.update(subdir_data)
+
+    return text_data
