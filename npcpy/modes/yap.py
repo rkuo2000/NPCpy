@@ -525,7 +525,7 @@ def enter_yap_mode(
 def main():
     # Example usage
     import argparse    
-    parser = argparse.ArgumentParser(description="Enter yap mode for chatting with an LLM")
+    parser = argparse.ArgumentParser(description="Enter yap mode for chatting with an NPC")
     parser.add_argument("--model", default=NPCSH_CHAT_MODEL, help="Model to use")
     parser.add_argument("--provider", default=NPCSH_CHAT_PROVIDER, help="Provider to use")
     parser.add_argument("--files", nargs="*", help="Files to load into context")
