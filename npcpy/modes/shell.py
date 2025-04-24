@@ -10,6 +10,9 @@ from npcpy.npc_sysenv import (
     NPCSH_STREAM_OUTPUT,
     NPCSH_CHAT_MODEL,
     NPCSH_CHAT_PROVIDER,
+    NPCSH_VISION_MODEL,
+    NPCSH_VISION_PROVIDER,
+    
     NPCSH_API_URL,
     setup_npcsh_config,
     is_npcsh_initialized,
@@ -26,6 +29,7 @@ from npcpy.npc_sysenv import (
 import shlex
 
 import re
+from npcpy.data.image import capture_screenshot
 from npcpy.memory.command_history import (
     CommandHistory,
     start_new_conversation,
@@ -247,8 +251,10 @@ def execute_command(
     command: str,
     npc: NPC = None,
     team: Team = None,
-    model: str = None,
-    provider: str = None,
+    model: str = NPCSH_CHAT_MODEL,
+    provider: str = NPCSH_CHAT_PROVIDER,
+    vision_model: str = NPCSH_VISION_MODEL,
+    vision_provider: str = NPCSH_VISION_PROVIDER,
     api_key: str = None,
     api_url: str = None,
     messages: list = None,
@@ -321,6 +327,8 @@ def execute_command(
                 messages=messages,
                 model=model_override,
                 provider=provider_override,
+                vision_model=vision_model,
+                vision_provider=vision_provider,
                 stream=stream,
             )
             ## deal with stream here
@@ -536,6 +544,9 @@ def execute_slash_command(
     messages=None,
     model: str = None,
     provider: str = None,
+    vision_model: str = None,
+    vision_provider: str = None,
+    
     api_url: str = None,
     conversation_id: str = None,
     stream: bool = False,
@@ -738,13 +749,58 @@ def execute_slash_command(
         output = generate_image(
             user_prompt, npc=npc, filename=filename, model=model, provider=provider
         )
-
+        
     elif command_name == "ots":
-        print('fasdh')
-        return {"messages":messages, "output":ots(
-            command_parts, model=model, provider=provider, npc=npc, api_url=api_url, 
-            stream=stream
-        )}
+        command_parts = command.split()
+        image_paths = []
+        print('using vision model: ', vision_model)
+        if len(command_parts) > 1:
+            for img_path in command_parts[1:]:
+                full_path = os.path.join(os.getcwd(), img_path)
+                if os.path.exists(full_path):
+                    image_paths.append(full_path)
+                else:
+                    print(f"Error: Image file not found at {full_path}")
+        else:
+            output = capture_screenshot(npc=npc)
+            if output and "file_path" in output:
+                image_paths.append(output["file_path"])
+                print(f"Screenshot captured: {output['filename']}")
+        if not image_paths:
+            print("No valid images provided.")
+        user_prompt = input(
+            "Enter a prompt for the LLM about these images (or press Enter to skip): "
+        )
+        if not user_prompt:
+            user_prompt = "Please analyze these images."
+
+        
+        response = get_llm_response(
+            user_prompt, 
+            messages=messages,
+            images=image_paths,
+            stream=stream, 
+            model = vision_model,
+            provider=vision_provider,
+        )
+        # Extract the assistant's response
+        assistant_reply = response['response']
+        messages = response['messages']
+        if stream:
+            assistant_reply = print_and_process_stream_with_markdown(assistant_reply, model=model, provider=provider)
+        
+            messages.append({"role": "assistant", "content": assistant_reply})
+        if assistant_reply.count("```") % 2 != 0:
+            assistant_reply = assistant_reply + "```"
+        # Display the response
+        if not stream:
+            render_markdown(assistant_reply)
+        return {
+            "messages": messages,
+            "output": assistant_reply,
+            "current_npc": current_npc,
+        }
+        
     elif command_name == "help":  # New help command
         print(get_help())
         return {
