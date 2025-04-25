@@ -28,6 +28,9 @@ from npcpy.npc_sysenv import (
     
     
 )
+import subprocess
+from termcolor import colored
+
 import shlex
 
 import re
@@ -398,7 +401,14 @@ def execute_command(
                             output = result.stdout + result.stderr
                         except Exception as e:
                             output = f"Error executing command: {e}"
-
+                        return {
+                            "messages": messages,
+                            "output": output,
+                            "npc": npc,
+                        }
+                        
+                    
+                    
                 elif command.startswith("open "):
                     try:
                         path_to_open = os.path.expanduser(
@@ -415,7 +425,11 @@ def execute_command(
                         output = colored(f"Error opening: {e}", "red")
                     except Exception as e:
                         output = colored(f"Error executing command: {str(e)}", "red")
-
+                    return {
+                        "messages": messages,
+                        "output": output,
+                        "npc": npc,
+                    }
                 # Rest of BASH_COMMANDS handling remains the same
                 else:
                     try:
@@ -447,7 +461,11 @@ def execute_command(
                         print(output)
                     except Exception as e:
                         output = colored(f"Error executing command: {e}", "red")
-
+                    return {
+                        "messages": messages,
+                        "output": output,
+                        "npc": npc,
+                    }
             else:
                 output = check_llm_command(
                     single_command,
@@ -461,6 +479,12 @@ def execute_command(
                     api_url=api_url,
                 )
 
+                return {
+                    "messages": messages,
+                    "output": output,
+                    "npc": npc,
+                }
+                
         if isinstance(output, dict):
             response = output.get("output", "")
             new_messages = output.get("messages", None)
@@ -1257,6 +1281,7 @@ def main() -> None:
                 stream=NPCSH_STREAM_OUTPUT,
                 api_url=NPCSH_API_URL,
             )
+            print(result)
             messages = result.get("messages", messages)
             if "current_npc" in result:
                 current_npc = result["current_npc"]
@@ -1292,7 +1317,8 @@ def main() -> None:
             ):
                 output = print_and_process_stream_with_markdown(    
                                                                 output, model, provider)
-
+            else:
+                print(output)
                     
         save_conversation_message(
             command_history,
@@ -1383,6 +1409,8 @@ def main() -> None:
                         output, model, provider
                     )
                     output = str_output
+                else:
+                    render_markdown(output)
             except:
                 output = None
                 

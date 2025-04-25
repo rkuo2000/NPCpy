@@ -17,7 +17,7 @@ from npcpy.npc_sysenv import (
 from npcpy.llm_funcs import (get_llm_response,  rehash_last_message)
 from npcpy.npc_compiler import NPC
 from typing import Any, List, Dict, Union
-from npcpy.modes.whisper import enter_whisper_mode
+from npcpy.modes.yap import enter_yap_mode
 
 def enter_spool_mode(
     inherit_last: int = 0,
@@ -122,7 +122,7 @@ def enter_spool_mode(
                 continue
 
             if user_input.lower() == "/whisper":  # Check for whisper command
-                messages = enter_whisper_mode(spool_context, npc)
+                messages = enter_yap_mode(spool_context, npc)
                 continue
 
             if user_input.startswith("/ots"):
