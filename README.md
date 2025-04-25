@@ -8,13 +8,20 @@
 - In `npcpy`, all agentic capabilities are built and tested using small local models (like `llama3.2`) to ensure it can function reliably even at the edge of computing.
 - In addition to its python library capabilities, `npcpy` provides users with powerful command-line tools and macros for quick and easy access to LLMs. These programs comprise the NPC `shell` and such functionalities are available for use in multiple ways: through the `npc` bash cli, directly through the `npcsh` shell or through their individual paths. 
 - The NPC Shell `npcsh` provides a drop-in replacement for one's bash shell with natural language processing capabilities and a suite of built-in tools (macros) for tasks like voice control, image generation, and web searching. Through it's simple REPL system, one can interact with agents and orchestrate agent teams.
-- The NPC Toolkit 
+- With the `npc` CLI, users can use the same tools and macros of the NPC shell through a CLI and provides a quick and simple way to RESTfully serve an NPC Team to receive HTTP requests.
+- The NPC Toolkit integrates with local and enterprise LLM providers through its LiteLLM integration, allowing users to run inference from Ollama, LMStudio, OpenAI, Anthropic, Gemini, and Deepseek, making it a versatile tool for both simple commands and sophisticated AI-driven tasks. All agentic capabilities are built and tested using small local models (like `llama3.2`) to ensure the agentic capabilities function even at the edge of computing.
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/cagostino/npcsh/main/npcpy.png" alt="npcpy logo of a solarpunk sign">
+</p>
+
+
 
 Read the docs at [npcpy.readthedocs.io](https://npcsh.readthedocs.io/en/latest/)
 
 There is a graphical user interface that makes use of the NPC Toolkit through the NPC Studio. See the open source code for NPC Studio [here](https://github.com/). Download the executables (soon) at [our website](https://www.npcworldwi.de/npc-studio).
 
-Interested to stay in the loop and to hear the latest and greatest about `npcpy` and `npcsh` ? Be sure to sign up for the [newsletter](https://forms.gle/n1NzQmwjsV4xv1B2A)!
+Interested to stay in the loop and to hear the latest and greatest about `npcpy`, `npcsh`, and NPC Studio? Be sure to sign up for the [newsletter](https://forms.gle/n1NzQmwjsV4xv1B2A)!
 
 
 
@@ -22,7 +29,7 @@ Interested to stay in the loop and to hear the latest and greatest about `npcpy`
 
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=cagostino/npcsh&type=Date)](https://star-history.com/#cagostino/npcsh&Date)
+[![Star History Chart](https://api.star-history.com/svg?repos=cagostino/npcpy&type=Date)](https://star-history.com/#cagostino/npcpy&Date)
 
 ## TLDR Cheat Sheet for NPC shell and cli
 The NPC shell and cli let users iterate and experiiment with AI in a natural way. Below is a cheat sheet that shows how to use the NPC Toolkit's macro commands in both the shell and the CLI. For the `npcsh` commands to work, one must activate `npcsh` by typing it in a shell.
