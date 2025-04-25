@@ -53,14 +53,14 @@ router = CommandRouter()
 
 
 from npcpy.npc_sysenv import render_code_block, render_markdown
-from npcpy.llm_funcs import get_llm_response, execute_llm_command, get_llm_response, enter_spool_mode
-from npcpy.data.web import execute_rag_command, execute_search_command
-
+from npcpy.llm_funcs import get_llm_response, execute_llm_command, get_llm_response
+from npcpy.memory.search import execute_rag_command,execute_search_command
 from npcpy.work.plan import execute_plan_command
-from npcpy.work.plonk import execute_plonk_command
 from npcpy.work.trigger import execute_trigger_command
+
 from npcpy.modes.spool import enter_spool_mode
-from npcpy.modes import enter_spool_mode, enter_guac_mode, enter_notes_mode, enter_plonk_mode, enter_pti_mode, enter_serve_mode, enter_sleep_mode, enter_wander_mode, enter_whisper_mode, enter_deep_research_mode, enter_command_mode
+from npcpy.modes.plonk import execute_plonk_command
+
 
 
 from npcpy.memory.knowledge_graph import breathe
@@ -85,7 +85,7 @@ def breathe_handler(command: str, *args, **kwargs):
 ### chat 
 ###
 @router.route("chat", "Chat with an NPC")
-def chat_handler(command: str, *args, **kwargs):
+def chat_handler(*args, **kwargs):
     """Route for the chat command.
     # Implement chat command logic
     ## Chat with an NPC
@@ -94,12 +94,8 @@ def chat_handler(command: str, *args, **kwargs):
     npcsh> /chat <npc_name>
     ```
     """
-    response = get_llm_response(command, 
-                                **kwargs)
-    enter_spool_mode...
+    return enter_spool_mode(*args, **kwargs)
     
-    return response
-
 ###
 ### Compile 
 ###
@@ -176,7 +172,6 @@ def debate_handler(command: str, *args, **kwargs):
     For example:
     ```npcsh
     npcsh> /debate Should humans colonize Mars? npcs = ['sibiji', 'mark', 'ted']
-    ```
 
     """
     # Implement debate command logic

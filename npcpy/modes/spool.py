@@ -99,12 +99,7 @@ def enter_spool_mode(
         kwargs_to_pass = {}
         if npc:
             kwargs_to_pass["npc"] = npc
-            if npc.model:
-                kwargs_to_pass["model"] = npc.model
-            if npc.provider:
-                kwargs_to_pass["provider"] = npc.provider
 
-                
         try:
             
             user_input = input("spool:in> ").strip()
@@ -162,8 +157,8 @@ def enter_spool_mode(
                 if not user_prompt:
                     user_prompt = "Please analyze these images."
                 
-                kwargs_to_pass['model']= vision_model
-                kwargs_to_pass['provider']= vision_provider
+                model= vision_model
+                provider= vision_provider
                 # Save the user message
                 message_id = save_conversation_message(
                     command_history,
@@ -180,6 +175,7 @@ def enter_spool_mode(
                 # Process the request with our unified approach
                 response = get_llm_response(
                     user_prompt, 
+                    model, provider,
                     messages=spool_context,
                     images=image_paths,
                     stream=stream, 
@@ -258,6 +254,8 @@ def enter_spool_mode(
             # Use the simplified get_llm_response function
             response = get_llm_response(
                 user_input, 
+                provider, 
+                model, 
                 messages=spool_context, 
                 stream=stream,
                 **kwargs_to_pass
@@ -265,7 +263,7 @@ def enter_spool_mode(
 
             assistant_reply, spool_context = response['response'], response['messages']
             if stream:
-                print(orange(f'spool:{npc.name}:{npc.model}>'), end='', flush=True)
+                print(orange(f'{npc.name if npc else "spool"}:{npc.model if npc else model}>'), end='', flush=True)
                 assistant_reply = print_and_process_stream_with_markdown(assistant_reply, model=model, provider=provider)
             # Save assistant message
             save_conversation_message(

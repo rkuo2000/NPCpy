@@ -8,10 +8,10 @@ try:
     import kuzu
 except ModuleNotFoundError:
     print("kuzu not installed")
-from typing import Optional, Dict, List, Union, Tuple
+from typing import Optional, Dict, List, Union, Tuple, Any
 
 
-from npcpy.llm_funcs import get_llm_response, get_embeddings
+from npcpy.llm_funcs import get_llm_response
 from npcpy.npc_compiler import NPC
 import sqlite3
 
