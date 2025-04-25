@@ -152,8 +152,8 @@ def generate_video(
 
 def get_llm_response(
     prompt: str,
-    provider: str,
-    model: str ,
+    provider: str = None,
+    model: str=None,
     images: List[Dict[str, str]] = None,
     npc: Any = None,
     team: Any = None,
