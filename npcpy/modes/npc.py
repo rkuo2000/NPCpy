@@ -14,12 +14,17 @@ from npcpy.npc_sysenv import (
     NPCSH_DB_PATH,
     NPCSH_STREAM_OUTPUT,
     NPCSH_SEARCH_PROVIDER,
-    print_and_process_stream
+    print_and_process_stream, 
+    print_and_process_stream_with_markdown,
+    render_markdown,
+    
 )
+from npcpy.data.image import capture_screenshot
 from npcpy.modes.serve import start_flask_server
 from npcpy.npc_compiler import (
     NPC,
 )
+from npcpy.npcs import sibiji
 from npcpy.llm_funcs import (
     check_llm_command,
     execute_llm_command,
@@ -30,6 +35,8 @@ from npcpy.llm_funcs import (
 )
 from npcpy.npc_sysenv import get_npc_path
 from npcpy.modes.plonk import execute_plonk_command
+from npcpy.modes.spool import enter_spool_mode
+
 from npcpy.data.web import search_web
 import os
 import sqlite3
@@ -65,7 +72,7 @@ def main():
         "search",
         "vixynt",
         "ots",
-        "whisper",
+        "yap",
     }
     has_command = any(arg in known_commands for arg in sys.argv[1:])
 
@@ -423,15 +430,42 @@ def main():
             model = NPCSH_VISION_MODEL
         if args.provider == NPCSH_CHAT_PROVIDER:
             provider = NPCSH_VISION_PROVIDER
+        image_paths = []
 
-        result = ots(
-            "",
-            model=args.model,
-            provider=args.provider,
+        output = capture_screenshot(npc=sibiji)
+        if output and "file_path" in output:
+            image_paths.append(output["file_path"])
+            print(f"Screenshot captured: {output['filename']}")
+        user_prompt = input(
+            "Enter a prompt for the LLM about these images (or press Enter to skip): "
         )
-        print(result["output"])
+        if not user_prompt:
+            user_prompt = "Please analyze these images."
 
-    elif args.command == "whisper":
+        
+        response = get_llm_response(
+            user_prompt, 
+            images=image_paths,
+            stream=NPCSH_STREAM_OUTPUT, 
+            model = NPCSH_VISION_MODEL,
+            provider=NPCSH_VISION_PROVIDER,
+        )
+        # Extract the assistant's response
+        assistant_reply = response['response']
+        messages = response['messages']
+        if NPCSH_STREAM_OUTPUT:
+            assistant_reply = print_and_process_stream_with_markdown(assistant_reply, model=model, provider=provider)
+        
+            messages.append({"role": "assistant", "content": assistant_reply})
+        if assistant_reply.count("```") % 2 != 0:
+            assistant_reply = assistant_reply + "```"
+        # Display the response
+        if not NPCSH_STREAM_OUTPUT:
+            render_markdown(assistant_reply)
+        
+
+
+    elif args.command == "yap":
         npc_name = args.npc_name
         npc_path = get_npc_path(npc_name, NPCSH_DB_PATH)
         current_npc = NPC(file=npc_path, db_conn = sqlite3.connect(NPCSH_DB_PATH))
@@ -503,7 +537,7 @@ def main():
             npc = NPC(file="./npc_team/" + args.npc + ".npc", db_conn=db_conn)
         response = enter_spool_mode(
             stream=True,
-            npc=npc,
+            npc=sibiji,
         )
 
 

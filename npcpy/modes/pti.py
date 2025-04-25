@@ -1,6 +1,8 @@
 
 # pti
-
+import json 
+from typing import Dict, List, Optional, Any, Generator 
+from npcpy.npc_sysenv import (NPCSH_REASONING_MODEL, NPCSH_REASONING_PROVIDER, NPCSH_CHAT_MODEL, NPCSH_CHAT_PROVIDER, NPCSH_API_URL)
 def request_user_input(input_request: Dict[str, str]) -> str:
     """
     Request and get input from user.

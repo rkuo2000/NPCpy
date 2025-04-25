@@ -293,7 +293,7 @@ npc ots -f test_data/catfight.PNG
             #get image ready here
             
             output = get_llm_response(
-            )
+            )   
         else:
             output = capture_screenshot(npc=npc)
             user_prompt = input(
