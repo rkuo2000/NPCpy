@@ -22,10 +22,7 @@ from npcpy.memory.command_history import (
 from npcpy.npc_compiler import  Tool, NPC
 
 from npcpy.llm_funcs import (
-    
-    get_llm_response,
-    get_stream,
-    
+    get_llm_response,    
 )
 from npcpy.npc_compiler import NPC
 import base64
@@ -51,6 +48,7 @@ app.register_blueprint(sse, url_prefix="/stream")
 
 redis_client = redis.Redis(host="localhost", port=6379, decode_responses=True)
 
+available_models = {}
 CORS(
     app,
     origins=["http://localhost:5173"],
@@ -61,7 +59,7 @@ CORS(
 
 
 def get_locally_available_models(project_directory):
-    available_models_providers = []
+    global available_models
     env_path = os.path.join(project_directory, ".env")
     env_vars = {}
     if os.path.exists(env_path):
@@ -79,13 +77,8 @@ def get_locally_available_models(project_directory):
             client = anthropic.Anthropic(api_key=env_vars.get("ANTHROPIC_API_KEY"))
             models = client.models.list()
             for model in models.data:
-
-                available_models_providers.append(
-                    {
-                        "model": model.id,
-                        "provider": "anthropic",
-                    }
-                )
+                available_models[model.id] = 'anthropic'
+                    
         except:
             print("anthropic models not indexed")
     if "OPENAI_API_KEY" in env_vars:
@@ -106,13 +99,7 @@ def get_locally_available_models(project_directory):
                     and "audio" not in model.id
                     and "realtime" not in model.id
                 ):
-
-                    available_models_providers.append(
-                        {
-                            "model": model.id,
-                            "provider": "openai",
-                        }
-                    )
+                    available_models[model.id] = "openai"
         except:
             print("openai models not indexed")
 
@@ -128,40 +115,28 @@ def get_locally_available_models(project_directory):
             #        "provider": "gemini",
             #    }
             # )
-            available_models_providers.append(
-                {
-                    "model": "gemini-2.0-flash-lite",
-                    "provider": "gemini",
-                }
-            )
+            available_models["gemini-1.5-flash"] = "gemini"
+            available_models["gemini-2.0-flash"] = "gemini"
+            available_models["gemini-2.0-flash-lite"] = "gemini"
+            available_models["gemini-2.0-flash-lite-preview"] = "gemini"
+            available_models["gemini-2.5-pro"] = "gemini"
+            
         except:
             print("gemini models not indexed.")
     if "DEEPSEEK_API_KEY" in env_vars:
-        available_models_providers.append(
-            {"model": "deepseek-chat", "provider": "deepseek"}
-        )
-        available_models_providers.append(
-            {"model": "deepseek-reasoner", "provider": "deepseek"}
-        )
-
+        available_models['deepseek-chat'] = 'deepseek'
+        available_models['deepseek-reasoner'] = 'deepseek'        
     try:
         import ollama
-
         models = ollama.list()
         for model in models.models:
 
             if "embed" not in model.model:
                 mod = model.model
-                available_models_providers.append(
-                    {
-                        "model": mod,
-                        "provider": "ollama",
-                    }
-                )
-
+                available_models[mod] = "ollama"
     except Exception as e:
         print(f"Error loading ollama models: {e}")
-    return available_models_providers
+    return available_models
 
 
 def get_db_connection():
@@ -448,6 +423,7 @@ def get_models():
     Endpoint to retrieve available models based on the current project path.
     Checks for local configurations (.env) and Ollama.
     """
+    global available_models
     current_path = request.args.get("currentPath")
     if not current_path:
         # Fallback to a default path or user home if needed,
@@ -463,31 +439,31 @@ def get_models():
         # Optionally, add more details or format the response if needed
         # Example: Add a display name
         formatted_models = []
-        for m in available_models:
+        for m, p in available_models.items():
             # Basic formatting, customize as needed
             text_only = (
                 "(text only)"
-                if m["provider"] == "ollama"
-                and m["model"] in ["llama3.2", "deepseek-v3", "phi4"]
+                if p == "ollama"
+                and m in ["llama3.2", "deepseek-v3", "phi4"]
                 else ""
             )
             # Handle specific known model names for display
-            display_model = m["model"]
-            if "claude-3-5-haiku-latest" in m["model"]:
+            display_model = m
+            if "claude-3-5-haiku-latest" in m:
                 display_model = "claude-3.5-haiku"
-            elif "claude-3-5-sonnet-latest" in m["model"]:
+            elif "claude-3-5-sonnet-latest" in m:
                 display_model = "claude-3.5-sonnet"
-            elif "gemini-1.5-flash" in m["model"]:
+            elif "gemini-1.5-flash" in m:
                 display_model = "gemini-1.5-flash"  # Handle multiple versions if needed
-            elif "gemini-2.0-flash-lite-preview-02-05" in m["model"]:
+            elif "gemini-2.0-flash-lite-preview-02-05" in m:
                 display_model = "gemini-2.0-flash-lite-preview"
 
-            display_name = f"{display_model} | {m['provider']} {text_only}".strip()
+            display_name = f"{display_model} | {p} {text_only}".strip()
 
             formatted_models.append(
                 {
-                    "value": m["model"],  # Use the actual model ID as the value
-                    "provider": m["provider"],
+                    "value": m,  # Use the actual model ID as the value
+                    "provider": p,
                     "display_name": display_name,
                 }
             )
@@ -507,10 +483,14 @@ def get_models():
 def stream():
     """SSE stream that takes messages, models, providers, and attachments from frontend."""
     data = request.json
+    print(data)
     commandstr = data.get("commandstr")
     conversation_id = data.get("conversationId")
     model = data.get("model", None)
     provider = data.get("provider", None)
+    if provider is None:
+        provider = available_models.get(model)
+        
     npc = data.get("npc", None)
     attachments = data.get("attachments", [])
     current_path = data.get("currentPath")
@@ -561,11 +541,7 @@ def stream():
                 )
 
     messages = fetch_messages_for_conversation(conversation_id)
-    messages.append({"role": "user", "content": commandstr})
-    if not messages:
-        return jsonify({"error": "No messages provided"}), 400
 
-    # Save the user message with attachments in the database
     print("commandstr ", commandstr)
     message_id = command_history.generate_message_id()
 
@@ -583,24 +559,27 @@ def stream():
     )
     message_id = command_history.generate_message_id()
 
-    stream_response = get_stream(
-        messages,
+    stream_response = get_llm_response(
+        commandstr,
+        messages = messages,
         images=images,
         model=model,
         provider=provider,
         npc=npc if isinstance(npc, NPC) else None,
+        stream=True,
     )
 
     final_response = ""  # To accumulate the assistant's response
 
     complete_response = []  # List to store all chunks
-
+    
     def event_stream():
-
-        for response_chunk in stream_response:
-            if "hf.co" in model:
+        for response_chunk in stream_response['response']:
+        
+            if "hf.co" in model or provider=='ollama':
                 print("streaming from hf model through ollama")
                 chunk_content = response_chunk["message"]["content"]
+                print(chunk_content)
                 if chunk_content:
                     complete_response.append(chunk_content)
                 chunk_data = {

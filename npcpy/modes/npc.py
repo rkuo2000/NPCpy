@@ -1,4 +1,5 @@
 import argparse
+import sys
 from npcpy.npc_sysenv import (
     NPCSH_CHAT_MODEL,
     NPCSH_CHAT_PROVIDER,
@@ -17,8 +18,6 @@ from npcpy.npc_sysenv import (
 )
 from npcpy.modes.serve import start_flask_server
 from npcpy.npc_compiler import (
-    
-    conjure_team,
     NPC,
 )
 from npcpy.llm_funcs import (
@@ -27,14 +26,10 @@ from npcpy.llm_funcs import (
     get_llm_response,
     handle_tool_call,
     generate_image,
-    get_embeddings,
     get_llm_response,
-    get_stream,
-    get_conversation,
 )
-from npcpy.plonk.plonk import plonk, action_space
+from npcpy.modes.plonk import execute_plonk_command
 from npcpy.data.web import search_web
-from npcpy.modes.shell_helpers import *
 import os
 import sqlite3
 

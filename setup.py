@@ -89,7 +89,7 @@ setup(
     entry_points={
         "console_scripts": [
             "npcsh=npcpy.modes.npcsh:main",
-            "npc=npcpy.modes.cli:main",
+            "npc=npcpy.modes.npc:main",
             "yap=npcpy.modes.yap:main",
             "pti=npcpy.modes.pti:main",
             "guac=npcpy.modes.guac:main",
