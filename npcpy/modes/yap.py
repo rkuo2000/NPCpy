@@ -390,7 +390,7 @@ def enter_yap_mode(
         return text
 
     # Now that functions are defined, play welcome messages
-    speak_text("Entering whisper mode. Please wait.")
+    speak_text("Entering yap mode. Please wait.")
 
     try:
         loaded_content = {}  # New dictionary to hold loaded content

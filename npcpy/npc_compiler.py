@@ -103,7 +103,7 @@ class Tool:
             context = self._execute_step(
                 step, context, jinja_env, 
                 model=model, provider=provider, npc=npc, 
-                stream=stream, messages=messages
+                messages=messages
             )
             
             # Return immediately for streaming responses in final step

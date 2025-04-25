@@ -1,4 +1,5 @@
-
+from npcpy.data.web import search_web
+from npcpy.data.text import rag_search
 def execute_search_command(
     command: str,
     messages=None,
