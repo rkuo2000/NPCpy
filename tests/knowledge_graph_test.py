@@ -9,7 +9,7 @@ npcsh is a python based command line tool designed to integrate Large Language M
 
 Smart Interpreter: npcsh leverages the power of LLMs to understand your natural language commands and questions, executing tasks, answering queries, and providing relevant information from local files and the web.
 
-Macros: npcsh provides macros to accomplish common tasks with LLMs like voice control (/whisper), image generation (/vixynt), screenshot capture and analysis (/ots), one-shot questions (/sample), and more.
+Macros: npcsh provides macros to accomplish common tasks with LLMs like voice control (/yap), image generation (/vixynt), screenshot capture and analysis (/ots), one-shot questions (/sample), and more.
 
 NPC-Driven Interactions: npcsh allows users to coordinate agents (i.e. NPCs) to form assembly lines that can reliably accomplish complicated multi-step procedures. Define custom "NPCs" (Non-Player Characters) with specific personalities, directives, and tools. This allows for tailored interactions based on the task at hand.
 

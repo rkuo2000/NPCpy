@@ -434,7 +434,7 @@ def enter_yap_mode(
             if rlist:
                 user_input = sys.stdin.readline().strip()
                 if user_input.lower() in ("exit", "quit", "goodbye"):
-                    print("\nExiting whisper mode.")
+                    print("\nExiting yap mode.")
                     break
                 if user_input:
                     print(f"\nYou (typed): {user_input}")
@@ -515,12 +515,12 @@ def enter_yap_mode(
         if pyaudio_instance:
             pyaudio_instance.terminate()
 
-        print("\nExiting whisper mode.")
-        speak_text("Exiting whisper mode. Goodbye!")
+        print("\nExiting yap mode.")
+        speak_text("Exiting yap mode. Goodbye!")
         time.sleep(1)
         cleanup_temp_files()
 
-    return {"messages": messages, "output": "Whisper mode session ended."}
+    return {"messages": messages, "output": "yap mode session ended."}
 
 def main():
     # Example usage

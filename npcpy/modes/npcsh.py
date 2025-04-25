@@ -813,10 +813,10 @@ def execute_slash_command(
             "output": get_help(),
         }
 
-    elif command_name == "whisper":
+    elif command_name == "yap":
         # try:
-        messages = enter_whisper_mode(npc=npc)
-        output = "Exited whisper mode."
+        messages = enter_yap_mode(npc=npc)
+        output = "Exited yap mode."
         # except Exception as e:
         #    print(f"Error entering whisper mode: {str(e)}")
         #    output = "Error entering whisper mode"
