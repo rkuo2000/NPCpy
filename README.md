@@ -3,13 +3,14 @@
 # NPC Toolkit
 
 
-- `npcpy` is a python framework designed to easily integrate Large Language Models and AI agents into python systems.
+- `npcpy` is a python framework designed to easily integrate Large Language Models and AI agents.
+- `npcpy` works with local and enterprise LLM providers through its LiteLLM integration, allowing users to run inference from Ollama, LMStudio, OpenAI, Anthropic, Gemini, and Deepseek, making it a versatile tool for both simple commands and sophisticated AI-driven tasks. 
+- In `npcpy`, all agentic capabilities are built and tested using small local models (like `llama3.2`) to ensure it can function reliably even at the edge of computing.
+- In addition to its python library capabilities, `npcpy` provides users with powerful command-line tools and macros for quick and easy access to LLMs. These programs comprise the NPC `shell` and such functionalities are available for use in multiple ways: through the `npc` bash cli, directly through the `npcsh` shell or through their individual paths. 
 - The NPC Shell `npcsh` provides a drop-in replacement for one's bash shell with natural language processing capabilities and a suite of built-in tools (macros) for tasks like voice control, image generation, and web searching. Through it's simple REPL system, one can interact with agents and orchestrate agent teams.
-- With the `npc` CLI, users can use the same tools and macros of the NPC shell through a CLI and provides a quick and simple way to RESTfully serve an NPC Team to receive HTTP requests.
-- The NPC Toolkit integrates with local and enterprise LLM providers through its LiteLLM integration, allowing users to run inference from Ollama, LMStudio, OpenAI, Anthropic, Gemini, and Deepseek, making it a versatile tool for both simple commands and sophisticated AI-driven tasks. All agentic capabilities are built and tested using small local models (like `llama3.2`) to ensure the agentic capabilities function even at the edge of computing.
+- The NPC Toolkit 
 
-
-Read the docs at [npcsh.readthedocs.io](https://npcsh.readthedocs.io/en/latest/)
+Read the docs at [npcpy.readthedocs.io](https://npcsh.readthedocs.io/en/latest/)
 
 There is a graphical user interface that makes use of the NPC Toolkit through the NPC Studio. See the open source code for NPC Studio [here](https://github.com/). Download the executables (soon) at [our website](https://www.npcworldwi.de/npc-studio).
 
@@ -94,22 +95,18 @@ response = get_llm_response("What is the capital of France? Respond with a json 
                             format='json')
 
 
+# with stream
+# alternatively, if you have NPCSH_CHAT_MODEL / NPCSH_CHAT_PROVIDER set in your ~/.npcshrc, it will use those values
+response = get_llm_response("whats going on tonight?",
+                            model='gpt-4o-mini',
+                            provider='openai',
+                            stream=True)
 
-
-#stream responses
-
-#deepseek
-response = get_stream("What is the moon in the summer in the rain?", model='deepseek-chat', provider='deepseek')
-
-#gemini
-response = get_stream("What is the moon in the summer in the rain?", model='gemini-2.0-flash-lite', provider='gemini')
-
-#hugginface model cards
-response = get_stream("What is the moon in the summer in the rain?", model='hf.co/caug37/TinyTim', provider='ollama')
-
+for chunk in response['response']:
+    print(chunk)
 ```
 
-### Example 3: Building a flow with check_llm_command
+### Example 2: Building a flow with check_llm_command
 
 ```python
 #first let's demonstrate the capabilities of npcsh's check_llm_command
@@ -173,7 +170,7 @@ response = check_llm_command(command,
 
 
 
-### Example 2: Creating and Using an NPC
+### Example 3: Creating and Using an NPC
 This example shows how to create and initialize an NPC and use it to answer a question.
 ```python
 import sqlite3
@@ -198,7 +195,7 @@ print(response['response'])
 ```bash
 'The most important territory to retain in the Andes mountains for the cause of liberation in South America would be the region of Quito in present-day Ecuador. This area is strategically significant due to its location and access to key trade routes. It also acts as a vital link between the northern and southern parts of the continent, influencing both military movements and the morale of the independence struggle. Retaining control over Quito would bolster efforts to unite various factions in the fight against Spanish colonial rule across the Andean states.'
 ```
-### Example 3: Using an NPC to Analyze Data
+### Example 4: Using an NPC to Analyze Data
 This example shows how to use an NPC to perform data analysis on a DataFrame using LLM commands.
 ```python
 from npcpy.npc_compiler import NPC
@@ -235,7 +232,7 @@ response = npc.analyze_db_data('Provide a detailed report on the data contained 
 ```
 
 
-### Example 4: Creating and Using a Tool
+### Example 5: Creating and Using a Tool
 You can define a tool and execute it from within your Python script.
 Here we'll create a tool that will take in a pdf file, extract the text, and then answer a user request about the text.
 
@@ -338,7 +335,7 @@ output = tool.execute(input_values, npc.tools_dict, jinja_env, 'Sample Command',
 print('Tool Output:', output)
 ```
 
-### Example 5: Orchestrating a team
+### Example 6: Orchestrating a team
 
 
 
@@ -579,7 +576,7 @@ pip install npcsh[lite]
 # if you want the full local package set up (ollama, diffusers, transformers, cuda etc.)
 pip install npcpy[local]
 # if you want to use tts/stt
-pip install npcpy[whisper]
+pip install npcpy[yap]
 
 # if you want everything:
 pip install npcpy[all]
