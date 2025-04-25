@@ -203,24 +203,6 @@ def get_llm_response(
     )
 
 
-def get_embeddings(
-    texts: List[str],
-    model: str = NPCSH_EMBEDDING_MODEL,
-    provider: str = NPCSH_EMBEDDING_PROVIDER,
-) -> List[List[float]]:
-    """Generate embeddings using the specified provider and store them in Chroma."""
-    if provider == "ollama":
-        embeddings = get_ollama_embeddings(texts, model)
-    elif provider == "openai":
-        embeddings = get_openai_embeddings(texts, model)
-    elif provider == "anthropic":
-        embeddings = get_anthropic_embeddings(texts, model)
-    else:
-        raise ValueError(f"Unsupported provider: {provider}")
-
-    # Store the embeddings in the relevant Chroma collection
-    # store_embeddings_for_model(texts, embeddings, model, provider)
-    return embeddings
 
 
 def get_llm_response(

@@ -560,6 +560,34 @@ def ensure_nltk_punkt() -> None:
         print("Downloading NLTK 'punkt' tokenizer...")
         nltk.download("punkt")
 
+def get_shell_config_file() -> str:
+    """
+
+    Function Description:
+        This function returns the path to the shell configuration file.
+    Args:
+        None
+    Keyword Args:
+        None
+    Returns:
+        The path to the shell configuration file.
+    """
+    # Check the current shell
+    shell = os.environ.get("SHELL", "")
+
+    if "zsh" in shell:
+        return os.path.expanduser("~/.zshrc")
+    elif "bash" in shell:
+        # On macOS, use .bash_profile for login shells
+        if platform.system() == "Darwin":
+            return os.path.expanduser("~/.bash_profile")
+        else:
+            return os.path.expanduser("~/.bashrc")
+    else:
+        # Default to .bashrc if we can't determine the shell
+        return os.path.expanduser("~/.bashrc")
+
+
 
 def add_npcshrc_to_shell_config() -> None:
     """

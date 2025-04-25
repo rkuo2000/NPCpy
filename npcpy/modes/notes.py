@@ -39,7 +39,7 @@ def save_note(note: str, db_conn, npc: Any = None) -> None:
         None
     """
     current_dir = os.getcwd()
-    timestamp = datetime.datetime.now().isoformat()
+    timestamp = datetime.now().isoformat()
     npc_name = npc.name if npc else "base"
     cursor = conn.cursor()
 
@@ -111,7 +111,7 @@ def save_note(note: str, db_conn, npc: Any = None) -> None:
         None
     """
     current_dir = os.getcwd()
-    timestamp = datetime.datetime.now().isoformat()
+    timestamp = datetime.now().isoformat()
     npc_name = npc.name if npc else "base"
     cursor = conn.cursor()
 

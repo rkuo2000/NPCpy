@@ -12,7 +12,8 @@ from npcpy.npc_sysenv import (
     NPCSH_CHAT_PROVIDER,
     NPCSH_VISION_MODEL,
     NPCSH_VISION_PROVIDER,
-    
+    NPCSH_EMBEDDING_MODEL,
+    NPCSH_EMBEDDING_PROVIDER,    
     NPCSH_API_URL,
     setup_npcsh_config,
     is_npcsh_initialized,
@@ -22,7 +23,8 @@ from npcpy.npc_sysenv import (
     interactive_commands, 
     BASH_COMMANDS, 
     get_help,
-    log_action
+    log_action,
+    render_markdown
     
     
 )
@@ -40,6 +42,7 @@ from npcpy.npc_compiler import (
 )
 from npcpy.llm_funcs import check_llm_command, get_llm_response
 
+from npcpy.gen.embeddings import get_embeddings
 from datetime import datetime
 import argparse
 import importlib.metadata  
@@ -483,20 +486,22 @@ def execute_command(
                     # Generate embeddings
                     embeddings = get_embeddings(
                         texts_to_embed,
+                        NPCSH_EMBEDDING_MODEL,
+                        NPCSH_EMBEDDING_PROVIDER,
                     )
 
                     # Prepare metadata
                     metadata = [
                         {
                             "type": "command",
-                            "timestamp": datetime.datetime.now().isoformat(),
+                            "timestamp": datetime.now().isoformat(),
                             "path": os.getcwd(),
                             "npc": npc.name if npc else None,
                             "conversation_id": conversation_id,
                         },
                         {
                             "type": "response",
-                            "timestamp": datetime.datetime.now().isoformat(),
+                            "timestamp": datetime.now().isoformat(),
                             "path": os.getcwd(),
                             "npc": npc.name if npc else None,
                             "conversation_id": conversation_id,
@@ -514,7 +519,7 @@ def execute_command(
                         print(f"Warning: Failed to get collection: {str(e)}")
                         print("Creating new collection...")
                         collection = chroma_client.create_collection(collection_name)
-                    date_str = datetime.datetime.now().isoformat()
+                    date_str = datetime.now().isoformat()
                     current_ids = [f"cmd_{date_str}", f"resp_{date_str}"]
 
                     collection.add(

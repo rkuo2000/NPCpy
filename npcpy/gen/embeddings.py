@@ -6,6 +6,7 @@
 #######
 from typing import List, Dict, Optional
 import numpy as np
+from datetime import datetime
 
 try:
     from openai import OpenAI
@@ -30,7 +31,7 @@ def get_openai_embeddings(
     texts: List[str], model: str = "text-embedding-3-small"
 ) -> List[List[float]]:
     """Generate embeddings using OpenAI."""
-    client = OpenAI(api_key=openai_api_key)
+    client = OpenAI()
     response = client.embeddings.create(input=texts, model=model)
     return [embedding.embedding for embedding in response.data]
 
@@ -41,9 +42,9 @@ def store_embeddings_for_model(
     texts,
     embeddings,
     chroma_client,
+    model,
+    provider,
     metadata=None,
-    model: str ,
-    provider: str ,
 ):
     collection_name = f"{provider}_{model}_embeddings"
     collection = chroma_client.get_collection(collection_name)
@@ -142,3 +143,19 @@ def search_similar_texts(
         }
         for idx in top_indices
     ]
+def get_embeddings(
+    texts: List[str],
+    model: str ,
+    provider: str,
+) -> List[List[float]]:
+    """Generate embeddings using the specified provider and store them in Chroma."""
+    if provider == "ollama":
+        embeddings = get_ollama_embeddings(texts, model)
+    elif provider == "openai":
+        embeddings = get_openai_embeddings(texts, model)
+    else:
+        raise ValueError(f"Unsupported provider: {provider}")
+
+    # Store the embeddings in the relevant Chroma collection
+    # store_embeddings_for_model(texts, embeddings, model, provider)
+    return embeddings

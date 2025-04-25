@@ -474,7 +474,7 @@ def insert_fact(conn: kuzu.Connection, fact: str, path: str) -> bool:
         escaped_path = os.path.expanduser(path).replace('"', '\\"')
 
         # Generate timestamp
-        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
         # Begin transaction
         safe_kuzu_execute(conn, "BEGIN TRANSACTION")
@@ -589,7 +589,7 @@ def save_facts_to_db(
             try:
                 print(f"Inserting fact: {fact}")
                 print(f"With path: {path}")
-                timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 print(f"With recorded_at: {timestamp}")
 
                 insert_fact(conn, fact, path)
@@ -923,7 +923,7 @@ def process_text_with_chroma(
             # Prepare metadata
             metadata = {
                 "path": path,
-                "timestamp": datetime.datetime.now().isoformat(),
+                "timestamp": datetime.now().isoformat(),
                 "source_model": model,
                 "source_provider": provider,
             }
