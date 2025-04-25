@@ -13,16 +13,16 @@ import pathlib
 import fnmatch
 import traceback
 import subprocess
-from typing import Any
+from typing import Any, Dict, List, Optional, Union
 from jinja2 import Environment, FileSystemLoader, Template, Undefined
 from sqlalchemy import create_engine
 
-from npcpy.llm_funcs import get_llm_response, get_stream, check_llm_command
-from npcpy.helpers import get_npc_path
+from npcpy.llm_funcs import get_llm_response, check_llm_command
 from npcpy.npc_sysenv import (
     NPCSH_CHAT_MODEL,
     NPCSH_CHAT_PROVIDER,
     NPCSH_API_URL,
+    get_npc_path,
     )
 
 class SilentUndefined(Undefined):
@@ -33,153 +33,13 @@ class SilentUndefined(Undefined):
 # Utility Functions
 # ---------------------------------------------------------------------------
 
-def ensure_dirs_exist(*dirs):
-    """Ensure all specified directories exist"""
-    for dir_path in dirs:
-        os.makedirs(os.path.expanduser(dir_path), exist_ok=True)
 
-def init_db_tables(db_path="~/npcsh_history.db"):
-    """Initialize necessary database tables"""
-    db_path = os.path.expanduser(db_path)
-    with sqlite3.connect(db_path) as conn:
-        # NPC log table for storing all kinds of entries
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS npc_log (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                entity_id TEXT,  
-                entry_type TEXT,
-                content TEXT,
-                metadata TEXT,
-                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        
-        # Pipeline runs table for tracking pipeline executions
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS pipeline_runs (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                pipeline_name TEXT,
-                step_name TEXT,
-                output TEXT,
-                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        
-        # Compiled NPCs table for storing compiled NPC content
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS compiled_npcs (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT UNIQUE,
-                source_path TEXT,
-                compiled_content TEXT,
-                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        
-        conn.commit()
 
-def log_entry(entity_id, entry_type, content, metadata=None, db_path="~/npcsh_history.db"):
-    """Log an entry for an NPC or team"""
-    db_path = os.path.expanduser(db_path)
-    with sqlite3.connect(db_path) as conn:
-        conn.execute(
-            "INSERT INTO npc_log (entity_id, entry_type, content, metadata) VALUES (?, ?, ?, ?)",
-            (entity_id, entry_type, json.dumps(content), json.dumps(metadata) if metadata else None)
-        )
-        conn.commit()
 
-def get_log_entries(entity_id, entry_type=None, limit=10, db_path="~/npcsh_history.db"):
-    """Get log entries for an NPC or team"""
-    db_path = os.path.expanduser(db_path)
-    with sqlite3.connect(db_path) as conn:
-        query = "SELECT entry_type, content, metadata, timestamp FROM npc_log WHERE entity_id = ?"
-        params = [entity_id]
-        
-        if entry_type:
-            query += " AND entry_type = ?"
-            params.append(entry_type)
-        
-        query += " ORDER BY timestamp DESC LIMIT ?"
-        params.append(limit)
-        
-        results = conn.execute(query, params).fetchall()
-        
-        return [
-            {
-                "entry_type": r[0],
-                "content": json.loads(r[1]),
-                "metadata": json.loads(r[2]) if r[2] else None,
-                "timestamp": r[3]
-            }
-            for r in results
-        ]
 
-def search_log(entity_id, search_term, limit=5, db_path="~/npcsh_history.db"):
-    """Search log for relevant information"""
-    db_path = os.path.expanduser(db_path)
-    with sqlite3.connect(db_path) as conn:
-        results = conn.execute(
-            """
-            SELECT entry_type, content, metadata, timestamp FROM npc_log
-            WHERE entity_id = ? AND content LIKE ?
-            ORDER BY timestamp DESC LIMIT ?
-            """,
-            (entity_id, f"%{search_term}%", limit)
-        ).fetchall()
-        
-        return [
-            {
-                "entry_type": r[0],
-                "content": json.loads(r[1]),
-                "metadata": json.loads(r[2]) if r[2] else None,
-                "timestamp": r[3]
-            }
-            for r in results
-        ]
+import math
+from PIL import Image
 
-def load_yaml_file(file_path):
-    """Load a YAML file with error handling"""
-    try:
-        with open(os.path.expanduser(file_path), 'r') as f:
-            return yaml.safe_load(f)
-    except Exception as e:
-        print(f"Error loading YAML file {file_path}: {e}")
-        return None
-
-def write_yaml_file(file_path, data):
-    """Write data to a YAML file"""
-    try:
-        with open(os.path.expanduser(file_path), 'w') as f:
-            yaml.dump(data, f)
-        return True
-    except Exception as e:
-        print(f"Error writing YAML file {file_path}: {e}")
-        return False
-
-def create_or_replace_table(db_path, table_name, data):
-    """Creates or replaces a table in the SQLite database"""
-    conn = sqlite3.connect(os.path.expanduser(db_path))
-    try:
-        data.to_sql(table_name, conn, if_exists="replace", index=False)
-        print(f"Table '{table_name}' created/replaced successfully.")
-        return True
-    except Exception as e:
-        print(f"Error creating/replacing table '{table_name}': {e}")
-        return False
-    finally:
-        conn.close()
-
-def find_file_path(filename, search_dirs, suffix=None):
-    """Find a file in multiple directories"""
-    if suffix and not filename.endswith(suffix):
-        filename += suffix
-        
-    for dir_path in search_dirs:
-        file_path = os.path.join(os.path.expanduser(dir_path), filename)
-        if os.path.exists(file_path):
-            return file_path
-            
-    return None
 
 class Tool:
     def __init__(self, tool_data=None, tool_path=None):
@@ -261,7 +121,7 @@ class Tool:
         else:
             return context
             
-    def _execute_step(self, step, context, jinja_env, model=None, provider=None, npc=None, stream=False, messages=None):
+    def _execute_step(self, step, context, jinja_env, model=None, provider=None, npc=None, messages=None):
         """Execute a single step of the tool"""
         engine = step.get("engine", "natural")
         code = step.get("code", "")
@@ -283,20 +143,7 @@ class Tool:
         if rendered_engine == "natural":
             if rendered_code.strip():
                 # Handle streaming case
-                if stream:
-                    messages = messages.copy() if messages else []
-                    messages.append({"role": "user", "content": rendered_code})
-                    return get_stream(
-                        messages,
-                        model=model,
-                        provider=provider,
-                        npc=npc,
-                        api_key=npc.api_key if npc else None,
-                        api_url=npc.api_url if npc else None,
-                    )
-                    
-                # Handle normal LLM case
-                llm_response = get_llm_response(
+                response =  get_llm_response(
                     rendered_code,
                     model=model,
                     provider=provider,
@@ -304,7 +151,8 @@ class Tool:
                     api_key=npc.api_key if npc else None,
                     api_url=npc.api_url if npc else None,
                 )
-                response_text = llm_response.get("response", "")
+                
+                response_text = response.get("response", "")
                 context["llm_response"] = response_text
                 context["results"] = response_text
                 context[step_name] = response_text
@@ -763,6 +611,7 @@ class Team:
     def __init__(self, 
                  team_path=None, 
                  npcs=None, 
+                 foreman=None,
                  tools=None,                   
                  db_conn=None):
         """
@@ -778,7 +627,7 @@ class Team:
         self.tools_dict = tools or {}
         self.db_conn = db_conn
         self.team_path = os.path.expanduser(team_path) if team_path else None
-        
+        self.foreman = foreman
         if team_path:
             self.team_name = os.path.basename(os.path.abspath(team_path))
         else:
@@ -1389,6 +1238,188 @@ class Pipeline:
 
 
 
+def change_directory(command_parts: list, messages: list) -> dict:
+    """
+    Function Description:
+        Changes the current directory.
+    Args:
+        command_parts : list : Command parts
+        messages : list : Messages
+    Keyword Args:
+        None
+    Returns:
+        dict : dict : Dictionary
+
+    """
+
+    try:
+        if len(command_parts) > 1:
+            new_dir = os.path.expanduser(command_parts[1])
+        else:
+            new_dir = os.path.expanduser("~")
+        os.chdir(new_dir)
+        return {
+            "messages": messages,
+            "output": f"Changed directory to {os.getcwd()}",
+        }
+    except FileNotFoundError:
+        return {
+            "messages": messages,
+            "output": f"Directory not found: {new_dir}",
+        }
+    except PermissionError:
+        return {"messages": messages, "output": f"Permission denied: {new_dir}"}
+
+def ensure_dirs_exist(*dirs):
+    """Ensure all specified directories exist"""
+    for dir_path in dirs:
+        os.makedirs(os.path.expanduser(dir_path), exist_ok=True)
+
+def init_db_tables(db_path="~/npcsh_history.db"):
+    """Initialize necessary database tables"""
+    db_path = os.path.expanduser(db_path)
+    with sqlite3.connect(db_path) as conn:
+        # NPC log table for storing all kinds of entries
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS npc_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                entity_id TEXT,  
+                entry_type TEXT,
+                content TEXT,
+                metadata TEXT,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        
+        # Pipeline runs table for tracking pipeline executions
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS pipeline_runs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                pipeline_name TEXT,
+                step_name TEXT,
+                output TEXT,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        
+        # Compiled NPCs table for storing compiled NPC content
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS compiled_npcs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT UNIQUE,
+                source_path TEXT,
+                compiled_content TEXT,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        
+        conn.commit()
+
+def log_entry(entity_id, entry_type, content, metadata=None, db_path="~/npcsh_history.db"):
+    """Log an entry for an NPC or team"""
+    db_path = os.path.expanduser(db_path)
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            "INSERT INTO npc_log (entity_id, entry_type, content, metadata) VALUES (?, ?, ?, ?)",
+            (entity_id, entry_type, json.dumps(content), json.dumps(metadata) if metadata else None)
+        )
+        conn.commit()
+
+def get_log_entries(entity_id, entry_type=None, limit=10, db_path="~/npcsh_history.db"):
+    """Get log entries for an NPC or team"""
+    db_path = os.path.expanduser(db_path)
+    with sqlite3.connect(db_path) as conn:
+        query = "SELECT entry_type, content, metadata, timestamp FROM npc_log WHERE entity_id = ?"
+        params = [entity_id]
+        
+        if entry_type:
+            query += " AND entry_type = ?"
+            params.append(entry_type)
+        
+        query += " ORDER BY timestamp DESC LIMIT ?"
+        params.append(limit)
+        
+        results = conn.execute(query, params).fetchall()
+        
+        return [
+            {
+                "entry_type": r[0],
+                "content": json.loads(r[1]),
+                "metadata": json.loads(r[2]) if r[2] else None,
+                "timestamp": r[3]
+            }
+            for r in results
+        ]
+
+def search_log(entity_id, search_term, limit=5, db_path="~/npcsh_history.db"):
+    """Search log for relevant information"""
+    db_path = os.path.expanduser(db_path)
+    with sqlite3.connect(db_path) as conn:
+        results = conn.execute(
+            """
+            SELECT entry_type, content, metadata, timestamp FROM npc_log
+            WHERE entity_id = ? AND content LIKE ?
+            ORDER BY timestamp DESC LIMIT ?
+            """,
+            (entity_id, f"%{search_term}%", limit)
+        ).fetchall()
+        
+        return [
+            {
+                "entry_type": r[0],
+                "content": json.loads(r[1]),
+                "metadata": json.loads(r[2]) if r[2] else None,
+                "timestamp": r[3]
+            }
+            for r in results
+        ]
+
+def load_yaml_file(file_path):
+    """Load a YAML file with error handling"""
+    try:
+        with open(os.path.expanduser(file_path), 'r') as f:
+            return yaml.safe_load(f)
+    except Exception as e:
+        print(f"Error loading YAML file {file_path}: {e}")
+        return None
+
+def write_yaml_file(file_path, data):
+    """Write data to a YAML file"""
+    try:
+        with open(os.path.expanduser(file_path), 'w') as f:
+            yaml.dump(data, f)
+        return True
+    except Exception as e:
+        print(f"Error writing YAML file {file_path}: {e}")
+        return False
+
+def create_or_replace_table(db_path, table_name, data):
+    """Creates or replaces a table in the SQLite database"""
+    conn = sqlite3.connect(os.path.expanduser(db_path))
+    try:
+        data.to_sql(table_name, conn, if_exists="replace", index=False)
+        print(f"Table '{table_name}' created/replaced successfully.")
+        return True
+    except Exception as e:
+        print(f"Error creating/replacing table '{table_name}': {e}")
+        return False
+    finally:
+        conn.close()
+
+def find_file_path(filename, search_dirs, suffix=None):
+    """Find a file in multiple directories"""
+    if suffix and not filename.endswith(suffix):
+        filename += suffix
+        
+    for dir_path in search_dirs:
+        file_path = os.path.join(os.path.expanduser(dir_path), filename)
+        if os.path.exists(file_path):
+            return file_path
+            
+    return None
+
+
+
 def initialize_npc_project(
     directory=None,
     templates=None,
@@ -1432,3 +1463,85 @@ def initialize_npc_project(
             yaml.dump(default_npc, f)
             
     return f"NPC project initialized in {npc_team_dir}"
+
+
+
+
+
+def execute_tool_command(
+    tool: Tool,
+    args: List[str],
+    messages=None,
+    npc: NPC = None,
+) -> Dict[str, Any]:
+    """
+    Execute a tool command with the given arguments.
+    """
+    # Extract inputs for the current tool
+    input_values = extract_tool_inputs(args, tool)
+
+    # print(f"Input values: {input_values}")
+    # Execute the tool with the extracted inputs
+
+    tool_output = tool.execute(
+        input_values,
+        tool.tool_name,
+        npc=npc,
+    )
+
+    return {"messages": messages, "output": tool_output}
+
+
+
+def extract_tool_inputs(args: List[str], tool: Tool) -> Dict[str, Any]:
+    inputs = {}
+
+    # Create flag mapping
+    flag_mapping = {}
+    for input_ in tool.inputs:
+        if isinstance(input_, str):
+            flag_mapping[f"-{input_[0]}"] = input_
+            flag_mapping[f"--{input_}"] = input_
+        elif isinstance(input_, dict):
+            key = list(input_.keys())[0]
+            flag_mapping[f"-{key[0]}"] = key
+            flag_mapping[f"--{key}"] = key
+
+    # Process arguments
+    used_args = set()
+    for i, arg in enumerate(args):
+        if arg in flag_mapping:
+            # If flag is found, next argument is its value
+            if i + 1 < len(args):
+                input_name = flag_mapping[arg]
+                inputs[input_name] = args[i + 1]
+                used_args.add(i)
+                used_args.add(i + 1)
+            else:
+                print(f"Warning: {arg} flag is missing a value.")
+
+    # If no flags used, combine remaining args for first input
+    unused_args = [arg for i, arg in enumerate(args) if i not in used_args]
+    if unused_args and tool.inputs:
+        first_input = tool.inputs[0]
+        if isinstance(first_input, str):
+            inputs[first_input] = " ".join(unused_args)
+        elif isinstance(first_input, dict):
+            key = list(first_input.keys())[0]
+            inputs[key] = " ".join(unused_args)
+
+    # Add default values for inputs not provided
+    for input_ in tool.inputs:
+        if isinstance(input_, str):
+            if input_ not in inputs:
+                if any(args):  # If we have any arguments at all
+                    raise ValueError(f"Missing required input: {input_}")
+                else:
+                    inputs[input_] = None  # Allow None for completely empty calls
+        elif isinstance(input_, dict):
+            key = list(input_.keys())[0]
+            if key not in inputs:
+                inputs[key] = input_[key]
+
+    return inputs
+

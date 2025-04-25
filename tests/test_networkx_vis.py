@@ -1,4 +1,4 @@
-from npcpy.knowledge_graph import *
+from npcpy.memory.knowledge_graph import *
 
 db_path = "./demo.db"  # Specify your database path here
 path = "~/npcww/npcsh/tests/"

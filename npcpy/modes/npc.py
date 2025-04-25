@@ -1,4 +1,5 @@
 import argparse
+import sys
 from npcpy.npc_sysenv import (
     NPCSH_CHAT_MODEL,
     NPCSH_CHAT_PROVIDER,
@@ -15,26 +16,21 @@ from npcpy.npc_sysenv import (
     NPCSH_SEARCH_PROVIDER,
     print_and_process_stream
 )
-from npcpy.serve import start_flask_server
+from npcpy.modes.serve import start_flask_server
 from npcpy.npc_compiler import (
-    
-    conjure_team,
     NPC,
 )
 from npcpy.llm_funcs import (
     check_llm_command,
     execute_llm_command,
-    execute_llm_question,
+    get_llm_response,
     handle_tool_call,
     generate_image,
-    get_embeddings,
     get_llm_response,
-    get_stream,
-    get_conversation,
 )
-from npcpy.plonk import plonk, action_space
-from npcpy.search import search_web
-from npcpy.shell_helpers import *
+from npcpy.npc_sysenv import get_npc_path
+from npcpy.modes.plonk import execute_plonk_command
+from npcpy.data.web import search_web
 import os
 import sqlite3
 
@@ -296,8 +292,8 @@ def main():
     ots_parser = subparsers.add_parser("ots", help="analyze screenshot")
 
     # Voice chat
-    whisper_parser = subparsers.add_parser("whisper", help="start voice chat")
-    whisper_parser.add_argument("-n", "--npc_name", help="name of the NPC to chat with")
+    yap_parser = subparsers.add_parser("yap", help="start voice chat")
+    yap_parser.add_argument("-n", "--npc_name", help="name of the NPC to chat with")
 
     args = parser.parse_args()
 
@@ -440,7 +436,7 @@ def main():
         npc_path = get_npc_path(npc_name, NPCSH_DB_PATH)
         current_npc = NPC(file=npc_path, db_conn = sqlite3.connect(NPCSH_DB_PATH))
 
-        enter_whisper_mode(npc=current_npc)
+        yap_parser(npc=current_npc)
 
     elif args.command == "tool":
         result = invoke_tool(

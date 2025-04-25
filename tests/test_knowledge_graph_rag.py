@@ -1,4 +1,4 @@
-from npcpy.knowledge_graph import process_text_with_chroma
+from npcpy.memory.knowledge_graph import process_text_with_chroma
 import os
 
 # Paths to your databases

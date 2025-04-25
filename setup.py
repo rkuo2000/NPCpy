@@ -13,44 +13,6 @@ def package_files(directory):
     return paths
 
 
-def get_setup_message():
-    if platform.system() == "Windows":
-        user_scripts = Path(site.USER_BASE) / "Scripts"
-        return f"""
-==============================================
-Important Setup Instructions for Windows Users
-==============================================
-
-The npcsh command line tool has been installed, but you need to add it to your PATH.
-
-Please add this directory to your PATH:
-{user_scripts}
-
-You can do this in one of two ways:
-
-1. Quick method (run in Command Prompt as Administrator):
-   setx PATH "%PATH%;{user_scripts}"
-
-2. Manual method:
-   a. Press Win + X and select "System"
-   b. Click "Advanced system settings"
-   c. Click "Environment Variables"
-   d. Under "User variables", find and select "Path"
-   e. Click "Edit"
-   f. Click "New"
-   g. Add this path: {user_scripts}
-   h. Click "OK" on all windows
-
-After adding to PATH, restart your terminal/command prompt.
-
-You can then run:
-npcsh-setup
-
-To configure your API keys and preferences.
-==============================================
-"""
-    return ""
-
 
 # Base requirements (no LLM packages)
 base_requirements = [
@@ -115,19 +77,26 @@ extra_files = package_files("npcpy/npc_team/")
 
 setup(
     name="npcpy",
-    version="0.3.33",
+    version="0.3.34",
     packages=find_packages(exclude=["tests*"]),
     install_requires=base_requirements,  # Only install base requirements by default
     extras_require={
         "lite": api_requirements,  # Just API integrations
         "local": local_requirements,  # Local AI/ML features
-        "whisper": voice_requirements,  # Voice/Audio features
+        "yap": voice_requirements,  # Voice/Audio features
         "all": api_requirements + local_requirements + voice_requirements,  # Everything
     },
     entry_points={
         "console_scripts": [
-            "npcsh=npcpy.shell:main",
-            "npc=npcpy.cli:main",
+            "npcsh=npcpy.modes.npcsh:main",
+            "npc=npcpy.modes.npc:main",
+            "yap=npcpy.modes.yap:main",
+            "pti=npcpy.modes.pti:main",
+            "guac=npcpy.modes.guac:main",
+            "wander=npcpy.modes.wander:main",
+            "deep_research=npcpy.modes.deep_search:main",
+            "spool=npcpy.modes.spool:main",
+            "sleep=npcpy.modes.sleep:main",
         ],
     },
     author="Christopher Agostino",
@@ -135,15 +104,13 @@ setup(
     description="npcpy is a python library for orchestrating AI agents.",
     long_description=open("README.md").read(),
     long_description_content_type="text/markdown",
-    url="https://github.com/cagostino/npcsh",
+    url="https://github.com/cagostino/npcpy",
     classifiers=[
         "Programming Language :: Python :: 3",
         "License :: OSI Approved :: MIT License",
     ],
     include_package_data=True,
-    data_files=[("npcsh/npc_team", extra_files)],
+    data_files=[("npcpy/npc_team", extra_files)],
     python_requires=">=3.10",
 )
 
-if platform.system() == "Windows":
-    print(get_setup_message())

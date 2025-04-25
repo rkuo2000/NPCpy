@@ -2,7 +2,7 @@
 import numpy as np 
 from npcpy.npc_compiler import NPC 
 
-from npcpy.knowledge_graph import *
+from npcpy.memory.knowledge_graph import *
 import os
 
 from npcpy.data import sample_primary_directives 

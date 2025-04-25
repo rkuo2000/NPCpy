@@ -8,10 +8,10 @@ try:
     import kuzu
 except ModuleNotFoundError:
     print("kuzu not installed")
-from typing import Optional, Dict, List, Union, Tuple
+from typing import Optional, Dict, List, Union, Tuple, Any
 
 
-from npcpy.llm_funcs import get_llm_response, get_embeddings
+from npcpy.llm_funcs import get_llm_response
 from npcpy.npc_compiler import NPC
 import sqlite3
 
@@ -128,43 +128,40 @@ def init_db(db_path: str, drop=False):
         return None
 
 
-def extract_facts(
-    text: str, model: str = "llama3.2", provider: str = "ollama", npc: NPC = None
+def extract_mistakes(
+    text: str, model: str = "llama3.2", provider: str = "ollama", npc: NPC = None, context: str = ""
 ) -> List:
     """Extract facts from text using LLM"""
-    prompt = """Extract facts from this text.
-        A fact is a piece of information that makes a statement about the world.
-        A fact is typically a sentence that is true or false.
-        Facts may be simple or complex. They can also be conflicting with each other, usually
-        because there is some hidden context that is not mentioned in the text.
-        In any case, it is simply your job to extract a list of facts that could pertain to
-        an individual's  personality.
-        For example, if a user says :
-            "since I am a doctor I am often trying to think up new ways to help people.
-            Can you help me set up a new kind of software to help with that?"
-        You might extract the following facts:
-            - The user is a doctor
-            - The user is helpful
+    prompt = """Extract mistakes from this text.
+        A mistake is a choice made that ended up being incorrect.
+        Mistakes may be simple or complex. 
+        For example, if a message says :
+            "vaccines cause autism and I'm a doctor so you should believe me"    
+        You might extract the following mistake:
+            - The message insinuates to believe their lie by appealing to authority                
+            - The message is incorrect because vaccines do not cause autism
 
         Another example:
-            "I am a software engineer who loves to play video games. I am also a huge fan of the
-            Star Wars franchise and I am a member of the 501st Legion."
-        You might extract the following facts:
-            - The user is a software engineer
-            - The user loves to play video games
-            - The user is a huge fan of the Star Wars franchise
-            - The user is a member of the 501st Legion
-
-        Thus, it is your mission to reliably extract litss of facts.
+            "user>what shape is the earth? 
+            assistant> It is flat
+            user> no its not
+            assistant> yes it is
+            "
+        You might extract the following mistakes:
+            - The assistant is incorrect because the earth is not flat
+            - The assistant should not argue without supporting evidence. 
 
 
     Return a JSON object with the following structure:
 
-        {{
-            "fact_list": "a list containing the facts where each fact is a string",
-        }}
+        {
+            "mistakes": "a list containing the mistakes where each mistake is a string",
+        }
 
 
+    """ + f""" Here is some relevant user context: {context}
+    
+    
     Return only the JSON object.
     Do not include any additional markdown formatting.
 
@@ -180,6 +177,170 @@ def extract_facts(
     print(response)
     return response["fact_list"]
 
+
+def extract_lessons_learned(
+    text: str, model: str = "llama3.2", provider: str = "ollama", npc: NPC = None, context: str = ""
+) -> List:
+    """Extract lessons_learned from text using LLM"""
+    prompt = """Extract lessons learned from this text.
+        A lesson learned is a piece of information that directly states how a new understanding came to be. 
+        A lesson learned describes the initial conception and then the ultimate understanding ,
+        A lesson learned documents a change in perception.
+        changes in perception may be simple or complex. 
+        For example, if a message chain goes like says :
+            "user> tell me about the baldwin phillips and terlevich diagrams and how they separate active galaxies and star-forming galaxies
+            assistant> The Baldwin-Phillips and Terlevich diagrams are used to separate active galaxies from star-forming galaxies based on their emission line ratios.
+            user> how did they determine that to be the case? 
+            assistant> They determined this by analyzing the spectra of various galaxies and observing the differences in their emission line ratios.
+            user> but how could they determine which galaxies were active and which were star-forming a priori?
+            assistant> They used a combination of theoretical models and observational data to establish the criteria for classifying galaxies as active or star-forming.
+            user> so they used a priori knowledge to determine the classification of the galaxies?
+            assistant> Yes, they relied on existing knowledge and models to classify the galaxies based on their emission line ratios.
+            
+        You might extract the following lessons learned:
+            -The user had difficulty understanding how emission line ratios could be 
+            used for galaxies without any other known signal of black hole accretion,
+            and the assistant helped them understand that the classification of galaxies 
+            is based on a priori knowledge and models.
+            
+        Another example:
+            "user> if i build a docker container, will it store data permanently?
+            assistant> Yes, Docker containers can store data permanently if you use volumes or bind mounts.
+            user> but what if i don't use volumes or bind mounts?
+            assistant> In that case, the data will not be stored permanently and will be lost when the container is removed.
+            user> so i need to use volumes or bind mounts to keep the data?
+            assistant> Yes, using volumes or bind mounts is necessary to ensure data persistence in Docker containers.
+        You might extract the following lessons learned:
+            - The user was unsure about the data persistence in Docker containers and
+            asked the assistant for clarification, learning that Docker containers can
+            store data permanently only if volumes or bind mounts are used.
+            
+        Thus, it is your mission to reliably extract lists of facts.
+
+
+    Return a JSON object with the following structure:
+
+        {
+            "lessons_learned": "a list containing the lessons learned where each lesson learned is a string",
+        }
+
+
+    """ + f""" Here is some relevant user context: {context}
+    
+    
+    Return only the JSON object.
+    Do not include any additional markdown formatting.
+
+    """
+
+    response = get_llm_response(
+        prompt + f"\n\nText: {text}",
+        model=model,
+        provider=provider,
+        format="json",
+    )
+    response = response["response"]
+    print(response)
+    return response["fact_list"]
+
+
+def extract_facts(
+    text: str, model: str = "llama3.2", provider: str = "ollama", npc: NPC = None, context: str = ""
+) -> List:
+    """Extract facts from text using LLM"""
+    prompt = """Extract facts from this text.
+        A fact is a piece of information that makes a statement about the world.
+        A fact is typically a sentence that is true or false.
+        Facts may be simple or complex. They can also be conflicting with each other, usually
+        because there is some hidden context that is not mentioned in the text.
+        In any case, it is simply your job to extract a list of facts that could pertain to
+        an individual's  personality.
+        For example, if a messages says :
+            "since I am a doctor I am often trying to think up new ways to help people.
+            Can you help me set up a new kind of software to help with that?"
+        You might extract the following facts:
+            - The individual is a doctor
+            - They are helpful
+
+        Another example:
+            "I am a software engineer who loves to play video games. I am also a huge fan of the
+            Star Wars franchise and I am a member of the 501st Legion."
+        You might extract the following facts:
+            - The individual is a software engineer
+            - The individual loves to play video games
+            - The individual is a huge fan of the Star Wars franchise
+            - The individual is a member of the 501st Legion
+
+        Thus, it is your mission to reliably extract lists of facts.
+
+
+    Return a JSON object with the following structure:
+
+        {
+            "fact_list": "a list containing the facts where each fact is a string",
+        }
+
+
+    """ + f""" Here is some relevant user context: {context}
+    
+    
+    Return only the JSON object.
+    Do not include any additional markdown formatting.
+
+    """
+
+    response = get_llm_response(
+        prompt + f"\n\nText: {text}",
+        model=model,
+        provider=provider,
+        format="json",
+    )
+    response = response["response"]
+    print(response)
+    return response["fact_list"]
+def breathe(
+            messages: Optional[List[Dict[str, str]]],
+            model: str = None, 
+            provider: str = None, 
+            npc: Any = None, 
+            context:str = None,             
+            ) -> Dict[str, Any]:
+    """Function to condense context on a regular cadence.
+    Args:
+        prompt (str): The prompt to send to the LLM.
+        npc (Any): The NPC object.
+        model (str): The model to use for the LLM.
+        provider (str): The provider for the LLM.
+        messages (Optional[List[Dict[str, str]]]): The conversation history.
+    Returns:
+        Dict[str, Any]: The response from the LLM.
+    """
+
+    facts = extract_facts(
+        str(messages),
+        npc=npc,
+        model=model,
+        provider=provider,
+        messages=messages,
+        )
+    mistakes = extract_mistakes(
+        str(messages),
+        npc=npc,
+        model=model,
+        provider=provider,
+        messages=messages,
+        )
+    lessons = extract_lessons_learned(
+        str(messages),
+        npc=npc,
+        model=model,
+        provider=provider,
+        messages=messages,
+        )
+    text_combined = f"{facts} {mistakes} {lessons}"
+    
+    return {"output": text_combined, "messages": []}
+    
 
 def find_similar_groups(
     conn: kuzu.Connection,
@@ -313,7 +474,7 @@ def insert_fact(conn: kuzu.Connection, fact: str, path: str) -> bool:
         escaped_path = os.path.expanduser(path).replace('"', '\\"')
 
         # Generate timestamp
-        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
         # Begin transaction
         safe_kuzu_execute(conn, "BEGIN TRANSACTION")
@@ -428,7 +589,7 @@ def save_facts_to_db(
             try:
                 print(f"Inserting fact: {fact}")
                 print(f"With path: {path}")
-                timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 print(f"With recorded_at: {timestamp}")
 
                 insert_fact(conn, fact, path)
@@ -762,7 +923,7 @@ def process_text_with_chroma(
             # Prepare metadata
             metadata = {
                 "path": path,
-                "timestamp": datetime.datetime.now().isoformat(),
+                "timestamp": datetime.now().isoformat(),
                 "source_model": model,
                 "source_provider": provider,
             }

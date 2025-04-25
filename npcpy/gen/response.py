@@ -1,0 +1,574 @@
+from typing import Any, Dict, List, Union
+from pydantic import BaseModel
+from npcpy.data.image import compress_image
+from npcpy.npc_sysenv import get_system_message, available_reasoning_models, lookup_provider
+import base64
+import json
+import uuid
+
+try: 
+    import ollama
+except ImportError:
+    pass
+try:
+    from litellm import completion
+except ImportError:
+    pass
+def handle_streaming_json(api_params):
+    """
+    Handles streaming responses when JSON format is requested.
+    
+    Args:
+        api_params (dict): API parameters for the completion call.
+        
+    Yields:
+        Processed chunks of the JSON response.
+    """
+    json_buffer = ""
+    stream = completion(**api_params)
+    
+    for chunk in stream:
+        content = chunk.choices[0].delta.content
+        if content:
+            json_buffer += content
+            # Try to parse as valid JSON but only yield once we have complete JSON
+            try:
+                # Check if we have a complete JSON object
+                json.loads(json_buffer)
+                # If successful, yield the chunk
+                yield chunk
+            except json.JSONDecodeError:
+                # Not complete JSON yet, continue buffering
+                pass
+    
+    # After the stream ends, try to ensure we have valid JSON
+    try:
+        final_json = json.loads(json_buffer)
+        # Could yield a special "completion" chunk here if needed
+    except json.JSONDecodeError:
+        # Handle case where stream ended but JSON is invalid
+        print(f"Warning: Complete stream did not produce valid JSON: {json_buffer}")
+        
+        
+def get_ollama_response(
+    prompt: str = None,
+    model: str = None,
+    images: List[str] = None,
+    npc: Any = None,
+    tools: list = None,
+    tool_choice: Dict = None,
+    format: Union[str, BaseModel] = None,
+    messages: List[Dict[str, str]] = None,
+    stream: bool = False,
+    **kwargs,
+) -> Dict[str, Any]:
+    """
+    Generates a response using the Ollama API, supporting both streaming and non-streaming.
+    """
+    import ollama
+    
+    # Setup system message
+    system_message = get_system_message(npc) if npc else "You are a helpful assistant."
+    
+    # Setup messages
+    if messages is None or len(messages) == 0:
+        messages = [{"role": "system", "content": system_message}]
+        if prompt:
+            messages.append({"role": "user", "content": prompt})
+    elif prompt and messages[-1]["role"] == "user":
+        # If the last message is from user, append to it
+        if isinstance(messages[-1]["content"], str):
+            messages[-1]["content"] += "\n" + prompt
+    elif prompt:
+        # Add a new user message
+        messages.append({"role": "user", "content": prompt})
+    
+    # Handle images
+    if images:
+        messages[-1]["images"] = images  # Direct list of paths for Ollama
+    
+    # Prepare API parameters
+    api_params = {
+        "model": model,
+        "messages": messages,
+        "stream": stream,
+    }
+    
+    # Add tools if provided
+    if tools:
+        api_params["tools"] = tools
+    
+    # Add tool choice if specified
+    if tool_choice:
+        api_params["tool_choice"] = tool_choice
+    
+    # Add any additional parameters
+    for key, value in kwargs.items():
+        if key in [
+            "stop",
+            "temperature",
+            "top_p",
+            "max_tokens",
+            "max_completion_tokens",
+            "tools",
+            "tool_choice",
+            "extra_headers",
+            "parallel_tool_calls",
+            "response_format",
+            "user",
+        ]:
+            api_params[key] = value
+    
+    # Handle formatting
+    if isinstance(format, type) and not stream:
+        schema = format.model_json_schema()
+        api_params["format"] = schema
+    elif isinstance(format, str) and format == "json" and not stream:
+        api_params["format"] = "json"
+    
+    # Create standardized response structure
+    result = {
+        "response": None,
+        "messages": messages.copy(),
+        "raw_response": None,
+        "tool_calls": []
+    }
+    
+    # Handle streaming
+    if stream:
+        result["response"] = ollama.chat(**api_params)
+        return result
+    
+    # Non-streaming case
+    res = ollama.chat(**api_params)
+    result["raw_response"] = res
+    
+    # Extract the response content
+    response_content = res.get("message", {}).get("content")
+    result["response"] = response_content
+    
+    # Handle tool calls if tools were provided
+    if tools and "tool_calls" in res.get("message", {}):
+        result["tool_calls"] = res["message"]["tool_calls"]
+    
+    # Append response to messages
+    result["messages"].append({"role": "assistant", "content": response_content})
+    
+    # Handle JSON format if specified
+    if format == "json":
+        if model in available_reasoning_models:
+            raise NotImplementedError("Reasoning models do not support JSON output.")
+        try:
+            if isinstance(response_content, str):
+                if response_content.startswith("```json"):
+                    response_content = (
+                        response_content.replace("```json", "")
+                        .replace("```", "")
+                        .strip()
+                    )
+                parsed_response = json.loads(response_content)
+                result["response"] = parsed_response
+        except json.JSONDecodeError:
+            result["error"] = f"Invalid JSON response: {response_content}"
+    
+    return result
+
+def get_litellm_response(
+    prompt: str = None,
+    model: str = None,
+    provider: str = None,
+    images: List[str] = None,
+    npc: Any = None,
+    team: Any = None, 
+    tools: list = None,
+    tool_choice: Dict = None,
+    format: Union[str, BaseModel] = None,
+    messages: List[Dict[str, str]] = None,
+    api_key: str = None,
+    api_url: str = None,
+    stream: bool = False,
+    **kwargs,
+) -> Dict[str, Any]:
+    """
+    Unified function for generating responses using litellm, supporting both streaming and non-streaming.
+    """
+    # Determine provider and model
+    if model is not None and provider is not None:
+        pass
+    elif provider is None and model is not None:
+        provider = lookup_provider(model)
+    elif npc is not None:
+        if npc.provider is not None:
+            provider = npc.provider
+        if npc.model is not None:
+            model = npc.model
+        if npc.api_url is not None:
+            api_url = npc.api_url
+    else:
+        provider = "ollama"
+        if images is not None:
+            model = "llava:7b"
+        else:
+            model = "llama3.2"
+    
+    # Handle Ollama separately
+    if provider == "ollama":
+
+        return get_ollama_response(
+            prompt=prompt, 
+            model=model, 
+            images=images, 
+            npc=npc, 
+            tools=tools, 
+            tool_choice=tool_choice,
+            format=format, 
+            messages=messages, 
+            stream=stream, 
+            **kwargs
+        )
+    
+    # Create standardized response structure
+    result = {
+        "response": None,
+        "messages": messages.copy() if messages else [],
+        "raw_response": None,
+        "tool_calls": []
+    }
+    
+    # Set up system message
+    system_message = get_system_message(npc) if npc else "You are a helpful assistant."
+    
+    # Set up messages
+    if not result["messages"]:
+        result["messages"] = [{"role": "system", "content": system_message}]
+        if prompt:
+            result["messages"].append({"role": "user", "content": [{"type": "text", "text": prompt}]})
+    elif prompt and result["messages"][-1]["role"] == "user":
+        # If the last message is from user, append to it
+        if isinstance(result["messages"][-1]["content"], list):
+            result["messages"][-1]["content"].append({"type": "text", "text": prompt})
+        elif isinstance(result["messages"][-1]["content"], str):
+            # Convert string content to list
+            result["messages"][-1]["content"] = [
+                {"type": "text", "text": result["messages"][-1]["content"]},
+                {"type": "text", "text": prompt}
+            ]
+    elif prompt:
+        # Add a new user message
+        result["messages"].append({"role": "user", "content": [{"type": "text", "text": prompt}]})
+    
+    # Handle JSON format instructions
+    if format == "json" and not stream:
+        json_instruction = """If you are a returning a json object, begin directly with the opening {.
+            If you are returning a json array, begin directly with the opening [.
+            Do not include any additional markdown formatting or leading
+            ```json tags in your response. The item keys should be based on the ones provided
+            by the user. Do not invent new ones."""
+            
+        if result["messages"] and result["messages"][-1]["role"] == "user":
+            if isinstance(result["messages"][-1]["content"], list):
+                result["messages"][-1]["content"].append({
+                    "type": "text", 
+                    "text": json_instruction
+                })
+            elif isinstance(result["messages"][-1]["content"], str):
+                result["messages"][-1]["content"] += "\n" + json_instruction
+    
+    # Handle images
+    if images:
+        last_user_idx = None
+        for i, msg in enumerate(result["messages"]):
+            if msg["role"] == "user":
+                last_user_idx = i
+        
+        if last_user_idx is None:
+            result["messages"].append({"role": "user", "content": []})
+            last_user_idx = len(result["messages"]) - 1
+        
+        if isinstance(result["messages"][last_user_idx]["content"], str):
+            result["messages"][last_user_idx]["content"] = [
+                {"type": "text", "text": result["messages"][last_user_idx]["content"]}
+            ]
+        elif not isinstance(result["messages"][last_user_idx]["content"], list):
+            result["messages"][last_user_idx]["content"] = []
+        
+        for image_path in images:
+            with open(image_path, "rb") as image_file:
+                image_data = base64.b64encode(compress_image(image_file.read())).decode("utf-8")
+                result["messages"][last_user_idx]["content"].append(
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:image/jpeg;base64,{image_data}"},
+                    }
+                )
+    
+    # Prepare API parameters
+    api_params = {
+        "messages": result["messages"],
+        "stream": stream,
+    }
+    
+    # Handle provider, model, and API settings
+    if api_url is not None and provider == "openai-like":
+        api_params["api_base"] = api_url
+        provider = "openai"
+    
+    if format == "json" and not stream:
+        api_params["response_format"] = {"type": "json_object"}
+    elif isinstance(format, BaseModel):
+        api_params["response_format"] = format
+    
+    if "/" not in model:
+        model_str = f"{provider}/{model}"
+    else:
+        model_str = model
+    
+    api_params["model"] = model_str
+    
+    if api_key is not None:
+        api_params["api_key"] = api_key
+    
+    # Add tools if provided
+    if tools:
+        api_params["tools"] = tools
+    
+    # Add tool choice if specified
+    if tool_choice:
+        api_params["tool_choice"] = tool_choice
+    
+    # Add additional parameters
+    if kwargs:
+        for key, value in kwargs.items():
+            if key in [
+                "stop",
+                "temperature",
+                "top_p",
+                "max_tokens",
+                "max_completion_tokens",
+                "tools",
+                "tool_choice",
+                "extra_headers",
+                "parallel_tool_calls",
+                "response_format",
+                "user",
+            ]:
+                api_params[key] = value
+    
+    # Handle streaming
+    if stream:
+        if format == "json":
+            result["response"] = handle_streaming_json(api_params)
+        else:
+            result["response"] = completion(**api_params)
+        return result
+    
+    # Non-streaming case
+    resp = completion(**api_params)
+    result["raw_response"] = resp
+    
+    # Extract response content
+    llm_response = resp.choices[0].message.content
+    result["response"] = llm_response
+    
+    # Extract tool calls if any
+    if hasattr(resp.choices[0].message, 'tool_calls') and resp.choices[0].message.tool_calls:
+        result["tool_calls"] = resp.choices[0].message.tool_calls
+    
+    # Handle JSON format requests
+    if format == "json":
+        try:
+            if isinstance(llm_response, str):
+                # Clean up JSON response if needed
+                if llm_response.startswith("```json"):
+                    llm_response = llm_response.replace("```json", "").replace("```", "").strip()
+                parsed_json = json.loads(llm_response)
+                
+                if "json" in parsed_json:
+                    result["response"] = parsed_json["json"]
+                else:
+                    result["response"] = parsed_json
+                
+        except (json.JSONDecodeError, TypeError) as e:
+            print(f"JSON parsing error: {str(e)}")
+            print(f"Raw response: {llm_response}")
+            result["error"] = "Invalid JSON response"
+    
+    # Add assistant response to message history
+    result["messages"].append(
+        {
+            "role": "assistant",
+            "content": (
+                llm_response if isinstance(llm_response, str) else str(llm_response)
+            ),
+        }
+    )
+    
+    return result
+
+
+def handle_streaming_json(api_params):
+    """
+    Handles streaming responses when JSON format is requested.
+    """
+    json_buffer = ""
+    stream = completion(**api_params)
+    
+    for chunk in stream:
+        content = chunk.choices[0].delta.content
+        if content:
+            json_buffer += content
+            # Try to parse as valid JSON but only yield once we have complete JSON
+            try:
+                # Check if we have a complete JSON object
+                json.loads(json_buffer)
+                # If successful, yield the chunk
+                yield chunk
+            except json.JSONDecodeError:
+                # Not complete JSON yet, continue buffering
+                pass
+    
+    # After the stream ends, try to ensure we have valid JSON
+    try:
+        final_json = json.loads(json_buffer)
+        # Could yield a special "completion" chunk here if needed
+    except json.JSONDecodeError:
+        # Handle case where stream ended but JSON is invalid
+        print(f"Warning: Complete stream did not produce valid JSON: {json_buffer}")
+
+import uuid
+import json
+
+def process_tool_calls(response_dict, tool_map):
+    """
+    Process tool calls from a response and execute corresponding tools.
+    
+    Args:
+        response_dict (dict): The response dictionary from get_litellm_response or get_ollama_response
+        tool_map (dict): Mapping of tool names to their implementation functions
+        
+    Returns:
+        dict: Updated response dictionary with tool results and final response
+    """
+    result = response_dict.copy()
+    result["tool_results"] = []
+    
+    # Extract tool calls from the response
+    tool_calls = result.get("tool_calls", [])
+    if not tool_calls:
+        return result
+    
+    # Process each tool call
+    for tool_call in tool_calls:
+        try:
+            # Extract tool details - handle both Ollama and LiteLLM formats
+            if isinstance(tool_call, dict):  # Ollama format
+                tool_id = tool_call.get("id", str(uuid.uuid4()))
+                tool_name = tool_call.get("function", {}).get("name")
+                arguments_str = tool_call.get("function", {}).get("arguments", "{}")
+            else:  # LiteLLM format - expect object with attributes
+                tool_id = getattr(tool_call, "id", str(uuid.uuid4()))
+                # Handle function as either attribute or dict
+                if hasattr(tool_call, "function"):
+                    if isinstance(tool_call.function, dict):
+                        tool_name = tool_call.function.get("name")
+                        arguments_str = tool_call.function.get("arguments", "{}")
+                    else:
+                        tool_name = getattr(tool_call.function, "name", None)
+                        arguments_str = getattr(tool_call.function, "arguments", "{}")
+                else:
+                    raise ValueError("Tool call missing function attribute or property")
+            
+            # Parse arguments
+            if not arguments_str:
+                arguments = {}
+            else:
+                try:
+                    arguments = json.loads(arguments_str) if isinstance(arguments_str, str) else arguments_str
+                except json.JSONDecodeError:
+                    arguments = {"raw_arguments": arguments_str}
+            
+            # Execute the tool if it exists in the tool map
+            if tool_name and tool_name in tool_map:
+                tool_result = tool_map[tool_name](arguments)
+                result["tool_results"].append({
+                    "tool_call_id": tool_id,
+                    "tool_name": tool_name,
+                    "arguments": arguments,
+                    "result": tool_result
+                })
+                
+                # Add tool result to messages
+                result["messages"].append({
+                    "role": "tool",
+                    "tool_call_id": tool_id,
+                    "content": json.dumps(tool_result)
+                })
+            else:
+                tool_name = tool_name or "unknown"
+                raise ValueError(f"Tool {tool_name} not found in tool map")
+                
+        except Exception as e:
+            error_msg = f"Error executing tool: {str(e)}"
+            print(error_msg)
+            
+            # Set defaults for variables that might not be defined in case of early errors
+            if 'tool_id' not in locals():
+                tool_id = str(uuid.uuid4())
+            if 'tool_name' not in locals():
+                tool_name = "unknown"
+            if 'arguments' not in locals():
+                arguments = {}
+                
+            result["tool_results"].append({
+                "tool_call_id": tool_id,
+                "tool_name": tool_name,
+                "arguments": arguments,
+                "error": str(e)
+            })
+            
+            # Add error to messages
+            result["messages"].append({
+                "role": "tool",
+                "tool_call_id": tool_id,
+                "content": json.dumps({"error": str(e)})
+            })
+    
+    # Get a follow-up response with the tool results if there were any successful tool calls
+    successful_tools = [t for t in result["tool_results"] if "result" in t]
+    if successful_tools:
+        # Determine which function to use for the follow-up
+        if result.get("raw_response") and hasattr(result["raw_response"], "model"):
+            # This was a LiteLLM response
+            model_str = result["raw_response"].model
+            
+            # Extract provider
+            if "/" in model_str:
+                provider, model = model_str.split("/", 1)
+            else:
+                provider = None
+                model = model_str
+                
+            # Check if it's an Ollama model
+            if provider == "ollama" or (provider is None and "ollama" in result):
+                from npcpy.gen.response import get_ollama_response
+                follow_up = get_ollama_response(
+                    model=model,
+                    messages=result["messages"]
+                )
+            else:
+                follow_up = get_litellm_response(
+                    model=model,
+                    provider=provider,
+                    messages=result["messages"]
+                )
+        else:
+            follow_up = get_ollama_response(
+                model=result.get("model", "llama3.2"),
+                messages=result["messages"]
+            )
+        
+        # Update the response with the follow-up
+        result["response"] = follow_up["response"]
+        result["messages"] = follow_up["messages"]
+    
+    return result

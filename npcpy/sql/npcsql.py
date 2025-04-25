@@ -3,6 +3,18 @@ import yaml
 from typing import List, Dict, Any, Union
 from npcpy.npc_compiler import 
 
+
+
+def execute_squish_command():
+    return
+
+
+def execute_splat_command():
+    return
+
+
+
+
 class NPCSQLOperations:
     def __init__(self, npc_directory, db_path):
         super().__init__(npc_directory, db_path)

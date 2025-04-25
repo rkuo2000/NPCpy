@@ -3,7 +3,7 @@ import os
 import tempfile
 import sqlite3
 from unittest.mock import patch, MagicMock
-from npcpy.npc_compiler import  NPC, Tool, conjure_team
+from npcpy.npc_compiler import  NPC, Tool
 
 
 

@@ -8,6 +8,23 @@ import pandas as pd
 import numpy as np
 
 
+def flush_messages(n: int, messages: list) -> dict:
+    if n <= 0:
+        return {
+            "messages": messages,
+            "output": "Error: 'n' must be a positive integer.",
+        }
+
+    removed_count = min(n, len(messages))  # Calculate how many to remove
+    del messages[-removed_count:]  # Remove the last n messages
+
+    return {
+        "messages": messages,
+        "output": f"Flushed {removed_count} message(s). Context count is now {len(messages)} messages.",
+    }
+
+
+
 def deep_to_dict(obj):
     """
     Recursively convert objects that have a 'to_dict' method to dictionaries,
