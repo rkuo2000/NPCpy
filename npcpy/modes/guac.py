@@ -1,4 +1,17 @@
 # add the refresh period, default = 25 commands so each stage is ~ 5 commands
+import re 
+import os
+import sys
+import code
+import re
+from pathlib import Path
+from npcpy.memory.command_history import CommandHistory, start_new_conversation
+from npcpy.npc_compiler import Team, NPC
+from npcpy.llm_funcs import get_llm_response
+import json
+
+
+## make into an mcp client
 
 
 
@@ -14,10 +27,6 @@ def setup_guac_mode(config_dir=None, plots_dir=None, npc_team_dir=None):
     Returns:
         Dict with setup information
     """
-    import os
-    import json
-    import sys
-    from pathlib import Path
     
     # Set default directories if not provided
     home_dir = Path.home()
@@ -290,9 +299,6 @@ def setup_npc_team(npc_team_dir, lang):
     """
     Set up the NPC team structure with specialized NPCs for data analysis (no tools)
     """
-    import os
-    import json
-    from pathlib import Path
     
     # Create the guac NPC team with specialized roles
     guac_npc = {
@@ -332,8 +338,103 @@ def setup_npc_team(npc_team_dir, lang):
     
     with open(npc_team_dir / "team.ctx", "w") as f:
         json.dump(team_ctx, f, indent=2)
+class GuacInteractiveConsole(code.InteractiveConsole):
+    def __init__(self, locals=None, command_history = None, npc = None):
+        super().__init__(locals=locals)
+        self.locals = locals
+        self.command_history = command_history
+        self.npc = npc
+        self.command_count = 0        
+    def raw_input(self, prompt=""):            
+        return input(get_guac_prompt(self.command_count))
+        
+    def push(self, line):
+        self.command_count += 1     
+        if line.strip() in ('exit()', 'quit()', '/exit'):
+            return False
+        
+        # Add to command history
+        self.command_history.add_command(
+            line, [], "", os.getcwd()
+        )
+        
+        # Check if this is code or natural language
+        if is_code(line):
+            # Treat as code
+            return super().push(line)
+        else:
+            # Process as natural language if we have an NPC
+            if self.npc:
+                try:
+                    # Process natural language using NPC
+                    prompt = f"""
+                    The user has entered the following in the guac shell:
+                    "{line}"
+                    
+                    Generate Python code that addresses their query. 
+                    Return ONLY executable Python code without any additional text or markdown.
+                    """
+                    
+                    response = get_llm_response(prompt, npc=self.npc)
+                    generated_code = response.get("response", "").strip()
+                    
+                    # Clean the code (remove markdown if present)
+                    generated_code = re.sub(r'```python|```', '', generated_code).strip()
+                    
+                    # Display the code and execute it
+                    print(f"\n# Generated code:")
+                    print(f"{generated_code}\n")
+                    
+                    # Execute the generated code
+                    try:
+                        exec(generated_code, self.locals)
+                        print("\n# Code executed successfully")
+                    except Exception as e:
+                        print(f"\n# Error executing code: {e}")
+                        
+                    return False
+                except Exception as e:
+                    print(f"Error processing natural language: {str(e)}")
+                    return False
+            else:
+                print("Natural language query detected but no NPC available to process it.")
+                return False
 
-def enter_guac_mode(npc=None, team=None):
+def get_guac_prompt(command_count):
+
+    # Define the avocado-to-guac transformation stages
+    stages = [
+        "\U0001F951",            # Fresh avocado
+        "\U0001F951 🔪",         # Avocado being cut
+        "\U0001F951 🥣",         # Avocado in bowl
+        "\U0001F951 🥣 🧂",      # Avocado being seasoned
+        "\U0001F958"             # Guacamole
+    ]
+    
+    # Calculate which stage we're at
+    stage_index = min(command_count // 3, len(stages) - 1)
+    return stages[stage_index] + " "
+
+
+# Function to determine if input is code
+def is_code(text):
+    # Python syntax patterns
+    code_patterns = [
+        r'=', r'def\s+\w+\s*\(', r'class\s+\w+', r'import\s+\w+', r'from\s+\w+\s+import',
+        r'\w+\.\w+\s*\(', r'if\s+.*:', r'for\s+.*:', r'while\s+.*:', r'\[.*\]', r'\{.*\}',
+        r'\d+\s*[\+\-\*\/]\s*\d+', r'return\s+', r'lambda\s+\w+\s*:'
+    ]
+    
+    # Check if any code pattern matches
+    for pattern in code_patterns:
+        if re.search(pattern, text):
+            return True
+        
+    return False
+
+
+def enter_guac_mode(npc=None, team=None, config_dir=None, plots_dir=None, npc_team_dir=None, 
+                    refresh_time=None, lang=None):
     """
     Enter guac mode - interactive shell with NPC team support that handles natural language
     
@@ -341,15 +442,7 @@ def enter_guac_mode(npc=None, team=None):
         npc: Optional NPC object for LLM interactions
         team: Optional Team object containing NPCs
     """
-    import os
-    import sys
-    import code
-    import re
-    from pathlib import Path
-    from npcpy.memory.command_history import CommandHistory, start_new_conversation
-    from npcpy.npc_compiler import Team
-    from npcpy.llm_funcs import get_llm_response
-    
+
     # Set up guac environment
     setup_result = setup_guac_mode()
     lang = setup_result["language"]
@@ -382,30 +475,13 @@ def enter_guac_mode(npc=None, team=None):
     
     # Track number of commands for avocado-to-guac transformation
     command_count = 0
-    max_stages = 5  # Number of stages in the transformation
     
     # Function to get the current prompt based on command count
-    def get_guac_prompt():
-        nonlocal command_count
-        # Define the avocado-to-guac transformation stages
-        stages = [
-            "\U0001F951",            # Fresh avocado
-            "\U0001F951 🔪",         # Avocado being cut
-            "\U0001F951 🥣",         # Avocado in bowl
-            "\U0001F951 🥣 🧂",      # Avocado being seasoned
-            "\U0001F958"             # Guacamole
-        ]
-        
-        # Calculate which stage we're at
-        stage_index = min(command_count // 3, len(stages) - 1)
-        return stages[stage_index] + " "
-    
     # Start simple REPL based on language
     if lang == "python":
         # Try to import the guac package
         try:
             # First make sure we can import from guac.src
-            import sys
             sys.path.append(str(config_dir))
             
             # Try different import approaches
@@ -436,105 +512,20 @@ def enter_guac_mode(npc=None, team=None):
             modules_from_guac = {}
         
         # Create base namespace with modules from guac
-        namespace = modules_from_guac
-        
+        namespace = modules_from_guac        
         # Add NPC and team to the namespace
         namespace['npc'] = npc
         if team is not None:
             namespace['team'] = team
-        
-        # Add basic pandas/numpy/matplotlib if not already there
-        if 'pd' not in namespace:
-            import pandas as pd
-            namespace['pd'] = pd
-        if 'np' not in namespace:
-            import numpy as np
-            namespace['np'] = np
-        if 'plt' not in namespace:
-            import matplotlib.pyplot as plt
-            namespace['plt'] = plt
-        
-        # Function to determine if input is code
-        def is_code(text):
-            # Python syntax patterns
-            code_patterns = [
-                r'=', r'def\s+\w+\s*\(', r'class\s+\w+', r'import\s+\w+', r'from\s+\w+\s+import',
-                r'\w+\.\w+\s*\(', r'if\s+.*:', r'for\s+.*:', r'while\s+.*:', r'\[.*\]', r'\{.*\}',
-                r'\d+\s*[\+\-\*\/]\s*\d+', r'return\s+', r'lambda\s+\w+\s*:'
-            ]
-            
-            # Check if any code pattern matches
-            for pattern in code_patterns:
-                if re.search(pattern, text):
-                    return True
-                
-            return False
-        
-        # Custom interactive console with natural language support
-        class GuacInteractiveConsole(code.InteractiveConsole):
-            def raw_input(self, prompt=""):
-                # Use evolving avocado/guac prompt
-                return input(get_guac_prompt())
-                
-            def push(self, line):
-                nonlocal command_count
-                command_count += 1
-                
-                # Exit check
-                if line.strip() in ('exit()', 'quit()', '/exit'):
-                    return False
-                
-                # Add to command history
-                command_history.add_command(
-                    line, [], "", os.getcwd()
-                )
-                
-                # Check if this is code or natural language
-                if is_code(line):
-                    # Treat as code
-                    return super().push(line)
-                else:
-                    # Process as natural language if we have an NPC
-                    if npc:
-                        try:
-                            # Process natural language using NPC
-                            prompt = f"""
-                            The user has entered the following in the guac shell:
-                            "{line}"
-                            
-                            Generate Python code that addresses their query. 
-                            Return ONLY executable Python code without any additional text or markdown.
-                            """
-                            
-                            response = get_llm_response(prompt, npc=npc)
-                            generated_code = response.get("response", "").strip()
-                            
-                            # Clean the code (remove markdown if present)
-                            generated_code = re.sub(r'```python|```', '', generated_code).strip()
-                            
-                            # Display the code and execute it
-                            print(f"\n# Generated code:")
-                            print(f"{generated_code}\n")
-                            
-                            # Execute the generated code
-                            try:
-                                exec(generated_code, self.locals)
-                                print("\n# Code executed successfully")
-                            except Exception as e:
-                                print(f"\n# Error executing code: {e}")
-                                
-                            return False
-                        except Exception as e:
-                            print(f"Error processing natural language: {str(e)}")
-                            return False
-                    else:
-                        print("Natural language query detected but no NPC available to process it.")
-                        return False
-        
         # Start the Python REPL
-        GuacInteractiveConsole(locals=namespace).interact(
+        GuacInteractiveConsole(locals=namespace, command_history = command_history, npc = npc).interact(
             banner=f"Python {sys.version} with guac mode\nType code or natural language queries directly.\nType 'exit()' to exit."
         )
+
+        
+        
+
+        
     
     elif lang == "r":
         # Simple R console with rpy2 if available
@@ -664,16 +655,29 @@ def main():
     parser = argparse.ArgumentParser(description="Enter guac mode")
     parser.add_argument("--config_dir", type=str, help="Configuration directory")
     parser.add_argument("--plots_dir", type=str, help="Plots directory")
-    parser.add_argument("--npc_team_dir", type=str, help="NPC team directory")
+    parser.add_argument("--npc_team_dir", type=str, default = os.path.expanduser('~/.npcsh/guac/npc_team/'), help="NPC team directory")
+    parser.add_argument("--refresh_time", type=str, help="NPC team directory")
+    
     
     args = parser.parse_args()
     
     setup_guac_mode(
         config_dir=args.config_dir, 
         plots_dir=args.plots_dir,
-        npc_team_dir=args.npc_team_dir
+        npc_team_dir=args.npc_team_dir,                 
     )
-    enter_guac_mode()
+    npc = NPC(file=args.npc_team_dir +"guac.npc")
+    team = Team(team_path=args.npc_team_dir, db_conn=None)
+    
+    
+    enter_guac_mode(
+        npc=npc,
+        config_dir=args.config_dir, 
+        plots_dir=args.plots_dir,
+        npc_team_dir=args.npc_team_dir, 
+        refresh_time=args.refresh_time
+    )
+    
 if __name__ == "__main__":
     main()
     
