@@ -1,888 +1,679 @@
+# add the refresh period, default = 25 commands so each stage is ~ 5 commands
 
-def enter_data_mode(npc: Any = None) -> None:
+
+
+def setup_guac_mode(config_dir=None, plots_dir=None, npc_team_dir=None):
     """
-    Function Description:
-        This function is used to enter the data mode.
+    Set up guac mode environment with NPC team.
+    
     Args:
-
-    Keyword Args:
-        npc : Any : The NPC object.
+        config_dir: Directory to store configuration (default: ~/.npcsh/guac)
+        plots_dir: Directory to store plots (default: ~/.npcsh/guac/plots)
+        npc_team_dir: Directory for NPC team (default: ~/.npcsh/guac/npc_team)
+    
     Returns:
-        None
+        Dict with setup information
     """
-    npc_name = npc.name if npc else "data_analyst"
-    print(f"Entering data mode (NPC: {npc_name}). Type '/dq' to exit.")
+    import os
+    import json
+    import sys
+    from pathlib import Path
+    
+    # Set default directories if not provided
+    home_dir = Path.home()
+    if config_dir is None:
+        config_dir = home_dir / ".npcsh" / "guac"
+    else:
+        config_dir = Path(config_dir)
+    
+    if plots_dir is None:
+        plots_dir = config_dir / "plots"
+    else:
+        plots_dir = Path(plots_dir)
+    
+    if npc_team_dir is None:
+        npc_team_dir = config_dir / "npc_team"
+    else:
+        npc_team_dir = Path(npc_team_dir)
+    
+    # Create directories
+    src_dir = config_dir / "src"
+    src_dir.mkdir(parents=True, exist_ok=True)
+    plots_dir.mkdir(parents=True, exist_ok=True)
+    npc_team_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Create an empty __init__.py in config_dir to make it a package
+    init_path = config_dir / "__init__.py"
+    if not init_path.exists():
+        with open(init_path, "w") as f:
+            f.write("# guac package\n")
+    
+    # Get or prompt for preferred language
+    config_file = config_dir / "config.json"
+    if config_file.exists():
+        with open(config_file, "r") as f:
+            config = json.load(f)
+            lang = config.get("preferred_language", "python")
+    else:
+        print("Welcome to guac mode!")
+        print("Please select your preferred language:")
+        print("1. Python")
+        print("2. R")
+        print("3. JavaScript")
+        choice = input("Enter choice (1-3, default: 1): ").strip()
+        
+        lang_map = {"1": "python", "2": "r", "3": "javascript", "": "python"}
+        lang = lang_map.get(choice, "python")
+        
+        # Save config
+        config = {
+            "preferred_language": lang,
+            "plots_directory": str(plots_dir),
+            "npc_team_directory": str(npc_team_dir)
+        }
+        with open(config_file, "w") as f:
+            json.dump(config, f)
+    
+    # Set up environment variable
+    os.environ["NPCSH_GUAC_LANG"] = lang
+    os.environ["NPCSH_GUAC_PLOTS"] = str(plots_dir)
+    os.environ["NPCSH_GUAC_TEAM"] = str(npc_team_dir)
+    
+    # Create source files structure
+    if lang == "python":
+        # Create __init__.py in src directory to make it a package
+        src_init_path = src_dir / "__init__.py"
+        if not src_init_path.exists():
+            with open(src_init_path, "w") as f:
+                f.write("# guac src package\n")
+                f.write("from .main import *\n")
+        
+        # Create simple main.py with basic functionality
+        main_path = src_dir / "main.py"
+        if not main_path.exists():
+            with open(main_path, "w") as f:
+                f.write("""# guac main module
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import os
+import datetime
+from pathlib import Path
 
-    exec_env = {
-        "pd": pd,
-        "np": np,
-        "plt": plt,
-        "os": os,
-        "npc": npc,
+def save_plot(name=None, plots_dir=None):
+    \"\"\"
+    Save current plot to file with timestamp and return path
+    \"\"\"
+    # Get plots directory from arg, env, or default
+    if plots_dir is None:
+        plots_dir = os.environ.get("NPCSH_GUAC_PLOTS")
+        if plots_dir is None:
+            plots_dir = Path.home() / ".npcsh" / "guac" / "plots"
+        else:
+            plots_dir = Path(plots_dir)
+    
+    plots_dir = Path(plots_dir)
+    plots_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Create filename with timestamp
+    timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+    if name:
+        filename = f"{timestamp}_{name}.png"
+    else:
+        filename = f"{timestamp}_plot.png"
+    
+    filepath = plots_dir / filename
+    plt.savefig(filepath)
+    print(f"Plot saved to {filepath}")
+    return filepath
+
+def read_img(img_path):
+    \"\"\"
+    Display image and return path
+    \"\"\"
+    try:
+        from PIL import Image
+        img = Image.open(img_path)
+        img.show()
+    except ImportError:
+        print("PIL not available, can't display image")
+    
+    return img_path
+""")
+    elif lang == "r":
+        # Create main.R file
+        main_path = src_dir / "main.R"
+        if not main_path.exists():
+            with open(main_path, "w") as f:
+                f.write("""# guac main R functions
+library(dplyr)
+library(ggplot2)
+
+# Simple function to save plots
+save_plot <- function(plot = last_plot(), name = NULL, plots_dir = NULL) {
+  # Determine plots directory
+  if (is.null(plots_dir)) {
+    plots_dir <- Sys.getenv("NPCSH_GUAC_PLOTS", unset = NA)
+    if (is.na(plots_dir)) {
+      plots_dir <- file.path(Sys.getenv("HOME"), ".npcsh", "guac", "plots")
+    }
+  }
+  
+  # Create directory if needed
+  dir.create(plots_dir, recursive = TRUE, showWarnings = FALSE)
+  
+  # Create filename with timestamp
+  timestamp <- format(Sys.time(), "%Y%m%d%H%M%S")
+  if (is.null(name)) {
+    filename <- paste0(timestamp, "_plot.png")
+  } else {
+    filename <- paste0(timestamp, "_", name, ".png")
+  }
+  
+  filepath <- file.path(plots_dir, filename)
+  ggsave(filepath, plot)
+  cat("Plot saved to", filepath, "\\n")
+  return(filepath)
+}
+
+# Function to view image
+view_img <- function(img_path) {
+  if (file.exists(img_path)) {
+    # Try different methods depending on platform
+    os <- Sys.info()["sysname"]
+    if (os == "Darwin") {
+      system(paste("open", img_path))
+    } else if (os == "Windows") {
+      system(paste("start", img_path), wait = FALSE)
+    } else {
+      system(paste("xdg-open", img_path))
+    }
+    cat("Opened image:", img_path, "\\n")
+  } else {
+    cat("Image file not found:", img_path, "\\n")
+  }
+  return(img_path)
+}
+""")
+    elif lang == "javascript":
+        # Create main.js file
+        main_path = src_dir / "main.js"
+        if not main_path.exists():
+            with open(main_path, "w") as f:
+                f.write("""// guac main JavaScript functions
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
+const child_process = require('child_process');
+
+// Function to save chart/plot
+function savePlot(svgElement, name = null, plotsDir = null) {
+  // Determine plots directory
+  if (!plotsDir) {
+    plotsDir = process.env.NPCSH_GUAC_PLOTS;
+    if (!plotsDir) {
+      plotsDir = path.join(os.homedir(), '.npcsh', 'guac', 'plots');
+    }
+  }
+  
+  // Create directory if it doesn't exist
+  if (!fs.existsSync(plotsDir)) {
+    fs.mkdirSync(plotsDir, { recursive: true });
+  }
+  
+  // Create filename with timestamp
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '');
+  const filename = name ? `${timestamp}_${name}.svg` : `${timestamp}_plot.svg`;
+  const filepath = path.join(plotsDir, filename);
+  
+  // Write SVG to file
+  fs.writeFileSync(filepath, svgElement.outerHTML || svgElement);
+  console.log(`Plot saved to ${filepath}`);
+  return filepath;
+}
+
+// Function to view an image
+function viewImage(imgPath) {
+  if (fs.existsSync(imgPath)) {
+    let command;
+    
+    // Determine platform-specific open command
+    switch (process.platform) {
+      case 'darwin': // macOS
+        command = 'open';
+        break;
+      case 'win32': // Windows
+        command = 'start';
+        break;
+      default: // Linux and others
+        command = 'xdg-open';
+        break;
+    }
+    
+    // Open the image
+    try {
+      child_process.execSync(`${command} "${imgPath}"`);
+      console.log(`Opened image: ${imgPath}`);
+    } catch (error) {
+      console.error(`Error opening image: ${error.message}`);
+    }
+  } else {
+    console.error(`Image file not found: ${imgPath}`);
+  }
+  
+  return imgPath;
+}
+
+module.exports = {
+  savePlot,
+  viewImage
+};
+""")
+    
+    # Add to Python path if it's not already there
+    if str(config_dir) not in sys.path:
+        sys.path.insert(0, str(config_dir))
+    
+    # Set up NPC team structure (without tools)
+    setup_npc_team(npc_team_dir, lang)
+    
+    return {
+        "language": lang,
+        "src_dir": src_dir,
+        "config_path": config_file,
+        "plots_dir": plots_dir,
+        "npc_team_dir": npc_team_dir,
+        "config_dir": config_dir
     }
 
-    while True:
-        try:
-            user_input = input(f"{npc_name}> ").strip()
-            if user_input.lower() == "/dq":
-                break
-            elif user_input == "":
-                continue
-
-            # First check if input exists in exec_env
-            if user_input in exec_env:
-                result = exec_env[user_input]
-                if result is not None:
-                    if isinstance(result, pd.DataFrame):
-                        print(result.to_string())
-                    else:
-                        print(result)
-                continue
-
-            # Then check if it's a natural language query
-            if not any(
-                keyword in user_input
-                for keyword in [
-                    "=",
-                    "+",
-                    "-",
-                    "*",
-                    "/",
-                    "(",
-                    ")",
-                    "[",
-                    "]",
-                    "{",
-                    "}",
-                    "import",
-                ]
-            ):
-                if "df" in exec_env and isinstance(exec_env["df"], pd.DataFrame):
-                    df_info = {
-                        "shape": exec_env["df"].shape,
-                        "columns": list(exec_env["df"].columns),
-                        "dtypes": exec_env["df"].dtypes.to_dict(),
-                        "head": exec_env["df"].head().to_dict(),
-                        "summary": exec_env["df"].describe().to_dict(),
-                    }
-
-                    analysis_prompt = f"""Based on this DataFrame info: {df_info}
-                    Generate Python analysis commands to answer: {user_input}
-                    Return each command on a new line. Do not use markdown formatting or code blocks."""
-
-                    analysis_response = npc.get_llm_response(analysis_prompt).get(
-                        "response", ""
-                    )
-                    analysis_commands = [
-                        cmd.strip()
-                        for cmd in analysis_response.replace("```python", "")
-                        .replace("```", "")
-                        .split("\n")
-                        if cmd.strip()
-                    ]
-                    results = []
-
-                    print("\nAnalyzing data...")
-                    for cmd in analysis_commands:
-                        if cmd.strip():
-                            try:
-                                result = eval(cmd, exec_env)
-                                if result is not None:
-                                    render_markdown(f"\n{cmd} ")
-                                    if isinstance(result, pd.DataFrame):
-                                        render_markdown(result.to_string())
-                                    else:
-                                        render_markdown(result)
-                                    results.append((cmd, result))
-                            except SyntaxError:
-                                try:
-                                    exec(cmd, exec_env)
-                                except Exception as e:
-                                    print(f"Error in {cmd}: {str(e)}")
-                            except Exception as e:
-                                print(f"Error in {cmd}: {str(e)}")
-
-                    if results:
-                        interpretation_prompt = f"""Based on these analysis results:
-                        {[(cmd, str(result)) for cmd, result in results]}
-
-                        Provide a clear, concise interpretation of what we found in the data.
-                        Focus on key insights and patterns. Do not use markdown formatting."""
-
-                        print("\nInterpretation:")
-                        interpretation = npc.get_llm_response(
-                            interpretation_prompt
-                        ).get("response", "")
-                        interpretation = interpretation.replace("```", "").strip()
-                        render_markdown(interpretation)
-                    continue
-
-            # If not in exec_env and not natural language, try as Python code
-            try:
-                result = eval(user_input, exec_env)
-                if result is not None:
-                    if isinstance(result, pd.DataFrame):
-                        print(result.to_string())
-                    else:
-                        print(result)
-            except SyntaxError:
-                exec(user_input, exec_env)
-            except Exception as e:
-                print(f"Error: {str(e)}")
-
-        except KeyboardInterrupt:
-            print("\nKeyboardInterrupt detected. Exiting data mode.")
-            break
-        except Exception as e:
-            print(f"Error: {str(e)}")
-
-    return
-
-def enter_data_analysis_mode(npc: Any = None) -> None:
+def setup_npc_team(npc_team_dir, lang):
     """
-    Function Description:
-        This function is used to enter the data analysis mode.
+    Set up the NPC team structure with specialized NPCs for data analysis (no tools)
+    """
+    import os
+    import json
+    from pathlib import Path
+    
+    # Create the guac NPC team with specialized roles
+    guac_npc = {
+        "name": "guac",
+        "primary_directive": f"You are guac, the main coordinator for data analysis in {lang}."
+    }
+    
+    caug_npc = {
+        "name": "caug",
+        "primary_directive": f"You are caug, a specialist in big data statistical methods in {lang}."
+    }
+    
+    parsely_npc = {
+        "name": "parsely",
+        "primary_directive": f"You are parsely, a specialist in mathematical methods in {lang}."
+    }
+    
+    toon_npc = {
+        "name": "toon",
+        "primary_directive": f"You are toon, a specialist in brute force methods in {lang}."
+    }
+    
+    # Save NPC files
+    for npc_data in [guac_npc, caug_npc, parsely_npc, toon_npc]:
+        npc_file = npc_team_dir / f"{npc_data['name']}.npc"
+        with open(npc_file, "w") as f:
+            json.dump(npc_data, f, indent=2)
+    
+    # Create team context file
+    team_ctx = {
+        "team_name": "guac_team",
+        "description": f"A team of NPCs specialized in {lang} analysis",
+        "foreman": "guac",
+        "model": os.environ.get("NPCSH_CHAT_MODEL", "llama3.2"),
+        "provider": os.environ.get("NPCSH_CHAT_PROVIDER", "ollama")
+    }
+    
+    with open(npc_team_dir / "team.ctx", "w") as f:
+        json.dump(team_ctx, f, indent=2)
+
+def enter_guac_mode(npc=None, team=None):
+    """
+    Enter guac mode - interactive shell with NPC team support that handles natural language
+    
     Args:
-
-    Keyword Args:
-        npc : Any : The NPC object.
-    Returns:
-        None
+        npc: Optional NPC object for LLM interactions
+        team: Optional Team object containing NPCs
     """
-
-    npc_name = npc.name if npc else "data_analyst"
-    print(f"Entering data analysis mode (NPC: {npc_name}). Type '/daq' to exit.")
-
-    dataframes = {}  # Dict to store dataframes by name
-    context = {"dataframes": dataframes}  # Context to store variables
-    messages = []  # For conversation history if needed
-
-    while True:
-        user_input = input(f"{npc_name}> ").strip()
-
-        if user_input.lower() == "/daq":
-            break
-
-        # Add user input to messages for context if interacting with LLM
-        messages.append({"role": "user", "content": user_input})
-
-        # Process commands
-        if user_input.lower().startswith("load "):
-            # Command format: load <file_path> as <df_name>
+    import os
+    import sys
+    import code
+    import re
+    from pathlib import Path
+    from npcpy.memory.command_history import CommandHistory, start_new_conversation
+    from npcpy.npc_compiler import Team
+    from npcpy.llm_funcs import get_llm_response
+    
+    # Set up guac environment
+    setup_result = setup_guac_mode()
+    lang = setup_result["language"]
+    config_dir = setup_result["config_dir"]
+    src_dir = setup_result["src_dir"]
+    npc_team_dir = setup_result["npc_team_dir"]
+    
+    # Make sure package directories are in path
+    parent_dir = str(config_dir)
+    if parent_dir not in sys.path:
+        sys.path.insert(0, parent_dir)
+    
+    # Initialize command history
+    command_history = CommandHistory()
+    conversation_id = start_new_conversation()
+    
+    # Load NPC team if none provided
+    if npc is None and team is None:
+        try:
+            team = Team(team_path=str(npc_team_dir), db_conn=None)
+            npc = team.npcs.get("guac")  # Use guac as the main NPC
+            print(f"Loaded NPC team from {npc_team_dir}")
+        except Exception as e:
+            print(f"Warning: Could not load NPC team: {e}")
+    
+    # Welcome message
+    print(f"Entering guac mode with {lang}")
+    print("Type code directly or natural language queries")
+    print("Type 'exit()' to exit")
+    
+    # Track number of commands for avocado-to-guac transformation
+    command_count = 0
+    max_stages = 5  # Number of stages in the transformation
+    
+    # Function to get the current prompt based on command count
+    def get_guac_prompt():
+        nonlocal command_count
+        # Define the avocado-to-guac transformation stages
+        stages = [
+            "\U0001F951",            # Fresh avocado
+            "\U0001F951 🔪",         # Avocado being cut
+            "\U0001F951 🥣",         # Avocado in bowl
+            "\U0001F951 🥣 🧂",      # Avocado being seasoned
+            "\U0001F958"             # Guacamole
+        ]
+        
+        # Calculate which stage we're at
+        stage_index = min(command_count // 3, len(stages) - 1)
+        return stages[stage_index] + " "
+    
+    # Start simple REPL based on language
+    if lang == "python":
+        # Try to import the guac package
+        try:
+            # First make sure we can import from guac.src
+            import sys
+            sys.path.append(str(config_dir))
+            
+            # Try different import approaches
             try:
-                parts = user_input.split()
-                file_path = parts[1]
-                if "as" in parts:
-                    as_index = parts.index("as")
-                    df_name = parts[as_index + 1]
-                else:
-                    df_name = "df"  # Default dataframe name
-                # Load data into dataframe
-                df = pd.read_csv(file_path)
-                dataframes[df_name] = df
-                print(f"Data loaded into dataframe '{df_name}'")
-            except Exception as e:
-                print(f"Error loading data: {e}")
-
-        elif user_input.lower().startswith("sql "):
-            # Command format: sql <SQL query>
-            try:
-                query = user_input[4:]  # Remove 'sql ' prefix
-                df = pd.read_sql_query(query, npc.db_conn)
-                print(df)
-                # Optionally store result in a dataframe
-                dataframes["sql_result"] = df
-                print("Result stored in dataframe 'sql_result'")
-
-            except Exception as e:
-                print(f"Error executing SQL query: {e}")
-
-        elif user_input.lower().startswith("plot "):
-            # Command format: plot <pandas plotting code>
-            try:
-                code = user_input[5:]  # Remove 'plot ' prefix
-                # Prepare execution environment
-                exec_globals = {"pd": pd, "plt": plt, **dataframes}
-                exec(code, exec_globals)
-                plt.show()
-            except Exception as e:
-                print(f"Error generating plot: {e}")
-
-        elif user_input.lower().startswith("exec "):
-            # Command format: exec <Python code>
-            try:
-                code = user_input[5:]  # Remove 'exec ' prefix
-                # Prepare execution environment
-                exec_globals = {"pd": pd, "plt": plt, **dataframes}
-                exec(code, exec_globals)
-                # Update dataframes with any new or modified dataframes
-                dataframes.update(
-                    {
-                        k: v
-                        for k, v in exec_globals.items()
-                        if isinstance(v, pd.DataFrame)
-                    }
+                import guac.src.main
+                modules_from_guac = {name: getattr(guac.src.main, name) for name in dir(guac.src.main) 
+                                    if not name.startswith('__')}
+                print("Successfully imported from guac.src.main")
+            except ImportError:
+                try:
+                    from guac.src import main
+                    modules_from_guac = {name: getattr(main, name) for name in dir(main) 
+                                        if not name.startswith('__')}
+                    print("Successfully imported from guac.src")
+                except ImportError:
+                    try:
+                        sys.path.append(str(src_dir))
+                        import main
+                        modules_from_guac = {name: getattr(main, name) for name in dir(main) 
+                                            if not name.startswith('__')}
+                        print("Successfully imported from main")
+                    except ImportError:
+                        print(f"Warning: Could not import guac package from any location")
+                        print(f"sys.path: {sys.path}")
+                        modules_from_guac = {}
+        except Exception as e:
+            print(f"Warning: Import error: {e}")
+            modules_from_guac = {}
+        
+        # Create base namespace with modules from guac
+        namespace = modules_from_guac
+        
+        # Add NPC and team to the namespace
+        namespace['npc'] = npc
+        if team is not None:
+            namespace['team'] = team
+        
+        # Add basic pandas/numpy/matplotlib if not already there
+        if 'pd' not in namespace:
+            import pandas as pd
+            namespace['pd'] = pd
+        if 'np' not in namespace:
+            import numpy as np
+            namespace['np'] = np
+        if 'plt' not in namespace:
+            import matplotlib.pyplot as plt
+            namespace['plt'] = plt
+        
+        # Function to determine if input is code
+        def is_code(text):
+            # Python syntax patterns
+            code_patterns = [
+                r'=', r'def\s+\w+\s*\(', r'class\s+\w+', r'import\s+\w+', r'from\s+\w+\s+import',
+                r'\w+\.\w+\s*\(', r'if\s+.*:', r'for\s+.*:', r'while\s+.*:', r'\[.*\]', r'\{.*\}',
+                r'\d+\s*[\+\-\*\/]\s*\d+', r'return\s+', r'lambda\s+\w+\s*:'
+            ]
+            
+            # Check if any code pattern matches
+            for pattern in code_patterns:
+                if re.search(pattern, text):
+                    return True
+                
+            return False
+        
+        # Custom interactive console with natural language support
+        class GuacInteractiveConsole(code.InteractiveConsole):
+            def raw_input(self, prompt=""):
+                # Use evolving avocado/guac prompt
+                return input(get_guac_prompt())
+                
+            def push(self, line):
+                nonlocal command_count
+                command_count += 1
+                
+                # Exit check
+                if line.strip() in ('exit()', 'quit()', '/exit'):
+                    return False
+                
+                # Add to command history
+                command_history.add_command(
+                    line, [], "", os.getcwd()
                 )
-            except Exception as e:
-                print(f"Error executing code: {e}")
-
-        elif user_input.lower().startswith("help"):
-            # Provide help information
-            print(
-                """
-Available commands:
-- load <file_path> as <df_name>: Load CSV data into a dataframe.
-- sql <SQL query>: Execute SQL query.
-- plot <pandas plotting code>: Generate plots using matplotlib.
-- exec <Python code>: Execute arbitrary Python code.
-- help: Show this help message.
-- /daq: Exit data analysis mode.
-"""
-            )
-
-        else:
-            # Unrecognized command
-            print("Unrecognized command. Type 'help' for a list of available commands.")
-
-    print("Exiting data analysis mode.")
-def execute_data_operations(
-    query: str,
-    dataframes: Dict[str, pd.DataFrame],
-    npc: Any = None,
-    db_path: str = "~/npcsh_history.db",
-):
-    """This function executes data operations.
-    Args:
-        query (str): The query to execute.
-
-        dataframes (Dict[str, pd.DataFrame]): The dictionary of dataframes.
-    Keyword Args:
-        npc (Any): The NPC object.
-        db_path (str): The database path.
-    Returns:
-        Any: The result of the data operations.
-    """
-
-    location = os.getcwd()
-    db_path = os.path.expanduser(db_path)
-
-    try:
+                
+                # Check if this is code or natural language
+                if is_code(line):
+                    # Treat as code
+                    return super().push(line)
+                else:
+                    # Process as natural language if we have an NPC
+                    if npc:
+                        try:
+                            # Process natural language using NPC
+                            prompt = f"""
+                            The user has entered the following in the guac shell:
+                            "{line}"
+                            
+                            Generate Python code that addresses their query. 
+                            Return ONLY executable Python code without any additional text or markdown.
+                            """
+                            
+                            response = get_llm_response(prompt, npc=npc)
+                            generated_code = response.get("response", "").strip()
+                            
+                            # Clean the code (remove markdown if present)
+                            generated_code = re.sub(r'```python|```', '', generated_code).strip()
+                            
+                            # Display the code and execute it
+                            print(f"\n# Generated code:")
+                            print(f"{generated_code}\n")
+                            
+                            # Execute the generated code
+                            try:
+                                exec(generated_code, self.locals)
+                                print("\n# Code executed successfully")
+                            except Exception as e:
+                                print(f"\n# Error executing code: {e}")
+                                
+                            return False
+                        except Exception as e:
+                            print(f"Error processing natural language: {str(e)}")
+                            return False
+                    else:
+                        print("Natural language query detected but no NPC available to process it.")
+                        return False
+        
+        # Start the Python REPL
+        GuacInteractiveConsole(locals=namespace).interact(
+            banner=f"Python {sys.version} with guac mode\nType code or natural language queries directly.\nType 'exit()' to exit."
+        )
+    
+    elif lang == "r":
+        # Simple R console with rpy2 if available
         try:
-            # Create a safe namespace for pandas execution
-            namespace = {
-                "pd": pd,
-                "np": np,
-                "plt": plt,
-                **dataframes,  # This includes all our loaded dataframes
-            }
-            # Execute the query
-            result = eval(query, namespace)
-
-            # Handle the result
-            if isinstance(result, (pd.DataFrame, pd.Series)):
-                # render_markdown(result)
-                return result, "pd"
-            elif isinstance(result, plt.Figure):
-                plt.show()
-                return result, "pd"
-            elif result is not None:
-                # render_markdown(result)
-
-                return result, "pd"
-
-        except Exception as exec_error:
-            print(f"Pandas Error: {exec_error}")
-
-        # 2. Try SQL
-        # print(db_path)
-        try:
-            with sqlite3.connect(db_path) as conn:
-                cursor = conn.cursor()
-                print(query)
-                print(get_available_tables(db_path))
-
-                cursor.execute(query)
-                # get available tables
-
-                result = cursor.fetchall()
-                if result:
-                    for row in result:
-                        print(row)
-                    return result, "sql"
-        except Exception as e:
-            print(f"SQL Error: {e}")
-
-        # 3. Try R
-        try:
-            result = subprocess.run(
-                ["Rscript", "-e", query], capture_output=True, text=True
-            )
-            if result.returncode == 0:
-                print(result.stdout)
-                return result.stdout, "r"
-            else:
-                print(f"R Error: {result.stderr}")
-        except Exception as e:
-            pass
-
-        # If all engines fail, ask the LLM
-        print("Direct execution failed. Asking LLM for SQL query...")
-        llm_prompt = f"""
-        The user entered the following query which could not be executed directly using pandas, SQL, R, Scala, or PySpark:
-        ```
-        {query}
-        ```
-
-        The available tables in the SQLite database at {db_path} are:
-        ```sql
-        {get_available_tables(db_path)}
-        ```
-
-        Please provide a valid SQL query that accomplishes the user's intent.  If the query requires data from a file, provide instructions on how to load the data into a table first.
-        Return only the SQL query, or instructions for loading data followed by the SQL query.
-        """
-
-        llm_response = get_llm_response(llm_prompt, npc=npc)
-
-        print(f"LLM suggested SQL: {llm_response}")
-        command = llm_response.get("response", "")
-        if command == "":
-            return "LLM did not provide a valid SQL query.", None
-        # Execute the LLM-generated SQL
-        try:
-            with sqlite3.connect(db_path) as conn:
-                cursor = conn.cursor()
-                cursor.execute(command)
-                result = cursor.fetchall()
-                if result:
-                    for row in result:
-                        print(row)
-                    return result, "llm"
-        except Exception as e:
-            print(f"Error executing LLM-generated SQL: {e}")
-            return f"Error executing LLM-generated SQL: {e}", None
-
-    except Exception as e:
-        print(f"Error executing query: {e}")
-        return f"Error executing query: {e}", None
-
-
-def check_output_sufficient(
-    request: str,
-    data: pd.DataFrame,
-    query: str,
-    model: str = None,
-    provider: str = None,
-    npc: Any = None,
-) -> Dict[str, Any]:
+            import rpy2.robjects as ro
+            
+            # Source the main R file
+            ro.r(f'source("{src_dir}/main.R")')
+            
+            # Start simple R REPL
+            while True:
+                try:
+                    command_count += 1
+                    r_cmd = input(get_guac_prompt())
+                    
+                    # Exit check
+                    if r_cmd.strip() in ('q()', 'quit()', 'exit()', '/exit'):
+                        break
+                    
+                    # Add to command history
+                    command_history.add_command(
+                        r_cmd, [], "", os.getcwd()
+                    )
+                    
+                    # Simple code detection for R
+                    is_r_code = any(x in r_cmd for x in ['<-', '(', ')', '{', '}', '$', 'function'])
+                    
+                    if is_r_code:
+                        # Execute as R code
+                        result = ro.r(r_cmd)
+                        print(result)
+                    elif npc:
+                        # Process natural language
+                        prompt = f"""
+                        The user has entered the following in the guac R shell:
+                        "{r_cmd}"
+                        
+                        Generate R code that addresses their query.
+                        Return ONLY executable R code without any additional text or markdown.
+                        """
+                        
+                        response = get_llm_response(prompt, npc=npc)
+                        generated_code = response.get("response", "").strip()
+                        
+                        # Clean code
+                        generated_code = re.sub(r'```r|```', '', generated_code).strip()
+                        
+                        # Show and execute
+                        print(f"\n# Generated R code:")
+                        print(f"{generated_code}\n")
+                        
+                        try:
+                            result = ro.r(generated_code)
+                            print(result)
+                            print("\n# Code executed successfully")
+                        except Exception as e:
+                            print(f"\n# Error executing R code: {e}")
+                    else:
+                        print("Natural language query detected but no NPC available to process it.")
+                    
+                except Exception as e:
+                    print(f"Error: {str(e)}")
+                    
+        except ImportError:
+            print("rpy2 not available, using system R")
+            import subprocess
+            subprocess.run(["R", "-q", "--vanilla", "-f", f"{src_dir}/main.R"])
+    
+    elif lang == "javascript":
+        # For JavaScript, we need a more custom approach since Node.js REPL is less customizable
+        import subprocess
+        
+        # Create a custom script that handles both code and natural language
+        temp_js_file = Path.home() / ".npcsh" / "guac" / "guac_repl.js"
+        with open(temp_js_file, "w") as f:
+            f.write(f"""
+            const guac = require('{src_dir}/main.js');
+            Object.assign(global, guac);
+            
+            // Setup to handle natural language if Node.js REPL allows
+            const readline = require('readline');
+            
+            // Create prompt stages for avocado-to-guac transformation
+            const promptStages = [
+                "🥑 ",
+                "🥑 🔪 ",
+                "🥑 🥣 ",
+                "🥑 🥣 🧂 ",
+                "🥬 "
+            ];
+            
+            let commandCount = 0;
+            
+            // Custom prompt function 
+            function getGuacPrompt() {{
+                const stageIndex = Math.min(Math.floor(commandCount / 3), promptStages.length - 1);
+                return promptStages[stageIndex];
+            }}
+            
+            // Set prompt when REPL is available
+            if (global._replServer) {{
+                const origPrompt = global._replServer.prompt;
+                
+                // Override prompt getter
+                Object.defineProperty(global._replServer, 'prompt', {{
+                    get: function() {{ 
+                        commandCount++;
+                        return getGuacPrompt();
+                    }},
+                    set: function(val) {{ origPrompt = val; }}
+                }});
+            }}
+            """)
+        
+        # Run Node with our custom script
+        subprocess.run(["node", "-i", "-e", f"require('{temp_js_file}')"])
+        
+        
+def main():
     """
-    Check if the query results are sufficient to answer the user's request.
+    Main function to set up and enter guac mode.
+    
+    This function can be called directly or used as a script.
     """
-    prompt = f"""
-    Given:
-    - User request: {request}
-    - Query executed: {query}
-    - Results:
-      Summary: {data.describe()}
-      data schema: {data.dtypes}
-      Sample: {data.head()}
-
-    Is this result sufficient to answer the user's request?
-    Return JSON with:
-    {{
-        "IS_SUFFICIENT": <boolean>,
-        "EXPLANATION": <string : If the answer is not sufficient specify what else is necessary.
-                                IFF the answer is sufficient, provide a response that can be returned to the user as an explanation that answers their question.
-                                The explanation should use the results to answer their question as long as they wouold be useful to the user.
-                                    For example, it is not useful to report on the "average/min/max/std ID" or the "min/max/std/average of a string column".
-
-                                Be smart about what you report.
-                                It should not be a conceptual or abstract summary of the data.
-                                It should not unnecessarily bring up a need for more data.
-                                You should write it in a tone that answers the user request. Do not spout unnecessary self-referential fluff like "This information gives a clear overview of the x landscape".
-                                >
-    }}
-    DO NOT include markdown formatting or ```json tags.
-
-    """
-
-    response = get_llm_response(
-        prompt, format="json", model=model, provider=provider, npc=npc
+    import argparse
+    
+    parser = argparse.ArgumentParser(description="Enter guac mode")
+    parser.add_argument("--config_dir", type=str, help="Configuration directory")
+    parser.add_argument("--plots_dir", type=str, help="Plots directory")
+    parser.add_argument("--npc_team_dir", type=str, help="NPC team directory")
+    
+    args = parser.parse_args()
+    
+    setup_guac_mode(
+        config_dir=args.config_dir, 
+        plots_dir=args.plots_dir,
+        npc_team_dir=args.npc_team_dir
     )
-
-    # Clean response if it's a string
-    result = response.get("response", {})
-    if isinstance(result, str):
-        result = result.replace("```json", "").replace("```", "").strip()
-        try:
-            result = json.loads(result)
-        except json.JSONDecodeError:
-            return {"IS_SUFFICIENT": False, "EXPLANATION": "Failed to parse response"}
-
-    return result
-
-
-def process_data_output(
-    llm_response: Dict[str, Any],
-    db_conn,
-    request: str,
-    tables: str = None,
-    history: str = None,
-    npc: Any = None,
-    model: str = None,
-    provider: str = None,
-) -> Dict[str, Any]:
-    """
-    Process the LLM's response to a data request and execute the appropriate query.
-    """
-    try:
-        choice = llm_response.get("choice")
-        query = llm_response.get("query")
-
-        if not query:
-            return {"response": "No query provided", "code": 400}
-
-        # Create SQLAlchemy engine based on connection type
-        if "psycopg2" in db_conn.__class__.__module__:
-            engine = create_engine("postgresql://caug:gobears@localhost/npc_test")
-        else:
-            engine = create_engine("sqlite:///test_sqlite.db")
-
-        if choice == 1:  # Direct answer query
-            try:
-                df = pd.read_sql_query(query, engine)
-                result = check_output_sufficient(
-                    request, df, query, model=model, provider=provider, npc=npc
-                )
-
-                if result.get("IS_SUFFICIENT"):
-                    return {"response": result["EXPLANATION"], "data": df, "code": 200}
-                return {
-                    "response": f"Results insufficient: {result.get('EXPLANATION')}",
-                    "code": 400,
-                }
-
-            except Exception as e:
-                return {"response": f"Query execution failed: {str(e)}", "code": 400}
-
-        elif choice == 2:  # Exploratory query
-            try:
-                df = pd.read_sql_query(query, engine)
-                extra_context = f"""
-                Exploratory query results:
-                Query: {query}
-                Results summary: {df.describe()}
-                Sample data: {df.head()}
-                """
-
-                return get_data_response(
-                    request,
-                    db_conn,
-                    tables=tables,
-                    extra_context=extra_context,
-                    history=history,
-                    model=model,
-                    provider=provider,
-                    npc=npc,
-                )
-
-            except Exception as e:
-                return {"response": f"Exploratory query failed: {str(e)}", "code": 400}
-
-        return {"response": "Invalid choice specified", "code": 400}
-
-    except Exception as e:
-        return {"response": f"Processing error: {str(e)}", "code": 400}
-
-
-def get_data_response(
-    request: str,
-    db_conn,
-    tables: str = None,
-    n_try_freq: int = 5,
-    extra_context: str = None,
-    history: str = None,
-    model: str = None,
-    provider: str = None,
-    npc: Any = None,
-    max_retries: int = 3,
-) -> Dict[str, Any]:
-    """
-    Generate a response to a data request, with retries for failed attempts.
-    """
-
-    # Extract schema information based on connection type
-    schema_info = ""
-    if "psycopg2" in db_conn.__class__.__module__:
-        cursor = db_conn.cursor()
-        # Get all tables and their columns
-        cursor.execute(
-            """
-            SELECT
-                t.table_name,
-                array_agg(c.column_name || ' ' || c.data_type) as columns,
-                array_agg(
-                    CASE
-                        WHEN tc.constraint_type = 'FOREIGN KEY'
-                        THEN kcu.column_name || ' REFERENCES ' || ccu.table_name || '.' || ccu.column_name
-                        ELSE NULL
-                    END
-                ) as foreign_keys
-            FROM information_schema.tables t
-            JOIN information_schema.columns c ON t.table_name = c.table_name
-            LEFT JOIN information_schema.table_constraints tc
-                ON t.table_name = tc.table_name
-                AND tc.constraint_type = 'FOREIGN KEY'
-            LEFT JOIN information_schema.key_column_usage kcu
-                ON tc.constraint_name = kcu.constraint_name
-            LEFT JOIN information_schema.constraint_column_usage ccu
-                ON tc.constraint_name = ccu.constraint_name
-            WHERE t.table_schema = 'public'
-            GROUP BY t.table_name;
-        """
-        )
-        for table, columns, fks in cursor.fetchall():
-            schema_info += f"\nTable {table}:\n"
-            schema_info += "Columns:\n"
-            for col in columns:
-                schema_info += f"  - {col}\n"
-            if any(fk for fk in fks if fk is not None):
-                schema_info += "Foreign Keys:\n"
-                for fk in fks:
-                    if fk:
-                        schema_info += f"  - {fk}\n"
-
-    elif "sqlite3" in db_conn.__class__.__module__:
-        cursor = db_conn.cursor()
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
-        tables = cursor.fetchall()
-        for (table_name,) in tables:
-            schema_info += f"\nTable {table_name}:\n"
-            cursor.execute(f"PRAGMA table_info({table_name});")
-            columns = cursor.fetchall()
-            schema_info += "Columns:\n"
-            for col in columns:
-                schema_info += f"  - {col[1]} {col[2]}\n"
-
-            cursor.execute(f"PRAGMA foreign_key_list({table_name});")
-            foreign_keys = cursor.fetchall()
-            if foreign_keys:
-                schema_info += "Foreign Keys:\n"
-                for fk in foreign_keys:
-                    schema_info += f"  - {fk[3]} REFERENCES {fk[2]}({fk[4]})\n"
-
-    prompt = f"""
-    User request: {request}
-
-    Database Schema:
-    {schema_info}
-
-    {extra_context or ''}
-    {f'Query history: {history}' if history else ''}
-
-    Provide either:
-    1) An SQL query to directly answer the request
-    2) An exploratory query to gather more information
-
-    Return JSON with:
-    {{
-        "query": <sql query string>,
-        "choice": <1 or 2>,
-        "explanation": <reason for choice>
-    }}
-    DO NOT include markdown formatting or ```json tags.
-    """
-
-    failures = []
-    for attempt in range(max_retries):
-        # try:
-        llm_response = get_llm_response(
-            prompt, npc=npc, format="json", model=model, provider=provider
-        )
-
-        # Clean response if it's a string
-        response_data = llm_response.get("response", {})
-        if isinstance(response_data, str):
-            response_data = (
-                response_data.replace("```json", "").replace("```", "").strip()
-            )
-            try:
-                response_data = json.loads(response_data)
-            except json.JSONDecodeError:
-                failures.append("Invalid JSON response")
-                continue
-
-        result = process_data_output(
-            response_data,
-            db_conn,
-            request,
-            tables=tables,
-            history=failures,
-            npc=npc,
-            model=model,
-            provider=provider,
-        )
-
-        if result["code"] == 200:
-            return result
-
-        failures.append(result["response"])
-
-        if attempt == max_retries - 1:
-            return {
-                "response": f"Failed after {max_retries} attempts. Errors: {'; '.join(failures)}",
-                "code": 400,
-            }
-
-    # except Exception as e:
-    #    failures.append(str(e))
-
-
-
-def enter_data_analysis_mode(npc: Any = None) -> None:
-    """
-    Function Description:
-        This function is used to enter the data analysis mode.
-    Args:
-
-    Keyword Args:
-        npc : Any : The NPC object.
-    Returns:
-        None
-    """
-
-    npc_name = npc.name if npc else "data_analyst"
-    print(f"Entering data analysis mode (NPC: {npc_name}). Type '/daq' to exit.")
-
-    dataframes = {}  # Dict to store dataframes by name
-    context = {"dataframes": dataframes}  # Context to store variables
-    messages = []  # For conversation history if needed
-
-    while True:
-        user_input = input(f"{npc_name}> ").strip()
-
-        if user_input.lower() == "/daq":
-            break
-
-        # Add user input to messages for context if interacting with LLM
-        messages.append({"role": "user", "content": user_input})
-
-        # Process commands
-        if user_input.lower().startswith("load "):
-            # Command format: load <file_path> as <df_name>
-            try:
-                parts = user_input.split()
-                file_path = parts[1]
-                if "as" in parts:
-                    as_index = parts.index("as")
-                    df_name = parts[as_index + 1]
-                else:
-                    df_name = "df"  # Default dataframe name
-                # Load data into dataframe
-                df = pd.read_csv(file_path)
-                dataframes[df_name] = df
-                print(f"Data loaded into dataframe '{df_name}'")
-            except Exception as e:
-                print(f"Error loading data: {e}")
-
-        elif user_input.lower().startswith("sql "):
-            # Command format: sql <SQL query>
-            try:
-                query = user_input[4:]  # Remove 'sql ' prefix
-                df = pd.read_sql_query(query, npc.db_conn)
-                print(df)
-                # Optionally store result in a dataframe
-                dataframes["sql_result"] = df
-                print("Result stored in dataframe 'sql_result'")
-
-            except Exception as e:
-                print(f"Error executing SQL query: {e}")
-
-        elif user_input.lower().startswith("plot "):
-            # Command format: plot <pandas plotting code>
-            try:
-                code = user_input[5:]  # Remove 'plot ' prefix
-                # Prepare execution environment
-                exec_globals = {"pd": pd, "plt": plt, **dataframes}
-                exec(code, exec_globals)
-                plt.show()
-            except Exception as e:
-                print(f"Error generating plot: {e}")
-
-        elif user_input.lower().startswith("exec "):
-            # Command format: exec <Python code>
-            try:
-                code = user_input[5:]  # Remove 'exec ' prefix
-                # Prepare execution environment
-                exec_globals = {"pd": pd, "plt": plt, **dataframes}
-                exec(code, exec_globals)
-                # Update dataframes with any new or modified dataframes
-                dataframes.update(
-                    {
-                        k: v
-                        for k, v in exec_globals.items()
-                        if isinstance(v, pd.DataFrame)
-                    }
-                )
-            except Exception as e:
-                print(f"Error executing code: {e}")
-
-        elif user_input.lower().startswith("help"):
-            # Provide help information
-            print(
-                """
-Available commands:
-- load <file_path> as <df_name>: Load CSV data into a dataframe.
-- sql <SQL query>: Execute SQL query.
-- plot <pandas plotting code>: Generate plots using matplotlib.
-- exec <Python code>: Execute arbitrary Python code.
-- help: Show this help message.
-- /daq: Exit data analysis mode.
-"""
-            )
-
-        else:
-            # Unrecognized command
-            print("Unrecognized command. Type 'help' for a list of available commands.")
-
-    print("Exiting data analysis mode.")
-
-
-def enter_data_mode(npc: Any = None) -> None:
-    """
-    Function Description:
-        This function is used to enter the data mode.
-    Args:
-
-    Keyword Args:
-        npc : Any : The NPC object.
-    Returns:
-        None
-    """
-    npc_name = npc.name if npc else "data_analyst"
-    print(f"Entering data mode (NPC: {npc_name}). Type '/dq' to exit.")
-
-    exec_env = {
-        "pd": pd,
-        "np": np,
-        "plt": plt,
-        "os": os,
-        "npc": npc,
-    }
-
-    while True:
-        try:
-            user_input = input(f"{npc_name}> ").strip()
-            if user_input.lower() == "/dq":
-                break
-            elif user_input == "":
-                continue
-
-            # First check if input exists in exec_env
-            if user_input in exec_env:
-                result = exec_env[user_input]
-                if result is not None:
-                    if isinstance(result, pd.DataFrame):
-                        print(result.to_string())
-                    else:
-                        print(result)
-                continue
-
-            # Then check if it's a natural language query
-            if not any(
-                keyword in user_input
-                for keyword in [
-                    "=",
-                    "+",
-                    "-",
-                    "*",
-                    "/",
-                    "(",
-                    ")",
-                    "[",
-                    "]",
-                    "{",
-                    "}",
-                    "import",
-                ]
-            ):
-                if "df" in exec_env and isinstance(exec_env["df"], pd.DataFrame):
-                    df_info = {
-                        "shape": exec_env["df"].shape,
-                        "columns": list(exec_env["df"].columns),
-                        "dtypes": exec_env["df"].dtypes.to_dict(),
-                        "head": exec_env["df"].head().to_dict(),
-                        "summary": exec_env["df"].describe().to_dict(),
-                    }
-
-                    analysis_prompt = f"""Based on this DataFrame info: {df_info}
-                    Generate Python analysis commands to answer: {user_input}
-                    Return each command on a new line. Do not use markdown formatting or code blocks."""
-
-                    analysis_response = npc.get_llm_response(analysis_prompt).get(
-                        "response", ""
-                    )
-                    analysis_commands = [
-                        cmd.strip()
-                        for cmd in analysis_response.replace("```python", "")
-                        .replace("```", "")
-                        .split("\n")
-                        if cmd.strip()
-                    ]
-                    results = []
-
-                    print("\nAnalyzing data...")
-                    for cmd in analysis_commands:
-                        if cmd.strip():
-                            try:
-                                result = eval(cmd, exec_env)
-                                if result is not None:
-                                    render_markdown(f"\n{cmd} ")
-                                    if isinstance(result, pd.DataFrame):
-                                        render_markdown(result.to_string())
-                                    else:
-                                        render_markdown(result)
-                                    results.append((cmd, result))
-                            except SyntaxError:
-                                try:
-                                    exec(cmd, exec_env)
-                                except Exception as e:
-                                    print(f"Error in {cmd}: {str(e)}")
-                            except Exception as e:
-                                print(f"Error in {cmd}: {str(e)}")
-
-                    if results:
-                        interpretation_prompt = f"""Based on these analysis results:
-                        {[(cmd, str(result)) for cmd, result in results]}
-
-                        Provide a clear, concise interpretation of what we found in the data.
-                        Focus on key insights and patterns. Do not use markdown formatting."""
-
-                        print("\nInterpretation:")
-                        interpretation = npc.get_llm_response(
-                            interpretation_prompt
-                        ).get("response", "")
-                        interpretation = interpretation.replace("```", "").strip()
-                        render_markdown(interpretation)
-                    continue
-
-            # If not in exec_env and not natural language, try as Python code
-            try:
-                result = eval(user_input, exec_env)
-                if result is not None:
-                    if isinstance(result, pd.DataFrame):
-                        print(result.to_string())
-                    else:
-                        print(result)
-            except SyntaxError:
-                exec(user_input, exec_env)
-            except Exception as e:
-                print(f"Error: {str(e)}")
-
-        except KeyboardInterrupt:
-            print("\nKeyboardInterrupt detected. Exiting data mode.")
-            break
-        except Exception as e:
-            print(f"Error: {str(e)}")
-
-    return
+    enter_guac_mode()
+if __name__ == "__main__":
+    main()
+    
