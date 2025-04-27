@@ -1,6 +1,6 @@
 # Image Processing
 
-::: npcpy.image
+::: npcpy.data.image
     options:
       show_source: true
       members:
