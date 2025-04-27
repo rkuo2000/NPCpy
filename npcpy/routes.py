@@ -614,7 +614,7 @@ def vixynt_handler(command: str, **kwargs):
     except Exception as parse_err:
         return {"output": f"Error parsing arguments: {parse_err}. Usage: /vixynt <prompt> [filename=...] [height=...] [width=...]", "messages": messages}
 
-
+    print(model, provider)
     user_prompt = " ".join(prompt_parts)
     if not user_prompt:
         return {"output": "Usage: /vixynt <prompt> [filename=...] [height=...] [width=...]", "messages": messages}

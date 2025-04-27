@@ -85,6 +85,7 @@ def generate_image(
         height=height,
         width=width,
     )
+    print(image)
     # save image
     # check if image is a PIL image
     if isinstance(image, PIL.Image.Image):

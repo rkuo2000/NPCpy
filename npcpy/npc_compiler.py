@@ -23,6 +23,7 @@ from npcpy.npc_sysenv import (
     NPCSH_CHAT_PROVIDER,
     NPCSH_API_URL,
     get_npc_path,
+    init_db_tables
     )
 
 class SilentUndefined(Undefined):

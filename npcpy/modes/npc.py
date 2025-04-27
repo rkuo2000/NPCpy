@@ -1,545 +1,165 @@
 import argparse
 import sys
-from npcpy.npc_sysenv import (
-    NPCSH_CHAT_MODEL,
-    NPCSH_CHAT_PROVIDER,
-    NPCSH_IMAGE_GEN_MODEL,
-    NPCSH_IMAGE_GEN_PROVIDER,
-    NPCSH_API_URL,
-    NPCSH_REASONING_MODEL,
-    NPCSH_REASONING_PROVIDER,
-    NPCSH_DB_PATH,
-    NPCSH_VISION_MODEL,
-    NPCSH_VISION_PROVIDER,
-    NPCSH_DB_PATH,
-    NPCSH_STREAM_OUTPUT,
-    NPCSH_SEARCH_PROVIDER,
-    print_and_process_stream, 
-    print_and_process_stream_with_markdown,
-    render_markdown,
-    
-)
-from npcpy.data.image import capture_screenshot
-from npcpy.modes.serve import start_flask_server
-from npcpy.npc_compiler import (
-    NPC,
-)
-from npcpy.npcs import sibiji
-from npcpy.llm_funcs import (
-    check_llm_command,
-    execute_llm_command,
-    get_llm_response,
-    handle_tool_call,
-    generate_image,
-    get_llm_response,
-)
-from npcpy.npc_sysenv import get_npc_path
-from npcpy.modes.plonk import execute_plonk_command
-from npcpy.modes.spool import enter_spool_mode
-
-from npcpy.data.web import search_web
 import os
 import sqlite3
+import traceback
+from typing import Optional
 
-# check if ./npc_team exists
-if os.path.exists("./npc_team"):
-    npc_directory = os.path.abspath("./npc_team/")
-else:
-    npc_directory = os.path.expanduser("~/.npcsh/npc_team/")
+from npcpy.npc_sysenv import (
+    NPCSH_CHAT_MODEL, NPCSH_CHAT_PROVIDER,
+    NPCSH_IMAGE_GEN_MODEL, NPCSH_IMAGE_GEN_PROVIDER,
+    NPCSH_VISION_MODEL, NPCSH_VISION_PROVIDER,
+    NPCSH_REASONING_MODEL, NPCSH_REASONING_PROVIDER,
+    NPCSH_EMBEDDING_MODEL, NPCSH_EMBEDDING_PROVIDER,
+    NPCSH_VIDEO_GEN_MODEL, NPCSH_VIDEO_GEN_PROVIDER,
+    NPCSH_API_URL, NPCSH_DB_PATH, NPCSH_STREAM_OUTPUT,
+    NPCSH_SEARCH_PROVIDER,
+    print_and_process_stream,
+    print_and_process_stream_with_markdown,
+    render_markdown,
+    get_npc_path
+)
+from npcpy.npc_compiler import NPC, Team
+from npcpy.routes import router
+from npcpy.llm_funcs import check_llm_command
 
+def load_npc_by_name(npc_name: str = "sibiji", db_path: str = NPCSH_DB_PATH) -> Optional[NPC]:
+    if not npc_name:
+        npc_name = "sibiji"
 
+    project_npc_path = os.path.abspath(f"./npc_team/{npc_name}.npc")
+    global_npc_path = os.path.expanduser(f"~/.npcsh/npc_team/{npc_name}.npc")
 
+    chosen_path = None
+    if os.path.exists(project_npc_path):
+        chosen_path = project_npc_path
+    elif os.path.exists(global_npc_path):
+        chosen_path = global_npc_path
+    elif os.path.exists(f"npcs/{npc_name}.npc"):
+         chosen_path = f"npcs/{npc_name}.npc"
+
+    if chosen_path:
+        try:
+            db_conn = sqlite3.connect(db_path)
+            npc = NPC(file=chosen_path, db_conn=db_conn)
+            return npc
+        except Exception as e:
+            print(f"Warning: Failed to load NPC '{npc_name}' from {chosen_path}: {e}", file=sys.stderr)
+            return None
+    else:
+        print(f"Warning: NPC file for '{npc_name}' not found in project or global paths.", file=sys.stderr)
+        if npc_name != "sibiji":
+            return load_npc_by_name("sibiji", db_path)
+        return None
 
 def main():
-    parser = argparse.ArgumentParser(description="NPC utilities")
-    known_commands = {
-        "assemble",
-        "build",
-        "compile",
-        "chat",
-        "init",
-        "new",
-        "plonk",
-        "sample",
-        "search",
-        "select",
-        "serve",
-        "spool",
-        "tools",
-        "tool",
-        "local_search",
-        "rag",
-        "search",
-        "vixynt",
-        "ots",
-        "yap",
-    }
-    has_command = any(arg in known_commands for arg in sys.argv[1:])
-
-    # Only add prompt as default if first arg isn't a known command
-    if not has_command:
-        parser.add_argument(
-            "prompt", nargs="?", help="Generic prompt to send to the default LLM"
-        )
-        parser.add_argument(
-            "--model", "-m", help="model to use", type=str, default=NPCSH_CHAT_MODEL
-        )
-        parser.add_argument(
-            "--provider",
-            "-pr",
-            help="provider to use",
-            type=str,
-            default=NPCSH_CHAT_PROVIDER,
-        )
-
-        parser.add_argument(
-            "-n", "--npc", help="name of the NPC", type=str, default="sibiji"
-        )
-        args = parser.parse_args()
-        db_conn = sqlite3.connect(NPCSH_DB_PATH)
-        if args.npc is None or args.npc == "sibiji":
-            npc = NPC(file="~/.npcsh/npc_team/sibiji.npc", db_conn = db_conn)
-        else:
-            npc = NPC(file="./npc_team/" + args.npc + ".npc", db_conn = db_conn)
-
-        response = check_llm_command(
-            args.prompt, model=args.model, provider=args.provider, npc=npc, stream=True
-        )
-        provider = args.provider
-        model = args.model
-        conversation_result = print_and_process_stream(response, provider, model)
-        return
-
-    parser.add_argument(
-        "--model", "-m", help="model to use", type=str, default=NPCSH_CHAT_MODEL
+    parser = argparse.ArgumentParser(
+        description="NPC Command Line Utilities. Call a command or provide a prompt for the default NPC.",
+        usage="npc <command> [command_args...] | <prompt> [--npc NAME] [--model MODEL] [--provider PROV]"
     )
     parser.add_argument(
-        "--provider",
-        "-pr",
-        help="provider to use",
-        type=str,
-        default=NPCSH_CHAT_PROVIDER,
+        "--model", "-m", help="LLM model to use (overrides NPC/defaults)", type=str, default=None
+    )
+    parser.add_argument(
+        "--provider", "-pr", help="LLM provider to use (overrides NPC/defaults)", type=str, default=None
+    )
+    parser.add_argument(
+        "-n", "--npc", help="Name of the NPC to use (default: sibiji)", type=str, default="sibiji"
     )
 
-    subparsers = parser.add_subparsers(dest="command", help="Commands")
+    subparsers = parser.add_subparsers(dest="command", title="Available Commands",
+                                     help="Run 'npc <command> --help' for command-specific help")
 
-    # Generic prompt parser (for "npc 'prompt'")
+    for command_name, help_text in router.help_info.items():
+        if router.shell_only.get(command_name, False):
+            continue
 
-    # need it so that this prompt is just automatically resolved as the only argument if no positional ones are provided
-    # parser.add_argument(
-    #    "prompt", nargs="?", help="Generic prompt to send to the default LLM"
-    # )
+        cmd_parser = subparsers.add_parser(command_name, help=help_text, add_help=False)
+        cmd_parser.add_argument('command_args', nargs=argparse.REMAINDER,
+                                help='Arguments passed directly to the command handler')
 
-    ### ASSEMBLY LINE PARSER
-    assembly_parser = subparsers.add_parser("assemble", help="Run an NPC assembly line")
-    assembly_parser.add_argument("line", help="Assembly line to run")
+    args, unknown_args = parser.parse_known_args()
 
-    ### BUILD PARSER
-    build_parser = subparsers.add_parser(
-        "build", help="Build a NPC team into a standalone executable server"
-    )
-    build_parser.add_argument(
-        "directory", nargs="?", default=".", help="Directory to build project in"
-    )
+    npc_instance = load_npc_by_name(args.npc, NPCSH_DB_PATH)
 
-    # chat
-    chat_parser = subparsers.add_parser("chat", help="chat with an NPC")
-    chat_parser.add_argument("-n", "--npc_name", help="name of npc")
+    effective_model = args.model or NPCSH_CHAT_MODEL
+    effective_provider = args.provider or NPCSH_CHAT_PROVIDER
 
-    # Compile command
-    compile_parser = subparsers.add_parser("compile", help="Compile an NPC")
-    compile_parser.add_argument("path", help="Path to NPC file")
+    if args.command:
+        handler = router.get_route(args.command)
+        if not handler:
+            print(f"Error: Command '{args.command}' recognized but no handler found.", file=sys.stderr)
+            sys.exit(1)
 
-    # Conjure/init command
-    init_parser = subparsers.add_parser("init", help="Initialize a new NPC project")
-    init_parser.add_argument(
-        "directory", nargs="?", default=".", help="Directory to initialize project in"
-    )
-    init_parser.add_argument(
-        "--templates", "-t", help="agent templates(comma-separated list)", type=str
-    )
-    init_parser.add_argument(
-        "--context",
-        "-ctx",
-        help="important information when merging templates",
-        type=str,
-    )
-    ### NEW PARSER
-    new_parser = subparsers.add_parser(
-        "new", help="Create a new [NPC, tool, assembly_line, ]"
-    )
-    new_parser.add_argument(
-        "type",
-        help="Type of object to create",
-        choices=["npc", "tool", "assembly_line"],
-    )
+        full_command_str = args.command
+        if args.command_args:
+            full_command_str += " " + " ".join(args.command_args)
 
-    new_parser.add_argument(
-        "--primary_directive",
-        "-pd",
-        help="primary directive (when making an npc)",
-        type=str,
-    )
+        handler_kwargs = {
+            "model": effective_model,
+            "provider": effective_provider,
+            "npc": npc_instance,
+            "api_url": NPCSH_API_URL,
+            "stream": NPCSH_STREAM_OUTPUT,
+            "messages": [],
+            "team": None,
+            "current_path": os.getcwd(),
+        }
 
-    new_parser.add_argument(
-        "--name",
-        "-n",
-        help="name",
-        type=str,
-    )
-
-    new_parser.add_argument(
-        "--description",
-        "-d",
-        help="description",
-        type=str,
-    )
-
-    new_parser.add_argument("--autogen", help="whether to auto gen", default=False)
-
-    ### plonk
-    plonk_parser = subparsers.add_parser("plonk", help="computer use with plonk!")
-    plonk_parser.add_argument(
-        "--task",
-        "-t",
-        help="the task for plonk to accomplish",
-        type=str,
-    )
-    plonk_parser.add_argument(
-        "--name",
-        "-n",
-        help="name of the NPC",
-        type=str,
-    )
-    plonk_parser.add_argument(
-        "--spell",
-        "-sp",
-        help="task for plonk to carry out",
-        type=str,
-    )
-
-    # sample
-    sampler_parser = subparsers.add_parser(
-        "sample", help="sample question one shot to an llm"
-    )
-    sampler_parser.add_argument("prompt", help="prompt for llm")
-    sampler_parser.add_argument(
-        "--npc",
-        "-n",
-        help="name of the NPC",
-        type=str,
-    )
-    select_parser = subparsers.add_parser("select", help="Select a SQL model to run")
-    select_parser.add_argument("model", help="Model to run")
-
-    # Serve command
-    serve_parser = subparsers.add_parser("serve", help="Start the Flask server")
-    serve_parser.add_argument("--port", "-p", help="Optional port")
-    serve_parser.add_argument(
-        "--cors", "-c", help="CORS origins (comma-separated list)", type=str
-    )
-    serve_parser.add_argument(
-        "--templates", "-t", help="agent templates(comma-separated list)", type=str
-    )
-    serve_parser.add_argument(
-        "--context",
-        "-ctx",
-        help="important information when merging templates",
-        type=str,
-    )
-    ### spool
-    spool_parser = subparsers.add_parser("spool", help="Start the Flask server")
-    spool_parser.add_argument("-n", "--npc", default="sibiji")
-
-    # Tools command
-    tools_parser = subparsers.add_parser("tools", help="print the available tools")
-
-    # Tool invocation
-    tool_parser = subparsers.add_parser("tool", help="invoke a tool")
-    tool_parser.add_argument("tool_name", help="name of the tool to invoke")
-    tool_parser.add_argument(
-        "--args", "-a", help="arguments for the tool", nargs="+", default=[]
-    )
-    tool_parser.add_argument(
-        "--flags", "-f", help="flags for the tool", nargs="+", default=[]
-    )
-
-    # Local search
-    local_search_parser = subparsers.add_parser("local_search", help="search locally")
-    local_search_parser.add_argument("query", help="search query")
-    local_search_parser.add_argument(
-        "--path", "-p", help="path to search in", default="."
-    )
-
-    # RAG search
-    rag_parser = subparsers.add_parser("rag", help="search for a term in the npcsh_db")
-    rag_parser.add_argument("--name", "-n", help="name of the NPC", required=True)
-    rag_parser.add_argument(
-        "--filename", "-f", help="filename to search in", required=True
-    )
-    rag_parser.add_argument("--query", "-q", help="search query", required=True)
-
-    # Web search
-    search_parser = subparsers.add_parser("search", help="search the web")
-    search_parser.add_argument("--query", "-q", help="search query")
-    search_parser.add_argument(
-        "--search_provider",
-        "-sp",
-        help="search provider",
-        default=NPCSH_SEARCH_PROVIDER,
-    )
-
-    # Image generation
-    vixynt_parser = subparsers.add_parser("vixynt", help="generate an image")
-    vixynt_parser.add_argument("--height", "-ht", help="the height of the image")
-    vixynt_parser.add_argument("--width", "-wd", help="the width of the image")
-    vixynt_parser.add_argument("spell", help="the prompt to generate the image")
-
-    # Screenshot analysis
-    ots_parser = subparsers.add_parser("ots", help="analyze screenshot")
-
-    # Voice chat
-    yap_parser = subparsers.add_parser("yap", help="start voice chat")
-    yap_parser.add_argument("-n", "--npc_name", help="name of the NPC to chat with")
-
-    args = parser.parse_args()
-
-    # Handle NPC chat if the command matches an NPC name
-    if args.command and not args.command.startswith("-"):
         try:
-            # Check if command is actually an NPC name
-            if os.path.exists(f"npcs/{args.command}.npc"):
-                start_npc_chat(args.command)
-                return
+            result = handler(command=full_command_str, **handler_kwargs)
+
+            if isinstance(result, dict):
+                output = result.get("output", "Command executed, but no specific output returned.")
+                if NPCSH_STREAM_OUTPUT and hasattr(output, '__iter__') and not isinstance(output, (str, bytes, dict, list)):
+                     print_and_process_stream_with_markdown(output, effective_model, effective_provider)
+                elif output is not None:
+                     render_markdown(str(output))
+            elif result is not None:
+                render_markdown(str(result))
+            else:
+                print(f"Command '{args.command}' executed.")
+
         except Exception as e:
-            print(f"Error starting chat with NPC {args.command}: {e}")
+            print(f"Error executing command '{args.command}': {e}", file=sys.stderr)
+            traceback.print_exc()
+            sys.exit(1)
 
-    if args.command == "serve":
-        if args.cors:
-            # Parse the CORS origins from the comma-separated string
-            cors_origins = [origin.strip() for origin in args.cors.split(",")]
-        else:
-            cors_origins = None
-        if args.templates:
-            templates = [template.strip() for template in args.templates.split(",")]
-        else:
-            templates = None
-        if args.context:
-            context = args.context.strip()
-        else:
-            context = None
-        if args.model:
-            model = args.model
-        else:
-            model = NPCSH_CHAT_MODEL
-        if args.provider:
-            provider = args.provider
-        else:
-            provider = NPCSH_CHAT_PROVIDER
+    elif unknown_args:
+        prompt = unknown_args[0]
+        if len(unknown_args) > 1:
+            prompt += " " + " ".join(unknown_args[1:])
 
-        if context is not None and os.environ.get("WERKZEUG_RUN_MAIN") != "true":
-            initialize_npc_project(
-                args.directory,
-                templates=templates,
-                context=context,
-                model=model,
-                provider=provider,
+        print(f"Processing prompt: '{prompt}' with NPC: '{args.npc}'...")
+        try:
+            response_data = check_llm_command(
+                command=prompt,
+                model=effective_model,
+                provider=effective_provider,
+                npc=npc_instance,
+                stream=NPCSH_STREAM_OUTPUT,
+                messages=[],
+                team=None,
+                api_url=NPCSH_API_URL,
             )
 
-        start_flask_server(
-            port=args.port if args.port else 5337,
-            cors_origins=cors_origins,
-        )
-    elif args.command == "chat":
-        npc_name = args.npc_name
-        npc_path = get_npc_path(npc_name, NPCSH_DB_PATH)
-        current_npc = NPC(file=npc_path, db_conn = sqlite3.connect(NPCSH_DB_PATH))
-        return enter_spool_mode(
-            model=args.model, provider=args.provider, npc=current_npc
-        )
+            if isinstance(response_data, dict):
+                output = response_data.get("output")
+                if NPCSH_STREAM_OUTPUT and hasattr(output, '__iter__') and not isinstance(output, (str, bytes, dict, list)):
+                    print_and_process_stream_with_markdown(output, effective_model, effective_provider)
+                elif output is not None:
+                    render_markdown(str(output))
+            elif response_data is not None:
+                 render_markdown(str(response_data))
 
-    elif args.command == "init":
-        if args.templates:
-            templates = [template.strip() for template in args.templates.split(",")]
-        else:
-            templates = None
-        if args.context:
-            context = args.context.strip()
-        else:
-            context = None
-        if args.model:
-            model = args.model
-        else:
-            model = NPCSH_CHAT_MODEL
-        if args.provider:
-            provider = args.provider
-        else:
-            provider = NPCSH_CHAT_PROVIDER
+        except Exception as e:
+            print(f"Error processing prompt: {e}", file=sys.stderr)
+            traceback.print_exc()
+            sys.exit(1)
 
-        initialize_npc_project(
-            args.directory,
-            templates=templates,
-            context=context,
-            model=model,
-            provider=provider,
-        )
-
-    elif args.command == "compile":
-
-        print("fix npc compile")
-
-    elif args.command == "plonk":
-        task = args.task or args.spell
-        npc_name = args.name
-        plonk(
-            task,
-            action_space,
-            model=args.model or NPCSH_CHAT_MODEL,
-            provider=args.provider or NPCSH_CHAT_PROVIDER,
-        )
-
-    elif args.command == "sample":
-        db_conn = sqlite3.connect(NPCSH_DB_PATH)
-        if args.npc is None or args.npc == "sibiji":
-            npc = NPC(file="~/.npcsh/npc_team/sibiji.npc", db_conn=db_conn)
-        else:
-            npc = NPC(file="./npc_team/" + args.npc + ".npc", db_conn= db_conn)
-
-        result = get_llm_response(
-            args.prompt,
-            model=args.model,
-            provider=args.provider,
-        )
-        print(result["response"])
-    elif args.command == "vixynt":
-        if args.model == NPCSH_CHAT_MODEL:
-            model = NPCSH_IMAGE_GEN_MODEL
-        if args.provider == NPCSH_CHAT_PROVIDER:
-            provider = NPCSH_IMAGE_GEN_PROVIDER
-        image_path = generate_image(
-            args.spell,
-            model=args.model,
-            provider=args.provider,
-            height=int(args.height),
-            width=int(args.width),
-        )
-        print(f"Image generated at: {image_path}")
-
-    elif args.command == "ots":
-        if args.model == NPCSH_CHAT_MODEL:
-            model = NPCSH_VISION_MODEL
-        if args.provider == NPCSH_CHAT_PROVIDER:
-            provider = NPCSH_VISION_PROVIDER
-        image_paths = []
-
-        output = capture_screenshot(npc=sibiji)
-        if output and "file_path" in output:
-            image_paths.append(output["file_path"])
-            print(f"Screenshot captured: {output['filename']}")
-        user_prompt = input(
-            "Enter a prompt for the LLM about these images (or press Enter to skip): "
-        )
-        if not user_prompt:
-            user_prompt = "Please analyze these images."
-
-        
-        response = get_llm_response(
-            user_prompt, 
-            images=image_paths,
-            stream=NPCSH_STREAM_OUTPUT, 
-            model = NPCSH_VISION_MODEL,
-            provider=NPCSH_VISION_PROVIDER,
-        )
-        # Extract the assistant's response
-        assistant_reply = response['response']
-        messages = response['messages']
-        if NPCSH_STREAM_OUTPUT:
-            assistant_reply = print_and_process_stream_with_markdown(assistant_reply, model=model, provider=provider)
-        
-            messages.append({"role": "assistant", "content": assistant_reply})
-        if assistant_reply.count("```") % 2 != 0:
-            assistant_reply = assistant_reply + "```"
-        # Display the response
-        if not NPCSH_STREAM_OUTPUT:
-            render_markdown(assistant_reply)
-        
-
-
-    elif args.command == "yap":
-        npc_name = args.npc_name
-        npc_path = get_npc_path(npc_name, NPCSH_DB_PATH)
-        current_npc = NPC(file=npc_path, db_conn = sqlite3.connect(NPCSH_DB_PATH))
-
-        yap_parser(npc=current_npc)
-
-    elif args.command == "tool":
-        result = invoke_tool(
-            args.tool_name,
-            args=args.args,
-            flags=args.flags,
-        )
-        print(result)
-
-    elif args.command == "tools":
-        tools = list_available_tools()
-        for tool in tools:
-            print(f"- {tool}")
-
-    elif args.command == "local_search":
-        results = perform_local_search(args.query, path=args.path)
-        for result in results:
-            print(f"- {result}")
-
-    elif args.command == "rag":
-        results = perform_rag_search(
-            npc_name=args.name,
-            filename=args.filename,
-            query=args.query,
-        )
-        for result in results:
-            print(f"- {result}")
-
-    elif args.command == "search":
-        results = search_web(args.query, provider=args.provider)
-        for result in results:
-            print(f"- {result}")
-
-    elif args.command == "new":
-        # create a new npc, tool, or assembly line
-        if args.type == "npc":
-            from npcpy.npc_creator import create_new_npc
-
-            create_new_npc(
-                name=args.name,
-                primary_directive=args.primary_directive,
-                description=args.description,
-                model=args.model or NPCSH_CHAT_MODEL,
-                provider=args.provider or NPCSH_CHAT_PROVIDER,
-                autogen=args.autogen,
-            )
-        elif args.type == "tool":
-            create_new_tool(
-                name=args.name,
-                description=args.description,
-                autogen=args.autogen,
-            )
-        elif args.type == "assembly_line":
-            create_new_assembly_line(
-                name=args.name,
-                description=args.description,
-                autogen=args.autogen,
-            )
-    elif args.command == "spool":
-        db_conn = sqlite3.connect(NPCSH_DB_PATH)
-        if args.npc is None or args.npc == "sibiji":
-            npc = NPC(file="~/.npcsh/npc_team/sibiji.npc", db_conn=db_conn)
-        else:
-            npc = NPC(file="./npc_team/" + args.npc + ".npc", db_conn=db_conn)
-        response = enter_spool_mode(
-            stream=True,
-            npc=sibiji,
-        )
-
+    else:
+        parser.print_help()
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()
