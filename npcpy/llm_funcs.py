@@ -926,7 +926,6 @@ ReAct choices then will enter reasoning flow
     explanation = response_content_parsed.get("explanation")
 
     render_markdown(f"- Action chosen: {action}\n")
-    render_markdown(f"- Explanation given: {explanation}\n")
 
     # print(response_content)
     if response_content_parsed.get("tool_name"):

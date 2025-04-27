@@ -21,11 +21,11 @@ from npcpy.modes.yap import enter_yap_mode
 
 def enter_spool_mode(
     inherit_last: int = 0,
-    model: str = NPCSH_CHAT_MODEL, 
-    provider: str =  NPCSH_CHAT_PROVIDER,
+    npc = None,    
+    model: str = None, 
+    provider: str =  None,
     vision_model:str = NPCSH_VISION_MODEL,
     vision_provider:str = NPCSH_VISION_PROVIDER,
-    npc = None,
     files: List[str] = None,
     rag_similarity_threshold: float = 0.3,
     messages: List[Dict] = None,

@@ -1,49 +1,78 @@
+# --- START OF FILE routes.py ---
+
 from typing import Callable, Dict, Any, List, Optional, Union
 import functools
+import os
+import traceback
+import shlex
+import time
 
+from npcpy.npc_sysenv import (
+    render_code_block, render_markdown,
+    NPCSH_VISION_MODEL, NPCSH_VISION_PROVIDER, NPCSH_API_URL,
+    NPCSH_CHAT_MODEL, NPCSH_CHAT_PROVIDER, NPCSH_STREAM_OUTPUT,
+    NPCSH_IMAGE_GEN_MODEL, NPCSH_IMAGE_GEN_PROVIDER,
+    NPCSH_REASONING_MODEL, NPCSH_REASONING_PROVIDER,
+    NPCSH_SEARCH_PROVIDER,
+)
+
+from npcpy.llm_funcs import (
+    get_llm_response,
+    execute_llm_command,
+    rehash_last_message,
+    generate_image,
+    handle_tool_call
+)
+from npcpy.memory.search import execute_rag_command, execute_search_command
+from npcpy.memory.knowledge_graph import breathe
+from npcpy.work.plan import execute_plan_command
+from npcpy.work.trigger import execute_trigger_command
+from npcpy.modes.spool import enter_spool_mode
+from npcpy.modes.plonk import execute_plonk_command
+from npcpy.work.desktop import perform_action
+from npcpy.modes.yap import enter_yap_mode
+from npcpy.modes.wander import enter_wander_mode
+from npcpy.modes.guac import enter_guac_mode
+from npcpy.mix.debate import run_debate
+from npcpy.memory.sleep import run_breathe_cycle
+from npcpy.data.image import capture_screenshot
+from npcpy.npc_compiler import NPC, Team, Tool
+from npcpy.npc_compiler import initialize_npc_project
+from npcpy.data.web import search_web
 
 class CommandRouter:
     def __init__(self):
         self.routes = {}
         self.help_info = {}
-        self.shell_only = { }
-        
+        self.shell_only = {}
+
     def route(self, command: str, help_text: str = "", shell_only: bool = False) -> Callable:
-        """Decorator to register a function as a command route.
-        
-        Args:
-            command: The command that triggers this route
-            help_text: Documentation for this command shown in help
-        """
         def wrapper(func):
             self.routes[command] = func
             self.help_info[command] = help_text
             self.shell_only[command] = shell_only
-            
+
             @functools.wraps(func)
             def wrapped_func(*args, **kwargs):
                 return func(*args, **kwargs)
-            
+
             return wrapped_func
         return wrapper
-    
+
     def get_route(self, command: str) -> Optional[Callable]:
-        """Get the command route for a given command."""
         return self.routes.get(command)
-    
-    def execute(self, command: str, *args, **kwargs) -> Any:
-        """Execute a command route with the given arguments."""
-        route_func = self.get_route(command)
+
+    def execute(self, command_str: str, **kwargs) -> Any:
+        command_name = command_str.split()[0].lstrip('/')
+        route_func = self.get_route(command_name)
         if route_func:
-            return route_func(*args, **kwargs)
+            return route_func(command=command_str, **kwargs)
         return None
-    
+
     def get_commands(self) -> List[str]:
-        """Return a list of all registered commands."""
         return list(self.routes.keys())
-    
+
     def get_help(self, command: str = None) -> Dict[str, str]:
-        """Get help for a specific command or all commands."""
         if command:
             if command in self.help_info:
                 return {command: self.help_info[command]}
@@ -51,409 +80,604 @@ class CommandRouter:
         return self.help_info
 
 router = CommandRouter()
-def get_help():
-    """Generate help text automatically from the router's registered commands"""
-    
-    # Get all commands and their help text from the router
+
+def get_help_text():
     commands = router.get_commands()
     help_info = router.help_info
     shell_only = router.shell_only
-    
-    # Sort commands alphabetically for better readability
     commands.sort()
-    
-    # Build the help output
     output = "# Available Commands\n\n"
-    
     for cmd in commands:
-        # Get the help text for this command
         help_text = help_info.get(cmd, "")
-        
-        # Check if it's shell-only
         shell_only_text = " (Shell only)" if shell_only.get(cmd, False) else ""
-        
-        # Add command to the output
         output += f"/{cmd}{shell_only_text} - {help_text}\n\n"
-    
-    # Add additional help info
     output += """
 # Note
-- Bash commands and programs can be executed directly.
+- Bash commands and programs can be executed directly (try bash first, then LLM).
 - Use '/exit' or '/quit' to exit the current NPC mode or the npcsh shell.
-- Tools within your npc_team directory can also be used as macro commands.
+- Tools defined for the current NPC or Team can also be used like commands (e.g., /screenshot).
 """
-    
     return output
 
-from npcpy.npc_sysenv import render_code_block, render_markdown
-from npcpy.llm_funcs import get_llm_response, execute_llm_command, get_llm_response
-from npcpy.memory.search import execute_rag_command,execute_search_command
-from npcpy.work.plan import execute_plan_command
-from npcpy.work.trigger import execute_trigger_command
-
-from npcpy.modes.spool import enter_spool_mode
-from npcpy.modes.plonk import execute_plonk_command
-
-
-
-from npcpy.memory.knowledge_graph import breathe
-
-###
-### breathe 
-###
+def safe_get(kwargs, key, default=None):
+    return kwargs.get(key, default)
 
 @router.route("breathe", "Condense context on a regular cadence", shell_only=True)
-def breathe_handler(command: str, *args, **kwargs):
-    """Route for the breathe command.
-    # Implement breathe command logic
-    ## breathe: a method for condensing context on a regular cadence (# messages, len(context), etc) (under construction)
-    -every 10 messages/7500 characters, condense the conversation into lessons learned. write the lessons learned down by the np
-    for the day, then the npc will see the lessons they have learned that day in that folder as part of the context.
-    """
+def breathe_handler(command: str, **kwargs):
+    messages = safe_get(kwargs, "messages", [])
+    npc = safe_get(kwargs, "npc")
+    try:
+        result = run_breathe_cycle(messages=messages, npc=npc, **kwargs)
+        if isinstance(result, dict): return result
+        return {"output": str(result), "messages": messages}
+    except NameError:
+         return {"output": "Breathe function (run_breathe_cycle) not available.", "messages": messages}
+    except Exception as e:
+        traceback.print_exc()
+        return {"output": f"Error during breathe: {e}", "messages": messages}
 
-    # ...
-    return {"output": "Breathe result", "messages": kwargs.get("messages", [])}
-
-###
-### chat 
-###
 @router.route("chat", "Chat with an NPC")
-def chat_handler(*args, **kwargs):
-    """Route for the chat command.
-    # Implement chat command logic
-    ## Chat with an NPC
-    Use the `/chat` macro to have a conversation with an NPC. You can also use `/c` as an alias for `/chat`.
-    ```npcsh
-    npcsh> /chat <npc_name>
-    ```
-    """
-    return enter_spool_mode(*args, **kwargs)
-    
-###
-### Compile 
-###
+def chat_handler(command: str, **kwargs):
+    try:
+        return enter_spool_mode(
+            npc=safe_get(kwargs, 'npc'),
+            messages=safe_get(kwargs, 'messages'),
+            conversation_id=safe_get(kwargs, 'conversation_id'),
+            stream=safe_get(kwargs, 'stream', NPCSH_STREAM_OUTPUT),
+            files=safe_get(kwargs, 'files'),
+            inherit_last=safe_get(kwargs, 'inherit_last', 0),
+        )
+    except Exception as e:
+        traceback.print_exc()
+        return {"output": f"Error entering chat/spool mode: {e}", "messages": safe_get(kwargs, "messages", [])}
+
 @router.route("compile", "Compile NPC profiles")
-def compile_handler(command: str, *args, **kwargs):
-    """Route for the compile command.
-    # Implement compile command logic
-        
-    ###
-    ### Compile
-    ###
+def compile_handler(command: str, **kwargs):
+    messages = safe_get(kwargs, "messages", [])
+    npc_team_dir = safe_get(kwargs, 'current_path', './npc_team')
+    parts = command.split()
+    npc_file_path_arg = parts[1] if len(parts) > 1 else None
+    output = ""
+    try:
+        if npc_file_path_arg:
+            npc_full_path = os.path.abspath(npc_file_path_arg)
+            if os.path.exists(npc_full_path):
+                npc = NPC(npc_full_path)
+                output = f"Compiled NPC: {npc_full_path}"
+            else:
+                output = f"Error: NPC file not found: {npc_full_path}"
+        else:
+            npc = NPC(npc_full_path)
+
+            output = f"Compiled all NPCs in directory: {npc_team_dir}"
+    except NameError:
+        output = "Compile functions (compile_npc_file, compile_team_npcs) not available."
+    except Exception as e:
+        traceback.print_exc()
+        output = f"Error compiling: {e}"
+    return {"output": output, "messages": messages, "npc": npc}
 
 
-    Compile a specified NPC profile. This will make it available for use in npcsh interactions.
-    ```npcsh
-    npcsh> /compile <npc_file>
-    ```
-    You can also use `/com` as an alias for `/compile`. If no NPC file is specified, all NPCs in the npc_team directory will be compiled.
-
-    Begin a conversations with a specified NPC by referencing their name
-    ```npcsh
-    npcsh> /<npc_name>:
-    ```
-    """
-    # ...
-    return {"output": "Compile result", "messages": kwargs.get("messages", [])}
-###
-### Command 
-###
-@router.route("cmd", "Execute a command")
-@router.route("command", "Execute a command")
+@router.route("cmd", "Execute a command using LLM planning")
+@router.route("command", "Execute a command using LLM planning")
 def cmd_handler(command: str, **kwargs):
-    """Route for the cmd command."""
-    return execute_llm_command(command, **kwargs)
+    messages = safe_get(kwargs, "messages", [])
+    user_command = " ".join(command.split()[1:])
+    if not user_command:
+         return {"output": "Usage: /cmd <command_description>", "messages": messages}
+    try:
+        return execute_llm_command(
+            command=user_command,
+            model=safe_get(kwargs, 'model'),
+            provider=safe_get(kwargs, 'provider'),
+            api_url=safe_get(kwargs, 'api_url'),
+            api_key=safe_get(kwargs, 'api_key'),
+            npc=safe_get(kwargs, 'npc'),
+            messages=messages,
+            stream=safe_get(kwargs, 'stream'),
+            context=safe_get(kwargs, 'context')
+            )
+    except Exception as e:
+        traceback.print_exc()
+        return {"output": f"Error executing LLM command: {e}", "messages": messages}
 
 
 @router.route("conjure", "Conjure an NPC or tool")
-def conjure_handler(command: str, *args, **kwargs):
-    """Route for the conjure command. 
-    ###
-    ### Conjure
-    ###
-
-    Otherwise, here are some more detailed examples of macros that can be used in npcsh:
-    ## Conjure (under construction)
-    Use the `/conjure` macro to generate an NPC, a NPC tool, an assembly line, a job, or an SQL model
-
-    ```bash
-    npc conjure -n name -t 'templates'
-    ```"""
-    # Implement conjure command logic
-    # ...
-    return {"output": "Conjure result", "messages": kwargs.get("messages", [])}
-
-###
-### Data
-###
-
-@router.route("data", "Enter data analysis mode", shell_only=True)
-def data_handler(command: str, *args, **kwargs):
-    """Route for the data command."""
-    return {"output": "Data result", "messages": kwargs.get("messages", [])}
-
-@router.route('debate')
-def debate_handler(command: str, *args, **kwargs):
-    """Route for the debate command.
-    
-        
-    ###
-    ### Debate (under construction)
-    ###
-    Use the `/debate` macro to have two or more NPCs debate a topic, problem, or question.
-
-    For example:
-    ```npcsh
-    npcsh> /debate Should humans colonize Mars? npcs = ['sibiji', 'mark', 'ted']
-
-    """
-    # Implement debate command logic
-    # ...
-    return {"output": "Debate result", "messages": kwargs.get("messages", [])}
+def conjure_handler(command: str, **kwargs):
+    messages = safe_get(kwargs, "messages", [])
+    try:
+        result = conjure_new_object(command_string=command, **kwargs)
+        if isinstance(result, dict): return result
+        return {"output": str(result), "messages": messages}
+    except NameError:
+        return {"output": "Conjure function (conjure_new_object) not available.", "messages": messages}
+    except Exception as e:
+        traceback.print_exc()
+        return {"output": f"Error conjuring: {e}", "messages": messages}
 
 
-@router.route("flush", "Flush messages" , shell_only=True)
-def flush_handler( *args, **kwargs):
-    """Route for the flush command."""
-    # Implement flush command logic
-    flush_result = flush_messages(args, **kwargs)
-    return {"output": "Flush result", "messages": kwargs.get("messages", [])}
+@router.route("data", "Enter data analysis (guac) mode", shell_only=True)
+def data_handler(command: str, **kwargs):
+    messages = safe_get(kwargs, "messages", [])
+    try:
+        result = enter_guac_mode(**kwargs)
+        if isinstance(result, dict): return result
+        return {"output": str(result), "messages": messages}
+    except NameError:
+        return {"output": "Guac mode function (enter_guac_mode) not available.", "messages": messages}
+    except Exception as e:
+        traceback.print_exc()
+        return {"output": f"Error entering data mode: {e}", "messages": messages}
 
-def flush_messages(n: int, messages: list) -> dict:
+@router.route('debate', "Have NPCs debate a topic")
+def debate_handler(command: str, **kwargs):
+    messages = safe_get(kwargs, "messages", [])
+    try:
+        result = run_debate(command_string=command, **kwargs)
+        if isinstance(result, dict): return result
+        return {"output": str(result), "messages": messages}
+    except NameError:
+        return {"output": "Debate function (run_debate) not available.", "messages": messages}
+    except Exception as e:
+        traceback.print_exc()
+        return {"output": f"Error running debate: {e}", "messages": messages}
+
+
+@router.route("flush", "Flush the last N messages", shell_only=True)
+def flush_handler(command: str, **kwargs):
+    messages = safe_get(kwargs, "messages", [])
+    try:
+        parts = command.split()
+        n = int(parts[1]) if len(parts) > 1 else 1
+    except (ValueError, IndexError):
+        return {"output": "Usage: /flush [number_of_messages_to_flush]", "messages": messages}
+
     if n <= 0:
-        return {
-            "messages": messages,
-            "output": "Error: 'n' must be a positive integer.",
-        }
+        return {"output": "Error: Number of messages must be positive.", "messages": messages}
 
-    removed_count = min(n, len(messages))  # Calculate how many to remove
-    del messages[-removed_count:]  # Remove the last n messages
+    new_messages = list(messages)
+    original_len = len(new_messages)
+    removed_count = 0
 
-    return {
-        "messages": messages,
-        "output": f"Flushed {removed_count} message(s). Context count is now {len(messages)} messages.",
-    }
+    if new_messages and new_messages[0].get("role") == "system":
+        system_message = new_messages[0]
+        working_messages = new_messages[1:]
+        num_to_remove = min(n, len(working_messages))
+        if num_to_remove > 0:
+            final_messages = [system_message] + working_messages[:-num_to_remove]
+            removed_count = num_to_remove
+        else:
+            final_messages = [system_message]
+    else:
+        num_to_remove = min(n, original_len)
+        if num_to_remove > 0:
+            final_messages = new_messages[:-num_to_remove]
+            removed_count = num_to_remove
+        else:
+            final_messages = []
+
+    output = f"Flushed {removed_count} message(s). Context is now {len(final_messages)} messages."
+    return {"output": output, "messages": final_messages}
+
 
 @router.route("help", "Show help information")
-def help_handler(command: str, *args, **kwargs):
-    """Route for the help command."""
-    return {"output": get_help(), "messages": kwargs.get("messages", [])}
+def help_handler(command: str, **kwargs):
+    return {"output": get_help_text(), "messages": safe_get(kwargs, "messages", [])}
+
+@router.route("init", "Initialize NPC project")
+def init_handler(command: str, **kwargs):
+    messages = safe_get(kwargs, "messages", [])
+    try:
+        parts = shlex.split(command)
+        directory = "."
+        templates = None
+        context = None
+        # Basic parsing example (needs improvement for robust flag handling)
+        if len(parts) > 1 and not parts[1].startswith("-"):
+            directory = parts[1]
+        # Add logic here to parse -t, -ctx flags if needed
+
+        initialize_npc_project(
+            directory=directory,
+            templates=templates,
+            context=context,
+            model=safe_get(kwargs, 'model'),
+            provider=safe_get(kwargs, 'provider')
+        )
+        output = f"NPC project initialized in {os.path.abspath(directory)}."
+    except NameError:
+        output = "Init function (initialize_npc_project) not available."
+    except Exception as e:
+        traceback.print_exc()
+        output = f"Error initializing project: {e}"
+    return {"output": output, "messages": messages}
 
 
+@router.route("ots", "Take screenshot and optionally analyze with vision model")
+def ots_handler(command: str, **kwargs):
+    command_parts = command.split()
+    image_paths = []
+    npc = safe_get(kwargs, 'npc')
+    vision_model = safe_get(kwargs, 'model', NPCSH_VISION_MODEL)
+    vision_provider = safe_get(kwargs, 'provider', NPCSH_VISION_PROVIDER)
+    if vision_model == NPCSH_CHAT_MODEL: vision_model = NPCSH_VISION_MODEL
+    if vision_provider == NPCSH_CHAT_PROVIDER: vision_provider = NPCSH_VISION_PROVIDER
 
-def init_handler(command: str, *args, **kwargs):
-    """Route for the init command."""
-    # Implement init command logic
-    # ...
-    return {"output": "Init result", "messages": kwargs.get("messages", [])}
+    messages = safe_get(kwargs, 'messages', [])
+    stream = safe_get(kwargs, 'stream', NPCSH_STREAM_OUTPUT)
 
-    return {"output": "Search result", "messages": kwargs.get("messages", [])}
-
-@router.route("ots", "Execute OTS command")
-def ots_handler(command: str, *args, **kwargs):
-    """Route for the ots command.
-## Over-the-shoulder: Screenshots and image analysis
-
-Use the /ots macro to take a screenshot and write a prompt for an LLM to answer about the screenshot.
-```npcsh
-npcsh> /ots
-
-Screenshot saved to: /home/caug/.npcsh/screenshots/screenshot_1735015011.png
-
-Enter a prompt for the LLM about this image (or press Enter to skip): describe whats in this image
-
-The image displays a source control graph, likely from a version control system like Git. It features a series of commits represented by colored dots connected by lines, illustrating the project's development history. Each commit message provides a brief description of the changes made, including tasks like fixing issues, merging pull requests, updating README files, and adjusting code or documentation. Notably, several commits mention specific users, particularly "Chris Agostino," indicating collaboration and contributions to the project. The graph visually represents the branching and merging of code changes.
-```
-
-In bash:
-```bash
-npc ots
-```
-
-
-
-Alternatively, pass an existing image in like :
-```npcsh
-npcsh> /ots test_data/catfight.PNG
-Enter a prompt for the LLM about this image (or press Enter to skip): whats in this ?
-
-The image features two cats, one calico and one orange tabby, playing with traditional Japanese-style toys. They are each holding sticks attached to colorful pom-pom balls, which resemble birds. The background includes stylized waves and a red sun, accentuating a vibrant, artistic style reminiscent of classic Japanese art. The playful interaction between the cats evokes a lively, whimsical scene.
-```
-
-```bash
-npc ots -f test_data/catfight.PNG
-```
-"""
-    # Implement ots command logic
-    
-    # ...
-    
-
-    def ots(
-        command_parts,
-        npc=None,
-        model: str = NPCSH_VISION_MODEL,
-        provider: str = NPCSH_VISION_PROVIDER,
-        api_url: str = NPCSH_API_URL,
-        api_key: str = None,
-        stream: bool = False,
-    ):
-        # check if there is a filename
+    try:
         if len(command_parts) > 1:
-            filename = command_parts[1]
-            file_path = os.path.join(os.getcwd(), filename)
-            # Get user prompt about the image
-            user_prompt = input(
-                "Enter a prompt for the LLM about this image (or press Enter to skip): "
-            )
-            #get image ready here
-            
-            output = get_llm_response(
-            )   
+            for img_path_arg in command_parts[1:]:
+                full_path = os.path.abspath(img_path_arg)
+                if os.path.exists(full_path):
+                    image_paths.append(full_path)
+                else:
+                    return {"output": f"Error: Image file not found at {full_path}", "messages": messages}
         else:
-            output = capture_screenshot(npc=npc)
-            user_prompt = input(
-                "Enter a prompt for the LLM about this image (or press Enter to skip): "
-            )
-            #get image ready here
-            
-            output = get_llm_response(
-            
-            )
-        return {"messages": [], "output": output}  # Return the message
+            screenshot_info = capture_screenshot(npc=npc)
+            if screenshot_info and "file_path" in screenshot_info:
+                image_paths.append(screenshot_info["file_path"])
+                print(f"Screenshot captured: {screenshot_info.get('filename', os.path.basename(screenshot_info['file_path']))}")
+            else:
+                 return {"output": "Error: Failed to capture screenshot.", "messages": messages}
 
+        if not image_paths:
+            return {"output": "No valid images found or captured.", "messages": messages}
 
+        user_prompt = safe_get(kwargs, 'stdin_input')
+        if user_prompt is None:
+            try:
+                user_prompt = input(
+                    "Enter a prompt for the LLM about these images (or press Enter to skip): "
+                )
+            except EOFError:
+                 user_prompt = "Describe the image(s)."
 
-    return {"output": "OTS command result", "messages": kwargs.get("messages", [])}
-    
+        if not user_prompt or not user_prompt.strip():
+            user_prompt = "Describe the image(s)."
+
+        response_data = get_llm_response(
+            prompt=user_prompt,
+            model=vision_model,
+            provider=vision_provider,
+            messages=messages,
+            images=image_paths,
+            stream=stream,
+            npc=npc,
+            api_url=safe_get(kwargs, 'api_url'),
+            api_key=safe_get(kwargs, 'api_key')
+        )
+        return {"output": response_data.get('response'), "messages": response_data.get('messages')}
+
+    except Exception as e:
+        traceback.print_exc()
+        return {"output": f"Error during /ots command: {e}", "messages": messages}
+
 
 @router.route("plan", "Execute a plan command")
-def plan_handler(command: str, *args, **kwargs):
-    """Route for the plan command 
-    ###
-    ### Plan
-    ###
+def plan_handler(command: str, **kwargs):
+    messages = safe_get(kwargs, "messages", [])
+    user_command = " ".join(command.split()[1:])
+    if not user_command:
+        return {"output": "Usage: /plan <description_of_plan>", "messages": messages}
+    try:
+        return execute_plan_command(command=user_command, **kwargs)
+    except NameError:
+         return {"output": "Plan function (execute_plan_command) not available.", "messages": messages}
+    except Exception as e:
+        traceback.print_exc()
+        return {"output": f"Error executing plan: {e}", "messages": messages}
 
 
-    ## Plan : Schedule tasks to be run at regular intervals (under construction)
-    Use the /plan macro to schedule tasks to be run at regular intervals.
-    ```npcsh
-    npcsh> /plan run a rag search for 'moonbeam' on the files in the current directory every 5 minutes
-    ```
+@router.route("plonk", "Use vision model to interact with GUI")
+def plonk_handler(command: str, **kwargs):
+    messages = safe_get(kwargs, "messages", [])
+    request_str = " ".join(command.split()[1:])
+    if not request_str:
+        return {"output": "Usage: /plonk <task_description>", "messages": messages}
 
-    ```npcsh
-    npcsh> /plan record the cpu usage every 5 minutes
-    ```
-
-    ```npcsh
-    npcsh> /plan record the apps that are using the most ram every 5 minutes
-    ```
-
-    """
-    # Implement plan command logic
-    # ...
-    return execute_plan_command(command, **kwargs)
-
-@router.route("plonk", "Execute a plonk command")
-def plonk_handler(command: str, *args, **kwargs):
-    """Route for the plonk command."""
-    # Implement plonk command logic
-    # ...
-    return execute_plonk_command(command, **kwargs)
-
-
-@router.route("rag", "Execute a RAG command")
-def rag_handler(command: str, *args, **kwargs):
-    """Route for the rag command."""
-    # Implement rag command logic
-    output = execute_rag_command(command, **kwargs)
-    return output
-@router.route("rehash", "Rehash the last message",shell_only=True)
-def rehash_handler(command: str, *args, **kwargs):
-    """Route for the rehash command."""
-    # Implement rehash command logic
-    # ...
-    return rehash_command(command, **kwargs)
+    action_space = {
+            "click": {"x": "int (0-100)", "y": "int (0-100)"},
+            "type": {"text": "string"},
+            "scroll": {"direction": "up/down/left/right", "amount": "int"},
+            "bash": {"command": "string"},
+            "wait": {"duration": "int (seconds)"}
+        }
+    try:
+        result = execute_plonk_command(
+            request=request_str,
+            action_space=action_space,
+            model=safe_get(kwargs, 'model', NPCSH_VISION_MODEL),
+            provider=safe_get(kwargs, 'provider', NPCSH_VISION_PROVIDER),
+            npc=safe_get(kwargs, 'npc')
+            )
+        if isinstance(result, dict) and "output" in result:
+            result_messages = result.get("messages", messages)
+            return {"output": result["output"], "messages": result_messages}
+        else:
+            return {"output": str(result), "messages": messages}
+    except NameError:
+         return {"output": "Plonk function (execute_plonk_command) not available.", "messages": messages}
+    except Exception as e:
+        traceback.print_exc()
+        return {"output": f"Error executing plonk command: {e}", "messages": messages}
 
 
-@router.route("sample", "Sample a command")
-def sample_handler(command: str, *args, **kwargs):
-    """Route for the sample command."""
-    # Implement sample command logic
-    output = get_llm_response(
-        " ".join(command.split()[1:]),  # Skip the command name
-        npc=npc,
-        messages=[],
-        model=model,
-        provider=provider,
-        stream=stream,
-    )
-    return output
-@router.route("search", "Execute a search command")
-def search_handler(command: str, *args, **kwargs):
-    """Route for the search command."""
-    # Implement search command logic
-    # ...
+@router.route("rag", "Execute a RAG command using ChromaDB embeddings")
+def rag_handler(command: str, **kwargs):
+    messages = safe_get(kwargs, "messages", [])
+    user_command = " ".join(command.split()[1:])
+    if not user_command:
+        return {"output": "Usage: /rag <query>", "messages": messages}
+    try:
+        return execute_rag_command(command=user_command, **kwargs)
+    except NameError:
+        return {"output": "RAG function (execute_rag_command) not available.", "messages": messages}
+    except Exception as e:
+        traceback.print_exc()
+        return {"output": f"Error executing RAG command: {e}", "messages": messages}
+
+@router.route("rehash", "Re-execute the last LLM command with the same input", shell_only=True)
+def rehash_handler(command: str, **kwargs):
+    messages = safe_get(kwargs, "messages", [])
+    conversation_id = safe_get(kwargs, 'conversation_id')
+    if not conversation_id:
+        return {"output": "Cannot rehash: No active conversation ID.", "messages": messages}
+
+    try:
+        result = rehash_last_message(
+            conversation_id=conversation_id,
+            model=safe_get(kwargs, 'model', NPCSH_CHAT_MODEL),
+            provider=safe_get(kwargs, 'provider', NPCSH_CHAT_PROVIDER),
+            npc=safe_get(kwargs, 'npc'),
+            stream=safe_get(kwargs, 'stream', NPCSH_STREAM_OUTPUT)
+            )
+        return result
+    except Exception as e:
+        traceback.print_exc()
+        return {"output": f"Error rehashing: {e}", "messages": messages}
+
+
+@router.route("sample", "Send a prompt directly to the LLM")
+def sample_handler(command: str, **kwargs):
+    messages = safe_get(kwargs, "messages", [])
+    prompt = " ".join(command.split()[1:])
+    if not prompt:
+        return {"output": "Usage: /sample <your prompt>", "messages": messages}
+
+    try:
+        result = get_llm_response(
+            prompt=prompt,
+            provider=safe_get(kwargs, 'provider'),
+            model=safe_get(kwargs, 'model'),
+            images=safe_get(kwargs, 'attachments'),
+            npc=safe_get(kwargs, 'npc'),
+            team=safe_get(kwargs, 'team'),
+            messages=messages,
+            api_url=safe_get(kwargs, 'api_url'),
+            api_key=safe_get(kwargs, 'api_key'),
+            context=safe_get(kwargs, 'context'),
+            stream=safe_get(kwargs, 'stream')
+        )
+        return result
+    except Exception as e:
+        traceback.print_exc()
+        return {"output": f"Error sampling LLM: {e}", "messages": messages}
+
+@router.route("search", "Execute a web search command")
+def search_handler(command: str, **kwargs):
+    messages = safe_get(kwargs, "messages", [])
+    query = " ".join(command.split()[1:])
+    if not query:
+        return {"output": "Usage: /search <query>", "messages": messages}
+    search_provider = safe_get(kwargs, 'search_provider', NPCSH_SEARCH_PROVIDER)
+    try:
+        search_results = search_web(query, provider=search_provider)
+        output = "\n".join([f"- {res}" for res in search_results]) if search_results else "No results found."
+    except Exception as e:
+        traceback.print_exc()
+        output = f"Error during web search: {e}"
+    return {"output": output, "messages": messages}
 
 
 @router.route("set", "Set configuration values")
-def set_handler(command: str, *args, **kwargs):
-    """Route for the set command."""
-    # Implement set command logic
-    # ...
-    return {"output": "Set result", "messages": kwargs.get("messages", [])}
-@router.route("sleep", "sleep")
-def set_handler(command: str, *args, **kwargs):
-    """Route for the sleep command."""
-    # Implement set command logic
-    # ...
-    return {"output": "sleep result", "messages": kwargs.get("messages", [])}
+def set_handler(command: str, **kwargs):
+    messages = safe_get(kwargs, "messages", [])
+    parts = command.split(maxsplit=1)
+    if len(parts) < 2 or '=' not in parts[1]:
+        return {"output": "Usage: /set <key>=<value>", "messages": messages}
 
-@router.route("spool", "Enter spool mode")
-def spool_handler(command: str, *args, **kwargs):
-    """Route for the spool command."""
-    # Implement spool command logic
-    return enter_spool_mode(command, **kwargs)
+    key_value = parts[1]
+    key, value = key_value.split('=', 1)
+    key = key.strip()
+    value = value.strip().strip('"\'')
+
+    try:
+        set_npcsh_config_value(key, value)
+        output = f"Configuration value '{key}' set."
+    except NameError:
+        output = "Set function (set_npcsh_config_value) not available."
+    except Exception as e:
+        traceback.print_exc()
+        output = f"Error setting configuration '{key}': {e}"
+    return {"output": output, "messages": messages}
+
+@router.route("sleep", "Pause execution for N seconds")
+def sleep_handler(command: str, **kwargs):
+    messages = safe_get(kwargs, "messages", [])
+    parts = command.split()
+    try:
+        seconds = float(parts[1]) if len(parts) > 1 else 1.0
+        if seconds < 0: raise ValueError("Duration must be non-negative")
+        time.sleep(seconds)
+        output = f"Slept for {seconds} seconds."
+    except (ValueError, IndexError):
+        output = "Usage: /sleep <seconds>"
+    except Exception as e:
+        traceback.print_exc()
+        output = f"Error during sleep: {e}"
+    return {"output": output, "messages": messages}
+
+@router.route("spool", "Enter interactive chat (spool) mode")
+def spool_handler(command: str, **kwargs):
+    try:
+        return enter_spool_mode(
+            model=safe_get(kwargs, 'model', NPCSH_CHAT_MODEL),
+            provider=safe_get(kwargs, 'provider', NPCSH_CHAT_PROVIDER),
+            npc=safe_get(kwargs, 'npc'),
+            messages=safe_get(kwargs, 'messages'),
+            conversation_id=safe_get(kwargs, 'conversation_id'),
+            stream=safe_get(kwargs, 'stream', NPCSH_STREAM_OUTPUT),
+            files=safe_get(kwargs, 'files'),
+            inherit_last=safe_get(kwargs, 'inherit_last', 0),
+        )
+    except Exception as e:
+        traceback.print_exc()
+        return {"output": f"Error entering spool mode: {e}", "messages": safe_get(kwargs, "messages", [])}
 
 
+@router.route("tools", "Show available tools for the current NPC/Team")
+def tools_handler(command: str, **kwargs):
+    npc = safe_get(kwargs, 'npc')
+    team = safe_get(kwargs, 'team')
+    output = "Available Tools:\n"
+    tools_listed = set()
 
-@router.route("tools", "Show available tools")
-def tools_handler(command: str, *args, **kwargs):
-    """Route for the tools command."""
-    # Implement tools command logic
-    # ...
-    return {"output": "Available tools", "messages": kwargs.get("messages", [])}    
+    def format_tool(name, tool_obj):
+        desc = getattr(tool_obj, 'description', 'No description available.')
+        return f"- /{name}: {desc}\n"
+
+    if npc and isinstance(npc, NPC) and hasattr(npc, 'tools_dict') and npc.tools_dict:
+        output += f"\n--- Tools for NPC: {npc.name} ---\n"
+        for name, tool in sorted(npc.tools_dict.items()):
+            output += format_tool(name, tool)
+            tools_listed.add(name)
+
+    if team and hasattr(team, 'tools_dict') and team.tools_dict:
+         team_has_tools = False
+         team_output = ""
+         for name, tool in sorted(team.tools_dict.items()):
+             if name not in tools_listed:
+                 team_output += format_tool(name, tool)
+                 team_has_tools = True
+         if team_has_tools:
+             output += f"\n--- Tools for Team: {getattr(team, 'name', 'Unnamed Team')} ---\n"
+             output += team_output
+
+    if not tools_listed and not (team and hasattr(team, 'tools_dict') and team.tools_dict):
+        output = "No tools available for the current context."
+
+    return {"output": output.strip(), "messages": safe_get(kwargs, "messages", [])}
+
 @router.route("trigger", "Execute a trigger command")
-def trigger_handler(command: str, *args, **kwargs):
-    """Route for the trigger command."""
-    # Implement trigger command logic
-    # ...
-    return {"output": "Trigger command result", "messages": kwargs.get("messages", [])}
+def trigger_handler(command: str, **kwargs):
+    messages = safe_get(kwargs, "messages", [])
+    user_command = " ".join(command.split()[1:])
+    if not user_command:
+        return {"output": "Usage: /trigger <trigger_description>", "messages": messages}
+    try:
+        return execute_trigger_command(command=user_command, **kwargs)
+    except NameError:
+        return {"output": "Trigger function (execute_trigger_command) not available.", "messages": messages}
+    except Exception as e:
+        traceback.print_exc()
+        return {"output": f"Error executing trigger: {e}", "messages": messages}
+
 @router.route("vixynt", "Generate images from text descriptions")
-def vixynt_handler(command: str, *args, **kwargs):
-    """Route for the vixynt command."""
-    # Implement vixynt command logic
+def vixynt_handler(command: str, **kwargs):
+    npc = safe_get(kwargs, 'npc')
+    model = safe_get(kwargs, 'model', NPCSH_IMAGE_GEN_MODEL)
+    provider = safe_get(kwargs, 'provider', NPCSH_IMAGE_GEN_PROVIDER)
+    if model == NPCSH_CHAT_MODEL: model = NPCSH_IMAGE_GEN_MODEL
+    if provider == NPCSH_CHAT_PROVIDER: provider = NPCSH_IMAGE_GEN_PROVIDER
+
+    messages = safe_get(kwargs, 'messages', [])
 
     filename = None
-    if "filename=" in command:
-        filename = command.split("filename=")[1].split()[0]
-        command = command.replace(f"filename={filename}", "").strip()
-    # Get user prompt about the image BY joining the rest of the arguments
-    user_prompt = " ".join(command.split()[1:])
+    height = 256
+    width = 256
+    prompt_parts = []
+    try:
+        parts = shlex.split(command)
+        for part in parts[1:]:
+            if part.startswith("filename="):
+                filename = part.split("=", 1)[1]
+            elif part.startswith("height="):
+                try: height = int(part.split("=", 1)[1])
+                except ValueError: pass
+            elif part.startswith("width="):
+                try: width = int(part.split("=", 1)[1])
+                except ValueError: pass
+            else:
+                prompt_parts.append(part)
+    except Exception as parse_err:
+        return {"output": f"Error parsing arguments: {parse_err}. Usage: /vixynt <prompt> [filename=...] [height=...] [width=...]", "messages": messages}
 
-    output = generate_image(
-        user_prompt, npc=npc, filename=filename, model=model, provider=provider
-    )
-    return {"output": "Image generation result", "messages": kwargs.get("messages", [])}
 
-@router.route("wander", "Enter wander mode")
-def wander_handler(command: str, *args, **kwargs):
-    """Route for the whisper command."""
-    # Implement whisper command logic
-    return enter_wander_mode(command, **kwargs)
+    user_prompt = " ".join(prompt_parts)
+    if not user_prompt:
+        return {"output": "Usage: /vixynt <prompt> [filename=...] [height=...] [width=...]", "messages": messages}
 
-@router.route("whisper", "Enter whisper mode")
-def whisper_handler(command: str, *args, **kwargs):
-    """Route for the whisper command."""
-    # Implement whisper command logic
-    return enter_whisper_mode(command, **kwargs)
+    try:
+        image_filename = generate_image(
+            prompt=user_prompt,
+            model=model,
+            provider=provider,
+            filename=filename,
+            npc=npc,
+            height=height,
+            width=width,
+        )
+        output = f"Image generated and saved to: {image_filename}"
+    except Exception as e:
+        traceback.print_exc()
+        output = f"Error generating image: {e}"
+
+    return {"output": output, "messages": messages}
+
+@router.route("wander", "Enter wander mode (experimental)")
+def wander_handler(command: str, **kwargs):
+    messages = safe_get(kwargs, "messages", [])
+    problem = " ".join(command.split()[1:])
+    if not problem:
+        return {"output": "Usage: /wander <problem or topic to explore>", "messages": messages}
+
+    try:
+        result = enter_wander_mode(
+            problem=problem,
+            npc=safe_get(kwargs, 'npc'),
+            model=safe_get(kwargs, 'model', NPCSH_CHAT_MODEL),
+            provider=safe_get(kwargs, 'provider', NPCSH_CHAT_PROVIDER),
+            **safe_get(kwargs, 'api_kwargs', {})
+        )
+        output = ""
+        if isinstance(result, tuple) and len(result) > 0:
+             output = str(result[-1])
+        elif result is not None:
+             output = str(result)
+        else:
+             output = "Wander mode completed."
+        return {"output": output, "messages": messages}
+    except NameError:
+        return {"output": "Wander function (enter_wander_mode) not available.", "messages": messages}
+    except Exception as e:
+        traceback.print_exc()
+        return {"output": f"Error during wander mode: {e}", "messages": messages}
+
+
+@router.route("yap", "Enter voice chat (yap) mode", shell_only=True)
+def whisper_handler(command: str, **kwargs):
+    try:
+        return enter_yap_mode(
+            messages=safe_get(kwargs, 'messages'),
+            npc=safe_get(kwargs, 'npc'),
+            model=safe_get(kwargs, 'model', NPCSH_CHAT_MODEL),
+            provider=safe_get(kwargs, 'provider', NPCSH_CHAT_PROVIDER),
+            team=safe_get(kwargs, 'team'),
+            stream=safe_get(kwargs, 'stream', NPCSH_STREAM_OUTPUT),
+            conversation_id=safe_get(kwargs, 'conversation_id')
+            )
+    except Exception as e:
+        traceback.print_exc()
+        return {"output": f"Error entering yap mode: {e}", "messages": safe_get(kwargs, "messages", [])}
