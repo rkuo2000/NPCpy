@@ -382,12 +382,6 @@ npcsh> /debate Should humans colonize Mars? npcs = ['sibiji', 'mark', 'ted']
 
 
 
-## Notes
-Jot down notes and store them within the npcsh database and in the current directory as a text file.
-```npcsh
-npcsh> /notes
-```
-
 
 ## Over-the-shoulder: Screenshots and image analysis
 

@@ -845,8 +845,6 @@ def execute_slash_command(
         #    print(f"Error entering whisper mode: {str(e)}")
         #    output = "Error entering whisper mode"
 
-    elif command_name == "notes":
-        output = enter_notes_mode(npc=npc)
     elif command_name == "data":
         # print("data")
         output = enter_data_mode(npc=npc)

@@ -105,23 +105,7 @@ Explanation:
 
 SQL Execution: Uses the sql_executor tool to run SQL queries directly against the database and display the results.
 
-
-## Example 8: Using Notes Mode to Save Reminders
-```bash
-# Enter notes mode to jot down important information
-/notes
-# Add a note
-Review the Q3 financial report before the meeting next Tuesday.
-
-# Exit notes mode
-/nq
-```
-Explanation:
-
-/notes: Enters notes mode where any input is saved as a note.
-Adding a Note: Type the note you want to save.
-/nq: Exits notes mode.
-## Example 9: Whisper Mode for Voice Interaction
+## Example 8: Yap Mode for Voice Interaction
 
 ```bash
 
