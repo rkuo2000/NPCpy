@@ -1,6 +1,7 @@
 from typing import Callable, Dict, Any, List, Optional, Union
 import functools
 
+
 class CommandRouter:
     def __init__(self):
         self.routes = {}
@@ -50,7 +51,39 @@ class CommandRouter:
         return self.help_info
 
 router = CommandRouter()
-
+def get_help():
+    """Generate help text automatically from the router's registered commands"""
+    
+    # Get all commands and their help text from the router
+    commands = router.get_commands()
+    help_info = router.help_info
+    shell_only = router.shell_only
+    
+    # Sort commands alphabetically for better readability
+    commands.sort()
+    
+    # Build the help output
+    output = "# Available Commands\n\n"
+    
+    for cmd in commands:
+        # Get the help text for this command
+        help_text = help_info.get(cmd, "")
+        
+        # Check if it's shell-only
+        shell_only_text = " (Shell only)" if shell_only.get(cmd, False) else ""
+        
+        # Add command to the output
+        output += f"/{cmd}{shell_only_text} - {help_text}\n\n"
+    
+    # Add additional help info
+    output += """
+# Note
+- Bash commands and programs can be executed directly.
+- Use '/exit' or '/quit' to exit the current NPC mode or the npcsh shell.
+- Tools within your npc_team directory can also be used as macro commands.
+"""
+    
+    return output
 
 from npcpy.npc_sysenv import render_code_block, render_markdown
 from npcpy.llm_funcs import get_llm_response, execute_llm_command, get_llm_response
@@ -204,7 +237,8 @@ def flush_messages(n: int, messages: list) -> dict:
 @router.route("help", "Show help information")
 def help_handler(command: str, *args, **kwargs):
     """Route for the help command."""
-    return get_help()
+    return {"output": get_help(), "messages": kwargs.get("messages", [])}
+
 
 
 def init_handler(command: str, *args, **kwargs):
@@ -214,24 +248,6 @@ def init_handler(command: str, *args, **kwargs):
     return {"output": "Init result", "messages": kwargs.get("messages", [])}
 
     return {"output": "Search result", "messages": kwargs.get("messages", [])}
-
-
-###
-### Notes
-###
-
-@router.route("notes", "Enter notes mode", shell_only=True)
-def notes_handler(command: str, *args, **kwargs):
-    """## Notes
-    Jot down notes and store them within the npcsh database and in the current directory as a text file.
-    ```npcsh
-    npcsh> /notes
-    ```
-
-    """
-    # ...
-    return {"output": "Notes result", "messages": kwargs.get("messages", [])}
-
 
 @router.route("ots", "Execute OTS command")
 def ots_handler(command: str, *args, **kwargs):

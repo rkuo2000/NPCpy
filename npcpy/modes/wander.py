@@ -20,10 +20,10 @@ def enter_wander_mode(problem,
                       npc, 
                       model,
                       provider,
-                      n_min=200,
-                      n_max=500,
+                      n_min=50,
+                      n_max=200,
                       low_temp=0.5,
-                      high_temp = 1.8,
+                      high_temp = 1.9,
                       interruption_likelihood=1,
                       sample_rate=0.4,
                       n_high_temp_streams=5,
@@ -81,7 +81,6 @@ def enter_wander_mode(problem,
                                     **api_kwargs)
         for chunk in high_temp_response['response']:
             interruption = np.random.randint(0,100) < interruption_likelihood
-            
             if interruption:
                 high_temp_streams.append(stream_result)
                 
