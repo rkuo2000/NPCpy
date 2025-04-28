@@ -41,32 +41,6 @@ try:
     # Initialize pygame mixer
     pygame.mixer.quit()
     pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=512)
-
-    # Device selection
-    device = "cpu"
-    print(f"Using device: {device}")
-
-    # Load VAD model
-    print("Loading Silero VAD model...")
-    vad_model, _ = torch.hub.load(
-        repo_or_dir="snakers4/silero-vad",
-        model="silero_vad",
-        force_reload=False,
-        onnx=False,
-        verbose=False,
-    )
-    vad_model.to(device)
-
-    # Load Whisper model
-    print("Loading Whisper model...")
-    whisper_model = WhisperModel("base", device=device, compute_type="int8")
-
-    # Conversation History Management
-    history = []
-    max_history = 10
-    memory_file = "conversation_history.json"
-
-
 except:
     print("audio dependencies not installed")
 
@@ -112,34 +86,6 @@ def check_ffmpeg():
         return True
     except (subprocess.SubprocessError, FileNotFoundError):
         return False
-
-
-has_ffmpeg = check_ffmpeg()
-
-# Device selection
-device = "cpu"
-print(f"Using device: {device}")
-
-# Load VAD model
-print("Loading Silero VAD model...")
-vad_model, _ = torch.hub.load(
-    repo_or_dir="snakers4/silero-vad",
-    model="silero_vad",
-    force_reload=False,
-    onnx=False,
-    verbose=False,
-)
-vad_model.to(device)
-
-# Load Whisper model
-print("Loading Whisper model...")
-whisper_model = WhisperModel("base", device=device, compute_type="int8")
-
-# Conversation History Management
-history = []
-max_history = 10
-memory_file = "conversation_history.json"
-
 
 # History Management Functions
 def load_history():
