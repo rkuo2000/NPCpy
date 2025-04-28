@@ -1,15 +1,29 @@
 
 
-# NPC Toolkit
+# npcpy
+
+Welcome to `npcpy`, the python library for the NPC Toolkit and the home of the core command-line programs that make up the NPC Shell (`npcsh`).
 
 
-- `npcpy` is a python framework designed to easily integrate Large Language Models and AI agents.
-- `npcpy` works with local and enterprise LLM providers through its LiteLLM integration, allowing users to run inference from Ollama, LMStudio, OpenAI, Anthropic, Gemini, and Deepseek, making it a versatile tool for both simple commands and sophisticated AI-driven tasks. 
+`npcpy` is an agent-based framework designed to easily integrate AI models into one's daily workflow and it does this by providing users with a variety of interfaces through which they can use, test, and explore the capabilities of AI models, agents, and agent systems. These include the following:
+
+-an extensible python library (`npcpy`),
+
+-a bash-replacement shell (`npcsh`) that can process bash, natural language, or special macro calls for procedures like image generation (`/vixynt 'prompt'`), web searching (`/search -p perplexity 'cal bears football schedule'`), and one-off LLM response samples (`/sample 'prompt'`)
+
+-a command line interface (`npc`) with the ability to run the NPC macro commands like running a flask server to provide API access to an agent team (`npc serve`), web searching (`npc search -p perplexity 'cal bears football schedule'`), and deep research (`npc dive 'prompt to dive in on'`).
+
+-a replacement shell for interpreters like python/r/node/julia (`guac`) that lets users execute code snippets in a REPL-like environment with the ability to ask LLMs questions and they ultimately  respond by generating and executing code directly within the interpreter. The variables and functions generated during these executions are inspectable to the user.
+ 
+- a reasoning REPL loop with explicit checks to request inputs from users following thinking traces  (`pti`) which can be accessed by running `pti` directly, or by running `npc pti` from the command line or `/pti` from `npcsh`.
+-a simple agentic REPL loop (`spool`) which can be accessed by running `spool` directly, or by running `npc spool` from the command line or `/spool` from `npcsh`.
+
+- a voice control REPL loop (`yap`) which can be accessed by running `yap` directly, or by running `npc yap` from the command line or `/yap` from `npcsh`.
+
+
+`npcpy` works with local and enterprise LLM providers through its LiteLLM integration, allowing users to run inference from Ollama, LMStudio, OpenAI, Anthropic, Gemini, and Deepseek, making it a versatile tool for both simple commands and sophisticated AI-driven tasks. 
+
 - In `npcpy`, all agentic capabilities are built and tested using small local models (like `llama3.2`) to ensure it can function reliably even at the edge of computing.
-- In addition to its python library capabilities, `npcpy` provides users with powerful command-line tools and macros for quick and easy access to LLMs. These programs comprise the NPC `shell` and such functionalities are available for use in multiple ways: through the `npc` bash cli, directly through the `npcsh` shell or through their individual paths. 
-- The NPC Shell `npcsh` provides a drop-in replacement for one's bash shell with natural language processing capabilities and a suite of built-in tools (macros) for tasks like voice control, image generation, and web searching. Through it's simple REPL system, one can interact with agents and orchestrate agent teams.
-- With the `npc` CLI, users can use the same tools and macros of the NPC shell through a CLI and provides a quick and simple way to RESTfully serve an NPC Team to receive HTTP requests.
-- The NPC Toolkit integrates with local and enterprise LLM providers through its LiteLLM integration, allowing users to run inference from Ollama, LMStudio, OpenAI, Anthropic, Gemini, and Deepseek, making it a versatile tool for both simple commands and sophisticated AI-driven tasks. All agentic capabilities are built and tested using small local models (like `llama3.2`) to ensure the agentic capabilities function even at the edge of computing.
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/cagostino/npcsh/main/npcpy.png" alt="npcpy logo of a solarpunk sign">
@@ -19,7 +33,7 @@
 
 Read the docs at [npcpy.readthedocs.io](https://npcsh.readthedocs.io/en/latest/)
 
-There is a graphical user interface that makes use of the NPC Toolkit through the NPC Studio. See the open source code for NPC Studio [here](https://github.com/). Download the executables (soon) at [our website](https://www.npcworldwi.de/npc-studio).
+There is a graphical user interface that makes use of the NPC Toolkit through the NPC Studio. See the open source code for NPC Studio [here](https://github.com/cagostino/npc-studio). Download the executables (soon) at [our website](https://www.npcworldwi.de/npc-studio).
 
 Interested to stay in the loop and to hear the latest and greatest about `npcpy`, `npcsh`, and NPC Studio? Be sure to sign up for the [newsletter](https://forms.gle/n1NzQmwjsV4xv1B2A)!
 
