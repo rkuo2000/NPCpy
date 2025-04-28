@@ -1,20 +1,21 @@
 
+<p align="center">
+  <img src="https://raw.githubusercontent.com/cagostino/npcsh/main/npcpy.png" alt="npcpy logo of a solarpunk sign">
+</p>
+
 
 # npcpy
 
-Welcome to `npcpy`, the python library for the NPC Toolkit and the home of the core command-line programs that make up the NPC Shell (`npcsh`).
+Welcome to `npcpy`, the python library for the NPC Toolkit and the home of the core command-line programs that make up the NPC Shell (`npcsh`). `npcpy` is an agent-based framework designed to easily integrate AI models into one's daily workflow and it does this by providing users with a variety of interfaces through which they can use, test, and explore the capabilities of AI models, agents, and agent systems. These include the following:
 
+-an extensible python library (`npcpy`) with convenient methods for getting LLM responses, loading data, creating agents, and implementing agentic capabilities in new custom systems.
 
-`npcpy` is an agent-based framework designed to easily integrate AI models into one's daily workflow and it does this by providing users with a variety of interfaces through which they can use, test, and explore the capabilities of AI models, agents, and agent systems. These include the following:
+-a bash-replacement shell (`npcsh`) that can process bash, natural language, or special macro calls for procedures like image generation (`/vixynt 'prompt'`), web searching (`/search -p perplexity 'cal bears football schedule'`), and one-off LLM response samples (`/sample 'prompt'`). Users can specify whether natural language is processed agentically (i.e. an LLM reviews and decides to pass to other agents or use tools) or directly through bash execution.
 
--an extensible python library (`npcpy`),
+-a command line interface (`npc`) with the ability to process calls naturally (`npc 'prompt'`) or to call NPC macro commands like running a flask server to provide API access to an agent team (`npc serve`), web searching (`npc search -p perplexity 'cal bears football schedule'`), etc
 
--a bash-replacement shell (`npcsh`) that can process bash, natural language, or special macro calls for procedures like image generation (`/vixynt 'prompt'`), web searching (`/search -p perplexity 'cal bears football schedule'`), and one-off LLM response samples (`/sample 'prompt'`)
+-a replacement shell for interpreters like python/r/node/julia (`guac`) that lets users execute code snippets or to ask LLMs questions which respond by generating and executing code directly within the interpreter. The variables and functions generated during these executions are inspectable to the user. In addition, `guac` is set up to provide users with a sense of cyclicality by progressing from a raw avocado (🥑) through a series of intermediaite steps until it is a gross brown mush (🥘). At this point, the user is asked to refresh, which initiates an LLM review of the session's commands and results and then suggests automations and then after the user reviews them they will be added to the user's `guac` module that is installed locally within the `~/.npcsh/guac/` folder and which eveolves as the user uses it. This refresh period is meant to encourage frequent reviews for users to help them work more efficiently and cognizantly.  
 
--a command line interface (`npc`) with the ability to run the NPC macro commands like running a flask server to provide API access to an agent team (`npc serve`), web searching (`npc search -p perplexity 'cal bears football schedule'`), and deep research (`npc dive 'prompt to dive in on'`).
-
--a replacement shell for interpreters like python/r/node/julia (`guac`) that lets users execute code snippets in a REPL-like environment with the ability to ask LLMs questions and they ultimately  respond by generating and executing code directly within the interpreter. The variables and functions generated during these executions are inspectable to the user.
- 
 - a reasoning REPL loop with explicit checks to request inputs from users following thinking traces  (`pti`) which can be accessed by running `pti` directly, or by running `npc pti` from the command line or `/pti` from `npcsh`.
 -a simple agentic REPL loop (`spool`) which can be accessed by running `spool` directly, or by running `npc spool` from the command line or `/spool` from `npcsh`.
 
@@ -23,15 +24,14 @@ Welcome to `npcpy`, the python library for the NPC Toolkit and the home of the c
 
 `npcpy` works with local and enterprise LLM providers through its LiteLLM integration, allowing users to run inference from Ollama, LMStudio, OpenAI, Anthropic, Gemini, and Deepseek, making it a versatile tool for both simple commands and sophisticated AI-driven tasks. 
 
-- In `npcpy`, all agentic capabilities are built and tested using small local models (like `llama3.2`) to ensure it can function reliably even at the edge of computing.
-
-<p align="center">
-  <img src="https://raw.githubusercontent.com/cagostino/npcsh/main/npcpy.png" alt="npcpy logo of a solarpunk sign">
-</p>
+In `npcpy`, all agentic capabilities are built and tested using small local models (like `llama3.2`) to ensure it can function reliably even at the edge of computing.
 
 
 
-Read the docs at [npcpy.readthedocs.io](https://npcsh.readthedocs.io/en/latest/)
+
+Read the docs at [npcpy.readthedocs.io](https://npcpy.readthedocs.io/en/latest/)
+
+## 
 
 There is a graphical user interface that makes use of the NPC Toolkit through the NPC Studio. See the open source code for NPC Studio [here](https://github.com/cagostino/npc-studio). Download the executables (soon) at [our website](https://www.npcworldwi.de/npc-studio).
 
@@ -677,6 +677,11 @@ For cases where you wish to set up a project specific set of NPCs, tools, and as
 
 ## IMPORTANT: migrations and deprecations and major changes
 
+### v0.3.34
+-In v0.3.34, there were many significant changes to the structure of npcpy, introducing various new submodules for data I/O (`data`), AI model generation and inference (`gen`), command history, knowledge graph, and search features (`memory`), mixture of agents methods and schemes (`mix`), modes for interaction like `spool`, `guac`, `wander`, `yap`, `pti`, and more (`modes`), SQL-focused tooling (`sql`) and computer automations like `cron`, `systemctl`, `pyautogui`, etc (`work`) .
+
+
+ 
 ### v0.3.33
 -In v0.3.33, the NPCCompiler object was phased out and the global/project dichotomy was removed. 
 -the primary python package entrypoint was renamed from npcsh to npcpy
@@ -713,10 +718,6 @@ Contributions are welcome! Please submit issues and pull requests on the GitHub 
 ## Support
 If you appreciate the work here, [consider supporting NPC Worldwide](https://buymeacoffee.com/npcworldwide). If you'd like to explore how to use `npcsh` to help your business, please reach out to info@npcworldwi.de .
 
-
-## NPC Studio
-Coming soon! NPC Studio will be a desktop application for managing chats and agents on your own machine.
-Be sure to sign up for the [npcsh newsletter](https://forms.gle/n1NzQmwjsV4xv1B2A) to hear updates!
 
 ## License
 This project is licensed under the MIT License.
