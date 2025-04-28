@@ -36,7 +36,7 @@ from npcpy.modes.guac import enter_guac_mode
 from npcpy.mix.debate import run_debate
 from npcpy.memory.sleep import run_breathe_cycle
 from npcpy.data.image import capture_screenshot
-from npcpy.npc_compiler import NPC, Team, Tool
+from npcpy.npc_compiler import NPC, Team, Tool, compile_npc_file, compile_team_npcs
 from npcpy.npc_compiler import initialize_npc_project
 from npcpy.data.web import search_web
 
@@ -116,72 +116,6 @@ def breathe_handler(command: str, **kwargs):
         traceback.print_exc()
         return {"output": f"Error during breathe: {e}", "messages": messages}
 
-@router.route("chat", "Chat with an NPC")
-def chat_handler(command: str, **kwargs):
-    try:
-        return enter_spool_mode(
-            npc=safe_get(kwargs, 'npc'),
-            messages=safe_get(kwargs, 'messages'),
-            conversation_id=safe_get(kwargs, 'conversation_id'),
-            stream=safe_get(kwargs, 'stream', NPCSH_STREAM_OUTPUT),
-            files=safe_get(kwargs, 'files'),
-            inherit_last=safe_get(kwargs, 'inherit_last', 0),
-        )
-    except Exception as e:
-        traceback.print_exc()
-        return {"output": f"Error entering chat/spool mode: {e}", "messages": safe_get(kwargs, "messages", [])}
-
-@router.route("compile", "Compile NPC profiles")
-def compile_handler(command: str, **kwargs):
-    messages = safe_get(kwargs, "messages", [])
-    npc_team_dir = safe_get(kwargs, 'current_path', './npc_team')
-    parts = command.split()
-    npc_file_path_arg = parts[1] if len(parts) > 1 else None
-    output = ""
-    try:
-        if npc_file_path_arg:
-            npc_full_path = os.path.abspath(npc_file_path_arg)
-            if os.path.exists(npc_full_path):
-                npc = NPC(npc_full_path)
-                output = f"Compiled NPC: {npc_full_path}"
-            else:
-                output = f"Error: NPC file not found: {npc_full_path}"
-        else:
-            npc = NPC(npc_full_path)
-
-            output = f"Compiled all NPCs in directory: {npc_team_dir}"
-    except NameError:
-        output = "Compile functions (compile_npc_file, compile_team_npcs) not available."
-    except Exception as e:
-        traceback.print_exc()
-        output = f"Error compiling: {e}"
-    return {"output": output, "messages": messages, "npc": npc}
-
-
-@router.route("cmd", "Execute a command using LLM planning")
-@router.route("command", "Execute a command using LLM planning")
-def cmd_handler(command: str, **kwargs):
-    messages = safe_get(kwargs, "messages", [])
-    user_command = " ".join(command.split()[1:])
-    if not user_command:
-         return {"output": "Usage: /cmd <command_description>", "messages": messages}
-    try:
-        return execute_llm_command(
-            command=user_command,
-            model=safe_get(kwargs, 'model'),
-            provider=safe_get(kwargs, 'provider'),
-            api_url=safe_get(kwargs, 'api_url'),
-            api_key=safe_get(kwargs, 'api_key'),
-            npc=safe_get(kwargs, 'npc'),
-            messages=messages,
-            stream=safe_get(kwargs, 'stream'),
-            context=safe_get(kwargs, 'context')
-            )
-    except Exception as e:
-        traceback.print_exc()
-        return {"output": f"Error executing LLM command: {e}", "messages": messages}
-
-
 @router.route("conjure", "Conjure an NPC or tool")
 def conjure_handler(command: str, **kwargs):
     messages = safe_get(kwargs, "messages", [])
@@ -194,34 +128,6 @@ def conjure_handler(command: str, **kwargs):
     except Exception as e:
         traceback.print_exc()
         return {"output": f"Error conjuring: {e}", "messages": messages}
-
-
-@router.route("data", "Enter data analysis (guac) mode", shell_only=True)
-def data_handler(command: str, **kwargs):
-    messages = safe_get(kwargs, "messages", [])
-    try:
-        result = enter_guac_mode(**kwargs)
-        if isinstance(result, dict): return result
-        return {"output": str(result), "messages": messages}
-    except NameError:
-        return {"output": "Guac mode function (enter_guac_mode) not available.", "messages": messages}
-    except Exception as e:
-        traceback.print_exc()
-        return {"output": f"Error entering data mode: {e}", "messages": messages}
-
-@router.route('debate', "Have NPCs debate a topic")
-def debate_handler(command: str, **kwargs):
-    messages = safe_get(kwargs, "messages", [])
-    try:
-        result = run_debate(command_string=command, **kwargs)
-        if isinstance(result, dict): return result
-        return {"output": str(result), "messages": messages}
-    except NameError:
-        return {"output": "Debate function (run_debate) not available.", "messages": messages}
-    except Exception as e:
-        traceback.print_exc()
-        return {"output": f"Error running debate: {e}", "messages": messages}
-
 
 @router.route("flush", "Flush the last N messages", shell_only=True)
 def flush_handler(command: str, **kwargs):
@@ -480,30 +386,6 @@ def search_handler(command: str, **kwargs):
         output = f"Error during web search: {e}"
     return {"output": output, "messages": messages}
 
-
-@router.route("set", "Set configuration values")
-def set_handler(command: str, **kwargs):
-    messages = safe_get(kwargs, "messages", [])
-    parts = command.split(maxsplit=1)
-    if len(parts) < 2 or '=' not in parts[1]:
-        return {"output": "Usage: /set <key>=<value>", "messages": messages}
-
-    key_value = parts[1]
-    key, value = key_value.split('=', 1)
-    key = key.strip()
-    value = value.strip().strip('"\'')
-
-    try:
-        set_npcsh_config_value(key, value)
-        output = f"Configuration value '{key}' set."
-    except NameError:
-        output = "Set function (set_npcsh_config_value) not available."
-    except Exception as e:
-        traceback.print_exc()
-        output = f"Error setting configuration '{key}': {e}"
-    return {"output": output, "messages": messages}
-
-@router.route("sleep", "Pause execution for N seconds")
 def sleep_handler(command: str, **kwargs):
     messages = safe_get(kwargs, "messages", [])
     parts = command.split()
@@ -614,7 +496,7 @@ def vixynt_handler(command: str, **kwargs):
     except Exception as parse_err:
         return {"output": f"Error parsing arguments: {parse_err}. Usage: /vixynt <prompt> [filename=...] [height=...] [width=...]", "messages": messages}
 
-    print(model, provider)
+
     user_prompt = " ".join(prompt_parts)
     if not user_prompt:
         return {"output": "Usage: /vixynt <prompt> [filename=...] [height=...] [width=...]", "messages": messages}
@@ -664,8 +546,6 @@ def wander_handler(command: str, **kwargs):
     except Exception as e:
         traceback.print_exc()
         return {"output": f"Error during wander mode: {e}", "messages": messages}
-
-
 @router.route("yap", "Enter voice chat (yap) mode", shell_only=True)
 def whisper_handler(command: str, **kwargs):
     try:
