@@ -13,6 +13,7 @@ def generate_video_diffusers(
     import torch
     from diffusers import DiffusionPipeline, DPMSolverMultistepScheduler
     import numpy as np
+    import os 
     import cv2
 
     # Load pipeline

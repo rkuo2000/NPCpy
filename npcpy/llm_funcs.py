@@ -40,6 +40,8 @@ from npcpy.npc_sysenv import (
 )
 from npcpy.gen.response import get_litellm_response
 from npcpy.gen.image_gen import generate_image_litellm
+from npcpy.gen.video_gen import generate_video_diffusers
+
 def generate_image(
     prompt: str,
     model: str = NPCSH_IMAGE_GEN_MODEL,
