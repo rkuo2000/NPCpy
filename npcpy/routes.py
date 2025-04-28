@@ -21,23 +21,29 @@ from npcpy.llm_funcs import (
     execute_llm_command,
     rehash_last_message,
     generate_image,
-    handle_tool_call
+    handle_tool_call, generate_video,
 )
-from npcpy.memory.search import execute_rag_command, execute_search_command
-from npcpy.memory.knowledge_graph import breathe
+from npcpy.npc_compiler import NPC, Team, Tool
+from npcpy.npc_compiler import initialize_npc_project
+
+
 from npcpy.work.plan import execute_plan_command
 from npcpy.work.trigger import execute_trigger_command
+from npcpy.work.desktop import perform_action
+
+
+from npcpy.memory.search import execute_rag_command, execute_search_command
+from npcpy.memory.knowledge_graph import breathe
+from npcpy.memory.sleep import run_breathe_cycle
+
 from npcpy.modes.spool import enter_spool_mode
 from npcpy.modes.plonk import execute_plonk_command
-from npcpy.work.desktop import perform_action
 from npcpy.modes.yap import enter_yap_mode
 from npcpy.modes.wander import enter_wander_mode
 from npcpy.modes.guac import enter_guac_mode
+
 from npcpy.mix.debate import run_debate
-from npcpy.memory.sleep import run_breathe_cycle
 from npcpy.data.image import capture_screenshot
-from npcpy.npc_compiler import NPC, Team, Tool
-from npcpy.npc_compiler import initialize_npc_project
 from npcpy.data.web import search_web
 
 class CommandRouter:
@@ -437,7 +443,34 @@ def rehash_handler(command: str, **kwargs):
     except Exception as e:
         traceback.print_exc()
         return {"output": f"Error rehashing: {e}", "messages": messages}
-
+@router.route("roll", "generate a video")
+def roll_handler(command: str, **kwargs):
+    messages = safe_get(kwargs, "messages", [])
+    prompt = " ".join(command.split()[1:])
+    num_frames = safe_get(kwargs, 'num_frames', 10)
+    width = safe_get(kwargs, 'width', 256)
+    height = safe_get(kwargs, 'height', 256)
+    output_path = safe_get(kwargs, 'output_path', "output.mp4")    
+    if not prompt:
+        return {"output": "Usage: /roll <your prompt>", "messages": messages}
+    try:
+        result = generate_video(
+            prompt=prompt,
+            model=safe_get(kwargs, 'model', NPCSH_VISION_MODEL),
+            provider=safe_get(kwargs, 'provider', NPCSH_VISION_PROVIDER),
+            npc=safe_get(kwargs, 'npc'),
+            num_frames = num_frames,
+            width = width,
+            height = height,
+            output_path=output_path,
+            
+            **safe_get(kwargs, 'api_kwargs', {})
+        )
+        return result
+    except Exception as e:
+        traceback.print_exc()
+        return {"output": f"Error generating video: {e}", "messages": messages}
+    
 
 @router.route("sample", "Send a prompt directly to the LLM")
 def sample_handler(command: str, **kwargs):
