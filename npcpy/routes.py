@@ -6,7 +6,7 @@ import os
 import traceback
 import shlex
 import time
-
+from sqlalchemy import create_engine
 from npcpy.npc_sysenv import (
     render_code_block, render_markdown,
     NPCSH_VISION_MODEL, NPCSH_VISION_PROVIDER, NPCSH_API_URL,
@@ -36,11 +36,15 @@ from npcpy.memory.search import execute_rag_command, execute_search_command
 from npcpy.memory.knowledge_graph import breathe
 from npcpy.memory.sleep import run_breathe_cycle
 
-from npcpy.modes.spool import enter_spool_mode
-from npcpy.modes.plonk import execute_plonk_command
-from npcpy.modes.yap import enter_yap_mode
-from npcpy.modes.wander import enter_wander_mode
 from npcpy.modes.guac import enter_guac_mode
+from npcpy.modes.plonk import execute_plonk_command
+from npcpy.modes.serve import start_flask_server
+
+from npcpy.modes.spool import enter_spool_mode
+from npcpy.modes.wander import enter_wander_mode
+from npcpy.modes.yap import enter_yap_mode
+
+
 
 from npcpy.mix.debate import run_debate
 from npcpy.data.image import capture_screenshot
@@ -122,21 +126,6 @@ def breathe_handler(command: str, **kwargs):
         traceback.print_exc()
         return {"output": f"Error during breathe: {e}", "messages": messages}
 
-@router.route("chat", "Chat with an NPC")
-def chat_handler(command: str, **kwargs):
-    try:
-        return enter_spool_mode(
-            npc=safe_get(kwargs, 'npc'),
-            messages=safe_get(kwargs, 'messages'),
-            conversation_id=safe_get(kwargs, 'conversation_id'),
-            stream=safe_get(kwargs, 'stream', NPCSH_STREAM_OUTPUT),
-            files=safe_get(kwargs, 'files'),
-            inherit_last=safe_get(kwargs, 'inherit_last', 0),
-        )
-    except Exception as e:
-        traceback.print_exc()
-        return {"output": f"Error entering chat/spool mode: {e}", "messages": safe_get(kwargs, "messages", [])}
-
 @router.route("compile", "Compile NPC profiles")
 def compile_handler(command: str, **kwargs):
     messages = safe_get(kwargs, "messages", [])
@@ -163,70 +152,6 @@ def compile_handler(command: str, **kwargs):
         output = f"Error compiling: {e}"
     return {"output": output, "messages": messages, "npc": npc}
 
-
-@router.route("cmd", "Execute a command using LLM planning")
-@router.route("command", "Execute a command using LLM planning")
-def cmd_handler(command: str, **kwargs):
-    messages = safe_get(kwargs, "messages", [])
-    user_command = " ".join(command.split()[1:])
-    if not user_command:
-         return {"output": "Usage: /cmd <command_description>", "messages": messages}
-    try:
-        return execute_llm_command(
-            command=user_command,
-            model=safe_get(kwargs, 'model'),
-            provider=safe_get(kwargs, 'provider'),
-            api_url=safe_get(kwargs, 'api_url'),
-            api_key=safe_get(kwargs, 'api_key'),
-            npc=safe_get(kwargs, 'npc'),
-            messages=messages,
-            stream=safe_get(kwargs, 'stream'),
-            context=safe_get(kwargs, 'context')
-            )
-    except Exception as e:
-        traceback.print_exc()
-        return {"output": f"Error executing LLM command: {e}", "messages": messages}
-
-
-@router.route("conjure", "Conjure an NPC or tool")
-def conjure_handler(command: str, **kwargs):
-    messages = safe_get(kwargs, "messages", [])
-    try:
-        result = conjure_new_object(command_string=command, **kwargs)
-        if isinstance(result, dict): return result
-        return {"output": str(result), "messages": messages}
-    except NameError:
-        return {"output": "Conjure function (conjure_new_object) not available.", "messages": messages}
-    except Exception as e:
-        traceback.print_exc()
-        return {"output": f"Error conjuring: {e}", "messages": messages}
-
-
-@router.route("data", "Enter data analysis (guac) mode", shell_only=True)
-def data_handler(command: str, **kwargs):
-    messages = safe_get(kwargs, "messages", [])
-    try:
-        result = enter_guac_mode(**kwargs)
-        if isinstance(result, dict): return result
-        return {"output": str(result), "messages": messages}
-    except NameError:
-        return {"output": "Guac mode function (enter_guac_mode) not available.", "messages": messages}
-    except Exception as e:
-        traceback.print_exc()
-        return {"output": f"Error entering data mode: {e}", "messages": messages}
-
-@router.route('debate', "Have NPCs debate a topic")
-def debate_handler(command: str, **kwargs):
-    messages = safe_get(kwargs, "messages", [])
-    try:
-        result = run_debate(command_string=command, **kwargs)
-        if isinstance(result, dict): return result
-        return {"output": str(result), "messages": messages}
-    except NameError:
-        return {"output": "Debate function (run_debate) not available.", "messages": messages}
-    except Exception as e:
-        traceback.print_exc()
-        return {"output": f"Error running debate: {e}", "messages": messages}
 
 
 @router.route("flush", "Flush the last N messages", shell_only=True)
@@ -265,9 +190,39 @@ def flush_handler(command: str, **kwargs):
     output = f"Flushed {removed_count} message(s). Context is now {len(final_messages)} messages."
     return {"output": output, "messages": final_messages}
 
+@router.route("guac", "Enter guac mode")
+def guac_handler( **kwargs):
+    '''
+    Guac ignores input npc and npc_team dirs and manually sets them to be at ~/.npcsh/guac/
+    
+    '''
+    config_dir = safe_get(kwargs, 'config_dir', None)
+    plots_dir = safe_get(kwargs, 'plots_dir', None)
+    refresh_period = safe_get(kwargs, 'refresh_period', 100)
+    lang = safe_get(kwargs, 'lang', None)
+    messages = safe_get(kwargs, "messages", [])
+    db_conn = safe_get(kwargs, 'db_conn', create_engine('sqlite:///'+os.path.expanduser('~/npcsh_history.db')))
+    
+    npc_file = '~/.npcsh/guac/npc_team/guac.npc'
+    npc_team_dir = os.path.expanduser('~/.npcsh/guac/npc_team/')
+    
+    npc = NPC(file=npc_file, db_conn=db_conn)
+
+    team = Team(npc_team_dir, db_conn=db_conn)
+
+    
+    enter_guac_mode(npc=npc, 
+                    team=team, 
+                    config_dir=config_dir, 
+                    plots_dir=plots_dir,
+                    npc_team_dir=npc_team_dir,
+                    refresh_period=refresh_period, lang=lang)
+    
+    return {"output": 'Exiting Guac Mode', "messages": safe_get(kwargs, "messages", [])}
+
 
 @router.route("help", "Show help information")
-def help_handler(command: str, **kwargs):
+def help_handler(**kwargs):
     return {"output": get_help_text(), "messages": safe_get(kwargs, "messages", [])}
 
 @router.route("init", "Initialize NPC project")
@@ -513,6 +468,27 @@ def search_handler(command: str, **kwargs):
         output = f"Error during web search: {e}"
     return {"output": output, "messages": messages}
 
+
+
+@router.route("serve", "Set configuration values")
+def serve_handler(command: str, **kwargs):
+
+
+    port   = safe_get(kwargs, "port", 5337)
+    messages = safe_get(kwargs, "messages", [])
+    cors = safe_get(kwargs, "cors", None)
+    if cors:
+        cors_origins = [origin.strip() for origin in cors.split(",")]
+    else:
+        cors_origins = None
+
+        start_flask_server(
+            port=port, 
+            cors_origins=cors_origins,
+        )
+
+
+    return {"output": None, "messages": messages}
 
 @router.route("set", "Set configuration values")
 def set_handler(command: str, **kwargs):
