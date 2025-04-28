@@ -424,7 +424,6 @@ The user has entered the following in the guac {self.lang} shell:
 "{line.strip()}"
 Generate {self.lang} code that addresses their query.
 Return ONLY executable {self.lang} code without any additional text or markdown.
-If the query cannot be translated to code or is unclear, respond with only '# Cannot generate code for this query.'.
 """
                      response = get_llm_response(prompt, npc=self.npc)
                      generated_code = response.get("response", "").strip()
@@ -528,6 +527,24 @@ If the query cannot be translated to code or is unclear, respond with only '# Ca
     def write(self, data):
         sys.stderr.write(data)
         sys.stderr.flush()
+def print_guac_bowl():
+    guac = [
+        "  🟢🟢🟢🟢🟢 ",
+        "🟢          🟢                 ",
+        "🟢  ",
+        "🟢      ",                  
+        "🟢      ",                          
+        "🟢      🟢🟢🟢   🟢    🟢   🟢🟢🟢    🟢🟢🟢",
+        "🟢           🟢  🟢    🟢    ⚫⚫🟢  🟢        ",
+        "🟢           🟢  🟢    🟢  ⚫🥑🧅⚫  🟢     ",
+        "🟢           🟢  🟢    🟢  ⚫🥑🍅⚫  🟢      ",
+        " 🟢🟢🟢🟢🟢🟢    🟢🟢🟢🟢    ⚫⚫🟢   🟢🟢🟢 ",
+        "                                            "
+    ]
+    
+    for line in guac:
+        print(line)
+
 
 
 
@@ -582,6 +599,8 @@ def enter_guac_mode(npc=None, team=None, config_dir=None, plots_dir=None, npc_te
             pass
 
     setup_guac_readline()
+    
+    print_guac_bowl()
 
     if lang == "python":
         namespace = {}
