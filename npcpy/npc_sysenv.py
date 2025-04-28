@@ -82,6 +82,88 @@ os.environ["PYTHONWARNINGS"] = "ignore"
 os.environ["SDL_AUDIODRIVER"] = "dummy"
 
 
+
+def get_locally_available_models(project_directory):
+    global available_models
+    env_path = os.path.join(project_directory, ".env")
+    env_vars = {}
+    if os.path.exists(env_path):
+        with open(env_path, "r") as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#"):
+                    if "=" in line:
+                        key, value = line.split("=", 1)
+                        env_vars[key.strip()] = value.strip().strip("\"'")
+    if "ANTHROPIC_API_KEY" in env_vars:
+        try:
+            import anthropic
+
+            client = anthropic.Anthropic(api_key=env_vars.get("ANTHROPIC_API_KEY"))
+            models = client.models.list()
+            for model in models.data:
+                available_models[model.id] = 'anthropic'
+                    
+        except:
+            print("anthropic models not indexed")
+    if "OPENAI_API_KEY" in env_vars:
+        try:
+            import openai
+
+            openai.api_key = env_vars["OPENAI_API_KEY"]
+            models = openai.models.list()
+
+            for model in models.data:
+                if (
+                    (
+                        "gpt" in model.id
+                        or "o1" in model.id
+                        or "o3" in model.id
+                        or "chat" in model.id
+                    )
+                    and "audio" not in model.id
+                    and "realtime" not in model.id
+                ):
+                    available_models[model.id] = "openai"
+        except:
+            print("openai models not indexed")
+
+    if "GEMINI_API_KEY" in env_vars:
+        try:
+            import google.generativeai as gemini
+
+            gemini.configure(api_key=env_vars["GEMINI_API_KEY"])
+            models = gemini.list_models()
+            # available_models_providers.append(
+            #    {
+            #        "model": "gemini-2.5-pro",
+            #        "provider": "gemini",
+            #    }
+            # )
+            available_models["gemini-1.5-flash"] = "gemini"
+            available_models["gemini-2.0-flash"] = "gemini"
+            available_models["gemini-2.0-flash-lite"] = "gemini"
+            available_models["gemini-2.0-flash-lite-preview"] = "gemini"
+            available_models["gemini-2.5-pro"] = "gemini"
+            
+        except:
+            print("gemini models not indexed.")
+    if "DEEPSEEK_API_KEY" in env_vars:
+        available_models['deepseek-chat'] = 'deepseek'
+        available_models['deepseek-reasoner'] = 'deepseek'        
+    try:
+        import ollama
+        models = ollama.list()
+        for model in models.models:
+
+            if "embed" not in model.model:
+                mod = model.model
+                available_models[mod] = "ollama"
+    except Exception as e:
+        print(f"Error loading ollama models: {e}")
+    return available_models
+
+
 def validate_bash_command(command_parts: list) -> bool:
     """
     Function Description:

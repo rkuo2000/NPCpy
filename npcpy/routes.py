@@ -48,6 +48,8 @@ from npcpy.modes.yap import enter_yap_mode
 
 from npcpy.mix.debate import run_debate
 from npcpy.data.image import capture_screenshot
+from npcpy.npc_compiler import NPC, Team, Tool, compile_npc_file, compile_team_npcs
+from npcpy.npc_compiler import initialize_npc_project
 from npcpy.data.web import search_web
 
 class CommandRouter:
@@ -623,7 +625,7 @@ def vixynt_handler(command: str, **kwargs):
     except Exception as parse_err:
         return {"output": f"Error parsing arguments: {parse_err}. Usage: /vixynt <prompt> [filename=...] [height=...] [width=...]", "messages": messages}
 
-    print(model, provider)
+
     user_prompt = " ".join(prompt_parts)
     if not user_prompt:
         return {"output": "Usage: /vixynt <prompt> [filename=...] [height=...] [width=...]", "messages": messages}
@@ -673,8 +675,6 @@ def wander_handler(command: str, **kwargs):
     except Exception as e:
         traceback.print_exc()
         return {"output": f"Error during wander mode: {e}", "messages": messages}
-
-
 @router.route("yap", "Enter voice chat (yap) mode", shell_only=True)
 def whisper_handler(command: str, **kwargs):
     try:
