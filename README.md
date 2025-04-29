@@ -9,8 +9,8 @@
 Welcome to `npcpy`, the python library for the NPC Toolkit and the home of the core command-line programs that make up the NPC Shell (`npcsh`). 
 
 <p align="center">
-  <a href= "https://github.com/cagostino/npcpy/docs/guide.md"> 
-  <img src="https://raw.githubusercontent.com/cagostino/npcpy/main/npcpy/npcsh.png" alt="npcsh logo" width=200>
+  <a href= "https://github.com/cagostino/npcpy/blob/main/docs/guide.md"> 
+  <img src="https://raw.githubusercontent.com/cagostino/npcpy/main/npcpy/npcsh.png" alt="npcsh logo" width=250></a>
 </p>
 
 
@@ -23,8 +23,8 @@ Welcome to `npcpy`, the python library for the NPC Toolkit and the home of the c
 - `npc`: a command line interface (`npc`) with the ability to process calls naturally (`npc 'prompt'`) or to call NPC macro commands like running a flask server to provide API access to an agent team (`npc serve`), web searching (`npc search -p perplexity 'cal bears football schedule'`), etc
 
 - `guac`: a replacement shell for interpreters like python/r/node/julia (`guac`) that brings a pomodoro-like approach to interactive coding.
-<p align="center"><a href = "https://github.com/cagostino/npcpy/docs/guac.md"> 
-  <img src="https://raw.githubusercontent.com/cagostino/npcpy/main/npcpy/npc_team/guac.png" alt="npcpy logo of a solarpunk sign", width=200></a>
+<p align="center"><a href ="https://github.com/cagostino/npcpy/blob/main/docs/guac.md"> 
+  <img src="https://raw.githubusercontent.com/cagostino/npcpy/main/npcpy/npc_team/guac.png" alt="npcpy logo of a solarpunk sign", width=250></a>
 </p>
 
 - `pti`: a reasoning REPL loop with explicit checks to request inputs from users following thinking traces  (`pti`) which can be accessed by running `pti` directly, or by running `npc pti` from the command line or `/pti` from `npcsh`.
