@@ -10,7 +10,7 @@ Welcome to `npcpy`, the python library for the NPC Toolkit and the home of the c
 
 <p align="center">
   <a href= "https://github.com/cagostino/npcpy/docs/guide.md"> 
-  <img src="https://raw.githubusercontent.com/cagostino/npcpy/main/npcpy/npcsh.png" alt="npcsh logo">
+  <img src="https://raw.githubusercontent.com/cagostino/npcpy/main/npcpy/npcsh.png" alt="npcsh logo" width=200>
 </p>
 
 
