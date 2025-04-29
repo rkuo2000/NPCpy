@@ -1,25 +1,29 @@
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/cagostino/npcsh/main/npcpy.png" alt="npcpy logo of a solarpunk sign">
+  <img src="https://raw.githubusercontent.com/cagostino/npcpy/main/npcpy.png" alt="npcpy logo of a solarpunk sign">
 </p>
 
 
 # npcpy
 
-Welcome to `npcpy`, the python library for the NPC Toolkit and the home of the core command-line programs that make up the NPC Shell (`npcsh`). `npcpy` is an agent-based framework designed to easily integrate AI models into one's daily workflow and it does this by providing users with a variety of interfaces through which they can use, test, and explore the capabilities of AI models, agents, and agent systems. These include the following:
+Welcome to `npcpy`, the python library for the NPC Toolkit and the home of the core command-line programs that make up the NPC Shell (`npcsh`). 
 
-- an extensible python library (`npcpy`) with convenient methods for getting LLM responses, loading data, creating agents, and implementing agentic capabilities in new custom systems.
+<p align="center">
+  <img src="https://raw.githubusercontent.com/cagostino/npcpy/main/npcpy/npcsh.png" alt="npcsh logo">
+</p>
 
-- a bash-replacement shell (`npcsh`) that can process bash, natural language, or special macro calls for procedures like image generation (`/vixynt 'prompt'`), web searching (`/search -p perplexity 'cal bears football schedule'`), and one-off LLM response samples (`/sample 'prompt'`). Users can specify whether natural language is processed agentically (i.e. an LLM reviews and decides to pass to other agents or use tools) or directly through bash execution.
 
-- a command line interface (`npc`) with the ability to process calls naturally (`npc 'prompt'`) or to call NPC macro commands like running a flask server to provide API access to an agent team (`npc serve`), web searching (`npc search -p perplexity 'cal bears football schedule'`), etc
-
-- a replacement shell for interpreters like python/r/node/julia (`guac`) that brings a pomodoro-like approach to interactive coding.
-
-- a reasoning REPL loop with explicit checks to request inputs from users following thinking traces  (`pti`) which can be accessed by running `pti` directly, or by running `npc pti` from the command line or `/pti` from `npcsh`.
-- a simple agentic REPL loop (`spool`) which can be accessed by running `spool` directly, or by running `npc spool` from the command line or `/spool` from `npcsh`.
-
-- a voice control REPL loop (`yap`) which can be accessed by running `yap` directly, or by running `npc yap` from the command line or `/yap` from `npcsh`.
+`npcpy` is an agent-based framework designed to easily integrate AI models into one's daily workflow and it does this by providing users with a variety of interfaces through which they can use, test, and explore the capabilities of AI models, agents, and agent systems. These include the following:
+-`npcpy`: an extensible python library with convenient methods for getting LLM responses, loading data, creating agents, and implementing agentic capabilities in new custom systems.
+-`npcsh`: a bash-replacement shell (`npcsh`) that can process bash, natural language, or special macro calls for procedures like image generation (`/vixynt 'prompt'`), web searching (`/search -p perplexity 'cal bears football schedule'`), and one-off LLM response samples (`/sample 'prompt'`). Users can specify whether natural language is processed agentically (i.e. an LLM reviews and decides to pass to other agents or use tools) or directly through bash execution.
+-`npc`: a command line interface (`npc`) with the ability to process calls naturally (`npc 'prompt'`) or to call NPC macro commands like running a flask server to provide API access to an agent team (`npc serve`), web searching (`npc search -p perplexity 'cal bears football schedule'`), etc
+- `guac`: a replacement shell for interpreters like python/r/node/julia (`guac`) that brings a pomodoro-like approach to interactive coding.
+<p align="center">
+  <img src="https://raw.githubusercontent.com/cagostino/npcpy/main/npcpy/npc_team/guac.png" alt="npcpy logo of a solarpunk sign", width=200>
+</p>
+- `pti`: a reasoning REPL loop with explicit checks to request inputs from users following thinking traces  (`pti`) which can be accessed by running `pti` directly, or by running `npc pti` from the command line or `/pti` from `npcsh`.
+- `spool`: a simple agentic REPL loop (`spool`) which can be accessed by running `spool` directly, or by running `npc spool` from the command line or `/spool` from `npcsh`.
+- `yap`: a voice control REPL loop (`yap`) which can be accessed by running `yap` directly, or by running `npc yap` from the command line or `/yap` from `npcsh`.
 
 
 `npcpy` works with local and enterprise LLM providers through its LiteLLM integration, allowing users to run inference from Ollama, LMStudio, OpenAI, Anthropic, Gemini, and Deepseek, making it a versatile tool for both simple commands and sophisticated AI-driven tasks. 
