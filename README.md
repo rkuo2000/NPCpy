@@ -15,11 +15,11 @@ Welcome to `npcpy`, the python library for the NPC Toolkit and the home of the c
 
 `npcpy` is an agent-based framework designed to easily integrate AI models into one's daily workflow and it does this by providing users with a variety of interfaces through which they can use, test, and explore the capabilities of AI models, agents, and agent systems. These include the following:
 
--`npcpy`: an extensible python library with convenient methods for getting LLM responses, loading data, creating agents, and implementing agentic capabilities in new custom systems.
+- `npcpy`: an extensible python library with convenient methods for getting LLM responses, loading data, creating agents, and implementing agentic capabilities in new custom systems.
 
--`npcsh`: a bash-replacement shell (`npcsh`) that can process bash, natural language, or special macro calls for procedures like image generation (`/vixynt 'prompt'`), web searching (`/search -p perplexity 'cal bears football schedule'`), and one-off LLM response samples (`/sample 'prompt'`). Users can specify whether natural language is processed agentically (i.e. an LLM reviews and decides to pass to other agents or use tools) or directly through bash execution.
+- `npcsh`: a bash-replacement shell (`npcsh`) that can process bash, natural language, or special macro calls for procedures like image generation (`/vixynt 'prompt'`), web searching (`/search -p perplexity 'cal bears football schedule'`), and one-off LLM response samples (`/sample 'prompt'`). Users can specify whether natural language is processed agentically (i.e. an LLM reviews and decides to pass to other agents or use tools) or directly through bash execution.
 
--`npc`: a command line interface (`npc`) with the ability to process calls naturally (`npc 'prompt'`) or to call NPC macro commands like running a flask server to provide API access to an agent team (`npc serve`), web searching (`npc search -p perplexity 'cal bears football schedule'`), etc
+- `npc`: a command line interface (`npc`) with the ability to process calls naturally (`npc 'prompt'`) or to call NPC macro commands like running a flask server to provide API access to an agent team (`npc serve`), web searching (`npc search -p perplexity 'cal bears football schedule'`), etc
 
 - `guac`: a replacement shell for interpreters like python/r/node/julia (`guac`) that brings a pomodoro-like approach to interactive coding.
 <p align="center">
