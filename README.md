@@ -198,7 +198,7 @@ from npcpy.npc_compiler import NPC
 
 # Set up database connection
 db_path = '~/npcsh_history.db'
-conn = sqlite3.connect(db_path)
+conn = sqlite3.connect(os.path.expanduser(db_path))
 
 # Load NPC from a file
 npc = NPC(
