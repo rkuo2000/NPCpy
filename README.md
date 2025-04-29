@@ -31,10 +31,11 @@ In `npcpy`, all agentic capabilities are built and tested using small local mode
 
 Read the docs at [npcpy.readthedocs.io](https://npcpy.readthedocs.io/en/latest/)
 
-## 
-
+## NPC Studio
 There is a graphical user interface that makes use of the NPC Toolkit through the NPC Studio. See the open source code for NPC Studio [here](https://github.com/cagostino/npc-studio). Download the executables (soon) at [our website](https://www.npcworldwi.de/npc-studio).
 
+
+## Mailing List
 Interested to stay in the loop and to hear the latest and greatest about `npcpy`, `npcsh`, and NPC Studio? Be sure to sign up for the [newsletter](https://forms.gle/n1NzQmwjsV4xv1B2A)!
 
 
@@ -46,24 +47,23 @@ Interested to stay in the loop and to hear the latest and greatest about `npcpy`
 [![Star History Chart](https://api.star-history.com/svg?repos=cagostino/npcpy&type=Date)](https://star-history.com/#cagostino/npcpy&Date)
 
 ## TLDR Cheat Sheet for NPC shell and cli
-The NPC shell and cli let users iterate and experiiment with AI in a natural way. Below is a cheat sheet that shows how to use the NPC Toolkit's macro commands in both the shell and the CLI. For the `npcsh` commands to work, one must activate `npcsh` by typing it in a shell.
+The NPC shell and cli let users iterate and experiment with AI in a natural way. Below is a cheat sheet that shows how to use the NPC Toolkit's macro commands in both the shell and the CLI. For the `npcsh` commands to work, one must activate `npcsh` by typing it in a shell.
 
 | Task | npc CLI | npcsh |
 |----------|----------|----------|
 | Ask a generic question | npc 'prompt' | 'prompt' |
 | Compile an NPC | npc compile /path/to/npc.npc | /compile /path/to/npc.npc |
 | Computer use | npc plonk -n 'npc_name' -sp 'task for plonk to carry out '| /plonk -n 'npc_name' -sp 'task for plonk to carry out ' |
-| Conjure an NPC team from context and templates | npc init -t 'template1, template2' -ctx 'context'   | /conjure  -t 'template1, 'template2' -ctx 'context'  |
-| Enter a chat with an NPC (NPC needs to be compiled first) | npc chat -n npc_name | /spool npc=<npc_name> |
+| Enter a chat with an NPC (NPC needs to be compiled first) | npc spool -n npc_name | /spool -n <npc_name> |
 | Generate image    | npc vixynt 'prompt'  | /vixynt prompt   |
 | Get a sample LLM response  | npc sample 'prompt'   | /sample prompt for llm  |
 | Search the web | npc search -q "cal golden bears football schedule" -sp perplexity | /search -p perplexity 'cal bears football schedule' |
 | Serve an NPC team | npc serve --port 5337 --cors='http://localhost:5137/' | /serve --port 5337 --cors='http://localhost:5137/' |
 | Screenshot analysis  | npc ots |  /ots  |
-| Voice Chat    | npc whisper -n 'npc_name'   | /whisper   |
+| Voice Chat    | npc yap   | /yap   |
 
 
-When beginning, `npcsh` initializes a set of agents that you can use and tweak as you go. Our mascot agent is sibiji the spider and he will help you weave your agent web! 
+When beginning, `npcsh` initializes a set of agents that you can use and tweak as you go. Our mascot agent is sibiji the spider and will help you weave your agent web! 
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/cagostino/npcsh/main/npcpy/npcsh.png" alt="npcsh logo with sibiji the spider">
@@ -216,147 +216,7 @@ print(response['response'])
 ```bash
 'The most important territory to retain in the Andes mountains for the cause of liberation in South America would be the region of Quito in present-day Ecuador. This area is strategically significant due to its location and access to key trade routes. It also acts as a vital link between the northern and southern parts of the continent, influencing both military movements and the morale of the independence struggle. Retaining control over Quito would bolster efforts to unite various factions in the fight against Spanish colonial rule across the Andean states.'
 ```
-### Example 4: Using an NPC to Analyze Data
-This example shows how to use an NPC to perform data analysis on a DataFrame using LLM commands.
-```python
-from npcpy.npc_compiler import NPC
-import sqlite3
-import os
-# Set up database connection
-db_path = '~/npcsh_history.db'
-conn = sqlite3.connect(os.path.expanduser(db_path))
-
-# make a table to put into npcsh_history.db or change this example to use an existing table in a database you have
-import pandas as pd
-data = {
-        'customer_feedback': ['The product is great!', 'The service was terrible.', 'I love the new feature.'],
-        'customer_id': [1, 2, 3],
-        'customer_rating': [5, 1, 3],
-        'timestamp': ['2022-01-01', '2022-01-02', '2022-01-03']
-        }
-
-
-df = pd.DataFrame(data)
-df.to_sql('customer_feedback', conn, if_exists='replace', index=False)
-
-
-npc = NPC(
-          name='Felix',
-          db_conn=conn,
-          primary_directive='Analyze customer feedback for sentiment.',
-          model='gpt-4o-mini',
-          provider='openai',
-          )
-response = npc.analyze_db_data('Provide a detailed report on the data contained in the `customer_feedback` table?')
-
-
-```
-
-
-### Example 5: Creating and Using a Tool
-You can define a tool and execute it from within your Python script.
-Here we'll create a tool that will take in a pdf file, extract the text, and then answer a user request about the text.
-
-```python
-from npcpy.npc_compiler import Tool, NPC
-import sqlite3
-import os
-
-from jinja2 import Environment, FileSystemLoader
-
-# Create a proper Jinja environment
-jinja_env = Environment(loader=FileSystemLoader('.'))
-
-
-tool_data = {
-    "tool_name": "pdf_analyzer",
-    "inputs": ["request", "file"],
-    "steps": [{  # Make this a list with one dict inside
-        "engine": "python",
-        "code": """
-try:
-    import fitz  # PyMuPDF
-
-    shared_context = {}
-    shared_context['inputs'] = '{{request}}'
-
-    pdf_path = '{{file}}'
-
-
-
-    # Open the PDF
-    doc = fitz.open(pdf_path)
-    text = ""
-
-    # Extract text from each page
-    for page_num in range(len(doc)):
-        page = doc[page_num]
-        text += page.get_text()
-
-    # Close the document
-    doc.close()
-
-    print(f"Extracted text length: {len(text)}")
-    if len(text) > 100:
-        print(f"First 100 characters: {text[:100]}...")
-
-    shared_context['extracted_text'] = text
-    print("Text extraction completed successfully")
-
-except Exception as e:
-    error_msg = f"Error processing PDF: {str(e)}"
-    print(error_msg)
-    shared_context['extracted_text'] = f"Error: {error_msg}"
-"""
-    },
-     {
-        "engine": "natural",
-        "code": """
-{% if shared_context and shared_context.extracted_text %}
-{% if shared_context.extracted_text.startswith('Error:') %}
-{{ shared_context.extracted_text }}
-{% else %}
-Here is the text extracted from the PDF:
-
-{{ shared_context.extracted_text }}
-
-Please provide a response to user request: {{ request }} using the information extracted above.
-{% endif %}
-{% else %}
-Error: No text was extracted from the PDF.
-{% endif %}
-"""
-    },]
-    }
-
-# Instantiate the tool
-tool = Tool(tool_data)
-
-# Create an NPC instance
-npc = NPC(
-    name='starlana',
-    primary_directive='Analyze text from Astrophysics papers with a keen attention to theoretical machinations and mechanisms.',
-    model = 'llama3.2',
-    provider='ollama',
-    db_conn=sqlite3.connect(os.path.expanduser('~/npcsh_database.db'))
-)
-
-# Define input values dictionary
-input_values = {
-    "request": "what is the point of the yuan and narayanan work?",
-    "file": os.path.abspath("test_data/yuan2004.pdf")
-}
-
-print(f"Attempting to read file: {input_values['file']}")
-print(f"File exists: {os.path.exists(input_values['file'])}")
-
-# Execute the tool
-output = tool.execute(input_values, npc.tools_dict, jinja_env, 'Sample Command',model=npc.model, provider=npc.provider,  npc=npc)
-
-print('Tool Output:', output)
-```
-
-### Example 6: Orchestrating a team
+### Example 4: Orchestrating a team
 
 
 
