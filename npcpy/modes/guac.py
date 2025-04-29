@@ -554,7 +554,7 @@ def get_guac_prompt(command_count):
         "\U0001F951 🔪",
         "\U0001F951 🥣",
         "\U0001F951 🥣 🧂",
-        "\U0001F958"
+        "\U0001F958 TIME TO REFRESH"
     ]
 
     stage_index = min(command_count // int((GUAC_REFRESH_PERIOD/5)), len(stages) - 1)
@@ -604,17 +604,6 @@ def enter_guac_mode(npc=None, team=None, config_dir=None, plots_dir=None, npc_te
 
     if lang == "python":
         namespace = {}
-        namespace['pd'] = pd
-        namespace['np'] = np
-        namespace['plt'] = plt
-        namespace['os'] = os
-        namespace['sys'] = sys
-        namespace['Path'] = Path
-        namespace['json'] = json
-        namespace['re'] = re
-        namespace['yaml'] = yaml
-        namespace['datetime'] = datetime
-
         try:
             guac_package_parent = config_dir.parent
             if str(guac_package_parent) not in sys.path:

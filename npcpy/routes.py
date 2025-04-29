@@ -48,7 +48,7 @@ from npcpy.modes.yap import enter_yap_mode
 
 from npcpy.mix.debate import run_debate
 from npcpy.data.image import capture_screenshot
-from npcpy.npc_compiler import NPC, Team, Tool, compile_npc_file, compile_team_npcs
+from npcpy.npc_compiler import NPC, Team, Tool
 from npcpy.npc_compiler import initialize_npc_project
 from npcpy.data.web import search_web
 

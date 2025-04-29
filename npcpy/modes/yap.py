@@ -12,9 +12,7 @@ try:
         FORMAT,
         CHANNELS,
         RATE,
-        device,
         CHUNK,
-        whisper_model,
         transcribe_recording,
         convert_mp3_to_wav,
     )
