@@ -1,1038 +1,220 @@
+# Standard Library Imports
 import os
 import sys
 import readline
 import atexit
+import subprocess
+import shlex
+import re
+from datetime import datetime
+import argparse
+import importlib.metadata
+import textwrap
+from typing import Optional, List, Dict, Any, Tuple, Union
+from dataclasses import dataclass, field
 from inspect import isgenerator
-from termcolor import colored
-from sqlalchemy import create_engine
+import shutil
+
+# Third-Party Imports
+from termcolor import colored, cprint
+try:
+    import chromadb
+except ImportError:
+    chromadb = None
+
+# Local Application Imports
 from npcpy.npc_sysenv import (
     print_and_process_stream_with_markdown,
     NPCSH_STREAM_OUTPUT,
-    NPCSH_CHAT_MODEL,
-    NPCSH_CHAT_PROVIDER,
-    NPCSH_VISION_MODEL,
-    NPCSH_VISION_PROVIDER,
-    NPCSH_EMBEDDING_MODEL,
-    NPCSH_EMBEDDING_PROVIDER,    
+    NPCSH_CHAT_MODEL, NPCSH_CHAT_PROVIDER,
+    NPCSH_VISION_MODEL, NPCSH_VISION_PROVIDER,
+    NPCSH_EMBEDDING_MODEL, NPCSH_EMBEDDING_PROVIDER,
+    NPCSH_REASONING_MODEL, NPCSH_REASONING_PROVIDER,
+    NPCSH_IMAGE_GEN_MODEL, NPCSH_IMAGE_GEN_PROVIDER,
+    NPCSH_VIDEO_GEN_MODEL, NPCSH_VIDEO_GEN_PROVIDER,
     NPCSH_API_URL,
     setup_npcsh_config,
     is_npcsh_initialized,
     initialize_base_npcs_if_needed,
     get_available_models,
-    orange, 
-    interactive_commands, 
-    BASH_COMMANDS, 
-    get_help,
+    orange,
+    interactive_commands,
+    BASH_COMMANDS,
     log_action,
-    render_markdown
-    
-    
+    render_markdown,
+    change_directory,
+    start_interactive_session,
+    get_model_and_provider,
 )
-import shlex
-
-import re
+from npcpy.routes import router
 from npcpy.data.image import capture_screenshot
 from npcpy.memory.command_history import (
     CommandHistory,
     start_new_conversation,
     save_conversation_message,
 )
-from npcpy.npc_compiler import (
-    NPC, Team
-)
+from npcpy.npc_compiler import NPC, Team
 from npcpy.llm_funcs import check_llm_command, get_llm_response
-
 from npcpy.gen.embeddings import get_embeddings
-from datetime import datetime
-import argparse
-import importlib.metadata  
-try:
-    VERSION = importlib.metadata.version(
-        "npcpy"
-    )  
-except importlib.metadata.PackageNotFoundError:
-    VERSION = "unknown"  
-    
-from typing import Optional, List, Dict, Any
 
+# --- Constants ---
+try:
+    VERSION = importlib.metadata.version("npcpy")
+except importlib.metadata.PackageNotFoundError:
+    VERSION = "unknown"
 
 TERMINAL_EDITORS = ["vim", "emacs", "nano"]
-
-
 EMBEDDINGS_DB_PATH = os.path.expanduser("~/npcsh_chroma.db")
+HISTORY_DB_DEFAULT_PATH = os.path.expanduser("~/npcsh_history.db")
+READLINE_HISTORY_FILE = os.path.expanduser("~/.npcsh_readline_history")
+DEFAULT_NPC_TEAM_PATH = os.path.expanduser("~/.npcsh/npc_team/")
+PROJECT_NPC_TEAM_PATH = "./npc_team/"
 
+# --- Global Clients ---
 try:
-    import chromadb
-
-    chroma_client = chromadb.PersistentClient(path=EMBEDDINGS_DB_PATH)
-except:
+    chroma_client = chromadb.PersistentClient(path=EMBEDDINGS_DB_PATH) if chromadb else None
+except Exception as e:
+    print(f"Warning: Failed to initialize ChromaDB client at {EMBEDDINGS_DB_PATH}: {e}")
     chroma_client = None
 
+# --- Custom Exceptions ---
+class CommandNotFoundError(Exception):
+    pass
+
+# --- Shell State ---
+@dataclass
+class ShellState:
+    npc: Optional[Union[NPC, str]] = None
+    team: Optional[Team] = None
+    messages: List[Dict[str, Any]] = field(default_factory=list)
+    conversation_id: Optional[int] = None
+
+    chat_model: str = NPCSH_CHAT_MODEL
+    chat_provider: str = NPCSH_CHAT_PROVIDER
+    vision_model: str = NPCSH_VISION_MODEL
+    vision_provider: str = NPCSH_VISION_PROVIDER
+    embedding_model: str = NPCSH_EMBEDDING_MODEL
+    embedding_provider: str = NPCSH_EMBEDDING_PROVIDER
+    reasoning_model: str = NPCSH_REASONING_MODEL
+    reasoning_provider: str = NPCSH_REASONING_PROVIDER
+    image_gen_model: str = NPCSH_IMAGE_GEN_MODEL
+    image_gen_provider: str = NPCSH_IMAGE_GEN_PROVIDER
+    video_gen_model: str = NPCSH_VIDEO_GEN_MODEL
+    video_gen_provider: str = NPCSH_VIDEO_GEN_PROVIDER
+
+    api_key: Optional[str] = None
+    api_url: Optional[str] = NPCSH_API_URL
+    current_path: str = field(default_factory=os.getcwd)
+    stream_output: bool = NPCSH_STREAM_OUTPUT
+    attachments: Optional[List[Any]] = None
+
+    def get_model_for_command(self, model_type: str = "chat"):
+        if model_type == "chat":
+            return self.chat_model, self.chat_provider
+        elif model_type == "vision":
+            return self.vision_model, self.vision_provider
+        elif model_type == "embedding":
+            return self.embedding_model, self.embedding_provider
+        elif model_type == "reasoning":
+            return self.reasoning_model, self.reasoning_provider
+        elif model_type == "image_gen":
+            return self.image_gen_model, self.image_gen_provider
+        elif model_type == "video_gen":
+            return self.video_gen_model, self.video_gen_provider
+        else:
+            return self.chat_model, self.chat_provider # Default fallback
+
+# --- Helper Functions ---
 
 def readline_safe_prompt(prompt: str) -> str:
-    """
-    Function Description:
-        Escapes ANSI escape sequences in the prompt.
-    Args:
-        prompt : str : Prompt
-    Keyword Args:
-        None
-    Returns:
-        prompt : str : Prompt
-
-    """
-    # This regex matches ANSI escape sequences
     ansi_escape = re.compile(r"(\033\[[0-9;]*[a-zA-Z])")
-
-    # Wrap them with \001 and \002
-    def escape_sequence(m):
-        return "\001" + m.group(1) + "\002"
-
-    return ansi_escape.sub(escape_sequence, prompt)
-
-
-def parse_piped_command(current_command):
-    """
-    Parse a single command for additional arguments.
-    """
-    # Use shlex to handle complex argument parsing
-    if "/" not in current_command:
-        return current_command, []
-
-    try:
-        command_parts = shlex.split(current_command)
-        # print(command_parts)
-    except ValueError:
-        # Fallback if quote parsing fails
-        command_parts = current_command.split()
-        # print(command_parts)
-    # Base command is the first part
-    base_command = command_parts[0]
-
-    # Additional arguments are the rest
-    additional_args = command_parts[1:] if len(command_parts) > 1 else []
-
-    return base_command, additional_args
+    return ansi_escape.sub(r"\001\1\002", prompt)
 
 def print_tools(tools):
-    output = "Available tools:"
+    output = "Available tools:\n"
     for tool in tools:
-        output += f"  {tool.tool_name}"
-        output += f"   Description: {tool.description}"
-        output += f"   Inputs: {tool.inputs}"
+        output += f"  {tool.tool_name}\n"
+        output += f"   Description: {tool.description}\n"
+        output += f"   Inputs: {tool.inputs}\n"
     return output
 
-
-
-
-
-def replace_pipe_outputs(command: str, piped_outputs: list, cmd_idx: int) -> str:
-    """
-    Replace {0}, {1}, etc. placeholders with actual piped outputs.
-
-    Args:
-        command (str): Command with potential {n} placeholders
-        piped_outputs (list): List of outputs from previous commands
-
-    Returns:
-        str: Command with placeholders replaced
-    """
-    placeholders = [f"{{{cmd_idx-1}}}", f"'{{{cmd_idx-1}}}'", f'"{{{cmd_idx-1}}}"']
-    if str(cmd_idx - 1) in command:
-        for placeholder in placeholders:
-            command = command.replace(placeholder, str(output))
-    elif cmd_idx > 0 and len(piped_outputs) > 0:
-        # assume to pipe the previous commands output to the next command
-        command = command + " " + str(piped_outputs[-1])
-    return command
-
-
-def get_npc_from_command(command: str) -> Optional[str]:
-    """
-    Function Description:
-        This function extracts the NPC name from a command string.
-    Args:
-        command: The command string.
-
-    Keyword Args:
-        None
-    Returns:
-        The NPC name if found, or None
-    """
-
-    parts = command.split()
-    npc = None
-    for part in parts:
-        if part.startswith("npc="):
-            npc = part.split("=")[1]
-            break
-    return npc
-
-def open_terminal_editor(command: str) -> None:
-    """
-    Function Description:
-        This function opens a terminal-based text editor.
-    Args:
-        command: The command to open the editor.
-    Keyword Args:
-        None
-    Returns:
-        None
-    """
-
+def open_terminal_editor(command: str) -> str:
     try:
         os.system(command)
+        return 'Terminal editor closed.'
     except Exception as e:
-        print(f"Error opening terminal editor: {e}")
-
-def setup_readline() -> str:
-    """
-    Function Description:
-        Sets up readline for the npcsh shell.
-    Args:
-        None
-    Keyword Args:
-        None
-    Returns:
-        history_file : str : History file
-    """
-    history_file = os.path.expanduser("~/.npcsh_history")
-    try:
-        readline.read_history_file(history_file)
-    except FileNotFoundError:
-        pass
-
-    readline.set_history_length(1000)
-    readline.parse_and_bind("set enable-bracketed-paste on")  # Enable paste mode
-    readline.parse_and_bind(r'"\e[A": history-search-backward')
-    readline.parse_and_bind(r'"\e[B": history-search-forward')
-    readline.parse_and_bind(r'"\C-r": reverse-search-history')
-    readline.parse_and_bind(r'\C-e: end-of-line')
-    readline.parse_and_bind(r'\C-a: beginning-of-line')
-
-    return history_file
-
-
-def save_readline_history():
-    readline.write_history_file(os.path.expanduser("~/.npcsh_readline_history"))
-
-
+        return f"Error opening terminal editor: {e}"
 
 def get_multiline_input(prompt: str) -> str:
-    """
-    Function Description:
-        Gets multiline input from the user.
-    Args:
-        prompt : str : Prompt
-    Keyword Args:
-        None
-    Returns:
-        lines : str : Lines
-
-    """
     lines = []
     current_prompt = prompt
     while True:
         try:
             line = input(current_prompt)
+            if line.endswith("\\"):
+                lines.append(line[:-1])
+                current_prompt = readline_safe_prompt("> ")
+            else:
+                lines.append(line)
+                break
         except EOFError:
             print("Goodbye!")
-            break
-
-        if line.endswith("\\"):
-            lines.append(line[:-1])  # Remove the backslash
-            # Use a continuation prompt for the next line
-            current_prompt = readline_safe_prompt("> ")
-        else:
-            lines.append(line)
-            break
-
+            sys.exit(0)
     return "\n".join(lines)
 
+def split_by_pipes(command: str) -> List[str]:
+    parts = []
+    current = ""
+    in_single_quote = False
+    in_double_quote = False
+    escape = False
 
-def execute_command( 
-    command: str,
-    npc: NPC = None,
-    team: Team = None,
-    model: str = NPCSH_CHAT_MODEL,
-    provider: str = NPCSH_CHAT_PROVIDER,
-    vision_model: str = NPCSH_VISION_MODEL,
-    vision_provider: str = NPCSH_VISION_PROVIDER,
-    api_key: str = None,
-    api_url: str = None,
-    messages: list = None,
-    conversation_id: str = None,
-    stream: bool = False,
-    embedding_model=None,
-):
-    """
-    Function Description:
-        Executes a command, with support for piping outputs between commands.
-    Args:
-        command : str : Command
-
-        db_path : str : Database path
-
-    Keyword Args:
-        embedding_model :  Embedding model
-        current_npc : NPC : Current NPC
-        messages : list : Messages
-    Returns:
-        dict : dict : Dictionary
-    """
-    output = ""
-    if len(command.strip()) == 0:
-        return {"messages": messages, "output": output, "current_npc": npc}
-
-    if messages is None:
-        messages = []
-
-    # Split commands by pipe, preserving the original parsing logic
-    commands = command.split("|")
-    # print(commands)
-    available_models = get_available_models()
-
-    # Track piped output between commands
-    piped_outputs = []
-
-    for idx, single_command in enumerate(commands):
-        # Modify command if there's piped output from previous command
-
-        if idx > 0:
-            single_command, additional_args = parse_piped_command(single_command)
-            if len(piped_outputs) > 0:
-                single_command = replace_pipe_outputs(
-                    single_command, piped_outputs, idx
-                )
-            if len(additional_args) > 0:
-                single_command = f"{single_command} {' '.join(additional_args)}"
-
-        messages.append({"role": "user", "content": single_command})
-        # print(messages)
-
-        if model is None:
-            # note the only situation where id expect this to take precedent is when a frontend is specifying the model
-            # to pass through at each time
-            model_override, provider_override, command = get_model_and_provider(
-                single_command, available_models[0]
-            )
-            if model_override is None:
-                model_override = os.getenv("NPCSH_CHAT_MODEL")
-            if provider_override is None:
-                provider_override = os.getenv("NPCSH_CHAT_PROVIDER")
+    for char in command:
+        if escape:
+            current += char
+            escape = False
+        elif char == '\\':
+            escape = True
+            current += char
+        elif char == "'" and not in_double_quote:
+            in_single_quote = not in_single_quote
+            current += char
+        elif char == '"' and not in_single_quote:
+            in_double_quote = not in_double_quote
+            current += char
+        elif char == '|' and not in_single_quote and not in_double_quote:
+            parts.append(current.strip())
+            current = ""
         else:
-            model_override = model
-            provider_override = provider
-        if single_command.startswith("/"):
-            result = execute_slash_command(
-                single_command,
-                npc=npc,
-                messages=messages,
-                model=model_override,
-                provider=provider_override,
-                vision_model=vision_model,
-                vision_provider=vision_provider,
-                stream=stream,
-            )
-            ## deal with stream here
+            current += char
 
-            output = result.get("output", "")
-            new_messages = result.get("messages", None)
-            npc = result.get("current_npc", npc)
-        else:
-            # print(single_command)
+    if current:
+        parts.append(current.strip())
+    return parts
+
+def parse_command_safely(cmd: str) -> List[str]:
+    try:
+        return shlex.split(cmd)
+    except ValueError as e:
+        if "No closing quotation" in str(e):
+            if cmd.count('"') % 2 == 1:
+                cmd += '"'
+            elif cmd.count("'") % 2 == 1:
+                cmd += "'"
             try:
-                command_parts = shlex.split(single_command)
-                # print(command_parts)
-            except ValueError as e:
-                if "No closing quotation" in str(e):
-                    # Attempt to close unclosed quotes
-                    if single_command.count('"') % 2 == 1:
-                        single_command += '"'
-                    elif single_command.count("'") % 2 == 1:
-                        single_command += "'"
-                    try:
-                        command_parts = shlex.split(single_command)
-                    except ValueError:
-                        # fall back to regular split
-                        command_parts = single_command.split()
-            if command_parts[0] in interactive_commands:
-                print(f"Starting interactive {command_parts[0]} session...")
-                return_code = start_interactive_session(
-                    interactive_commands[command_parts[0]]
-                )
-                return {
-                    "messages": messages,
-                    "output": f"Interactive {command_parts[0]} session ended with return code {return_code}",
-                    "npc": npc,
-                }
-            elif command_parts[0] == "cd":
-                change_dir_result = change_directory(command_parts, messages)
-                messages = change_dir_result["messages"]
-                output = change_dir_result["output"]
-            elif command_parts[0] in BASH_COMMANDS:
-                if command_parts[0] in TERMINAL_EDITORS:
-                    return {
-                        "messages": messages,
-                        "output": open_terminal_editor(command),
-                        "npc": npc,
-                    }
-                elif command_parts[0] in ["cat", "find", "who", "open", "which"]:
-                    if not validate_bash_command(command_parts):
-                        output = "Error: Invalid command syntax or arguments"
-                        output = check_llm_command(
-                            command,
-                            npc=npc,
-                            team=team,
-                            messages=messages,
-                            model=model_override,
-                            provider=provider_override,
-                            stream=stream,
-                        )
-
-                    else:
-                        try:
-                            result = subprocess.run(
-                                command_parts, capture_output=True, text=True
-                            )
-                            output = result.stdout + result.stderr
-                        except Exception as e:
-                            output = f"Error executing command: {e}"
-
-                elif command.startswith("open "):
-                    try:
-                        path_to_open = os.path.expanduser(
-                            single_command.split(" ", 1)[1]
-                        )
-                        absolute_path = os.path.abspath(path_to_open)
-                        expanded_command = [
-                            "open",
-                            absolute_path,
-                        ]
-                        subprocess.run(expanded_command, check=True)
-                        output = f"Launched: {command}"
-                    except subprocess.CalledProcessError as e:
-                        output = colored(f"Error opening: {e}", "red")
-                    except Exception as e:
-                        output = colored(f"Error executing command: {str(e)}", "red")
-
-                # Rest of BASH_COMMANDS handling remains the same
-                else:
-                    try:
-                        result = subprocess.run(
-                            command_parts, capture_output=True, text=True
-                        )
-                        output = result.stdout
-                        if result.stderr:
-                            output += colored(f"\nError: {result.stderr}", "red")
-
-                        colored_output = ""
-                        for line in output.split("\n"):
-                            parts = line.split()
-                            if parts:
-                                filepath = parts[-1]
-                                color, attrs = get_file_color(filepath)
-                                colored_filepath = colored(filepath, color, attrs=attrs)
-                                colored_line = " ".join(parts[:-1] + [colored_filepath])
-                                colored_output += colored_line + "\n"
-                            else:
-                                colored_output += line
-                        output = colored_output.rstrip()
-
-                        if not output and result.returncode == 0:
-                            output = colored(
-                                f"Command '{single_command}' executed successfully (no output).",
-                                "green",
-                            )
-                        print(output)
-                    except Exception as e:
-                        output = colored(f"Error executing command: {e}", "red")
-
-            else:
-                output = check_llm_command(
-                    single_command,
-                    npc=npc,
-                    team=team,
-                    messages=messages,
-                    model=model_override,
-                    provider=provider_override,
-                    stream=stream,
-                    api_key=api_key,
-                    api_url=api_url,
-                )
-
-        if isinstance(output, dict):
-            response = output.get("output", "")
-            new_messages = output.get("messages", None)
-            if new_messages is not None:
-                messages = new_messages
-            output = response
-        if output:
-            if npc is not None:
-                print(f"{npc.name}> ", end="")
-            
-            if not stream:
-                try:
-                    render_markdown(output)
-                except AttributeError:
-                    print(output)
-
-                piped_outputs.append(f'"{output}"')
-
-                try:
-                    # Prepare text to embed (both command and response)
-                    texts_to_embed = [command, str(output) if output else ""]
-
-                    # Generate embeddings
-                    embeddings = get_embeddings(
-                        texts_to_embed,
-                        NPCSH_EMBEDDING_MODEL,
-                        NPCSH_EMBEDDING_PROVIDER,
-                    )
-
-                    # Prepare metadata
-                    metadata = [
-                        {
-                            "type": "command",
-                            "timestamp": datetime.now().isoformat(),
-                            "path": os.getcwd(),
-                            "npc": npc.name if npc else None,
-                            "conversation_id": conversation_id,
-                        },
-                        {
-                            "type": "response",
-                            "timestamp": datetime.now().isoformat(),
-                            "path": os.getcwd(),
-                            "npc": npc.name if npc else None,
-                            "conversation_id": conversation_id,
-                        },
-                    ]
-                    embedding_model = os.environ.get("NPCSH_EMBEDDING_MODEL")
-                    embedding_provider = os.environ.get("NPCSH_EMBEDDING_PROVIDER")
-                    collection_name = (
-                        f"{embedding_provider}_{embedding_model}_embeddings"
-                    )
-
-                    try:
-                        collection = chroma_client.get_collection(collection_name)
-                    except Exception as e:
-                        print(f"Warning: Failed to get collection: {str(e)}")
-                        print("Creating new collection...")
-                        collection = chroma_client.create_collection(collection_name)
-                    date_str = datetime.now().isoformat()
-                    current_ids = [f"cmd_{date_str}", f"resp_{date_str}"]
-
-                    collection.add(
-                        embeddings=embeddings,
-                        documents=texts_to_embed,  
-                        metadatas=metadata, 
-                        ids=current_ids,
-                    )
-
-                except Exception as e:
-                    print(f"Warning: Failed to store embeddings: {str(e)}")
-
-    return {
-        "messages": messages,
-        "output": output,
-        "conversation_id": conversation_id,
-        "model": model,
-        "current_path": os.getcwd(),
-        "provider": provider,
-        "npc": npc ,
-        "team": team,
-    }
-def execute_slash_command(
-    command: str,
-    npc: NPC = None,
-    team: Team = None,
-    messages=None,
-    model: str = None,
-    provider: str = None,
-    vision_model: str = None,
-    vision_provider: str = None,
-    
-    api_url: str = None,
-    conversation_id: str = None,
-    stream: bool = False,
-):
-    """
-    Function Description:
-        Executes a slash command.
-    Args:
-        command : str : Command
-
-    Keyword Args:
-        embedding_model : None : Embedding model
-        current_npc : None : Current NPC
-        text_data : None : Text data
-        text_data_embedded : None : Embedded text data
-        messages : None : Messages
-    Returns:
-        dict : dict : Dictionary
-    """
-
-    command = command[1:]
-
-    log_action("Command Executed", command)
-
-    command_parts = command.split()
-    command_name = command_parts[0] if len(command_parts) >= 1 else None
-    args = command_parts[1:] if len(command_parts) >= 1 else []
-
-    current_npc = npc
-    if team is not None:
-        if command_name in team.npcs:
-            current_npc = team.npcs.get(command_name)
-            output = f"Switched to NPC: {current_npc.name}"
-        return {"messages": messages, "output": output, "current_npc": current_npc}
-       
-    if command_name == "compile" or command_name == "com":
-        try:
-            """ 
-
-            if len(args) > 0:  # Specific NPC file(s) provided
-                for npc_file in args:
-                    # differentiate between .npc and .pipe
-                    if npc_file.endswith(".pipe"):
-                        # Initialize the PipelineRunner with the appropriate parameters
-                        pipeline_runner = PipelineRunner(
-                            pipeline_file=npc_file,  # Uses the current NPC file
-                            db_path="~/npcsh_history.db",  # Ensure this path is correctly set
-                            npc_root_dir="./npc_team",  # Adjust this to your actual NPC directory
-                        )
-
-                        # Execute the pipeline and capture the output
-                        output = pipeline_runner.execute_pipeline()
-
-                        # Format the output if needed
-                        output = f"Compiled Pipeline: {output}\n"
-                    elif npc_file.endswith(".npc"):
-                        compiled_script = npc_compiler.compile(npc_file)
-
-                        output = f"Compiled NPC profile: {compiled_script}\n"
-            elif current_npc:  # Compile current NPC
-                compiled_script = npc_compiler.compile(current_npc)
-                output = f"Compiled NPC profile: {compiled_script}"
-            else:  # Compile all NPCs in the directory
-                output = ""
-                for filename in os.listdir(npc_compiler.npc_directory):
-                    if filename.endswith(".npc"):
-                        try:
-                            compiled_script = npc_compiler.compile(
-                                npc_compiler.npc_directory + "/" + filename
-                            )
-                            output += (
-                                f"Compiled NPC profile: {compiled_script['name']}\n"
-                            )
-                        except Exception as e:
-                            output += f"Error compiling {filename}: {str(e)}\n"
-             """
-        except Exception as e:
-            import traceback
-
-            output = f"Error compiling NPC profile: {str(e)}\n{traceback.format_exc()}"
-            print(output)
-    elif command_name == "tools":
-        return {"messages": messages, "output": print_tools('Team tools: '+
-                                                            team.tools_dict.values() if team else []
-                                                            +
-                                                            'NPC Tools: '+
-                                                            npc.tools_dict.values() if npc else []
-                                                            )}
-    elif command_name == "plan":
-        return execute_plan_command(
-            command,
-            npc=npc,
-            model=model,
-            provider=provider,
-            api_url=api_url,
-            messages=messages,
-        )
-    elif command_name == "trigger":
-        return execute_trigger_command(
-            command,
-            npc=npc,
-            model=model,
-            provider=provider,
-            api_url=api_url,
-            messages=messages,
-        )
-
-    elif command_name == "plonk":
-        request = " ".join(args)
-        plonk_call = plonk(
-            request, action_space, model=model, provider=provider, npc=npc
-        )
-        return {"messages": messages, "output": plonk_call, "current_npc": current_npc}
-    elif command_name == "wander":
-        return enter_wander_mode(args, messages, npc_compiler, npc, model, provider)
-
-
-        
-        
-    elif command_name == "flush":
-        n = float("inf")  # Default to infinite
-        for arg in args:
-            if arg.startswith("n="):
-                try:
-                    n = int(arg.split("=")[1])
-                except ValueError:
-                    return {
-                        "messages": messages,
-                        "output": "Error: 'n' must be an integer." + "\n",
-                    }
-
-        flush_result = flush_messages(n, messages)
-        return flush_result  # Return the result of flushing messages
-
-    # Handle /rehash command
-    elif command_name == "rehash":
-        rehash_result = rehash_last_message(
-            conversation_id, model=model, provider=provider, npc=npc
-        )
-        return rehash_result  # Return the result of rehashing last message
-
-    elif command_name == "pipe":
-        # need to fix
-        if len(args) > 0:  # Specific NPC file(s) provided
-            for npc_file in args:
-                # differentiate between .npc and .pipe
-                pipeline_runner = PipelineRunner(
-                    pipeline_file=npc_file,  # Uses the current NPC file
-                    db_path="~/npcsh_history.db",  # Ensure this path is correctly set
-                    npc_root_dir="./npc_team",  # Adjust this to your actual NPC directory
-                )
-
-                # run through the steps in the pipe
-    elif command_name == "select":
-        query = " ".join([command_name] + args)  # Reconstruct full query
-
-        try:
-            with sqlite3.connect(db_path) as conn:
-                cursor = conn.cursor()
-                cursor.execute(query)
-                rows = cursor.fetchall()
-
-                if not rows:
-                    output = "No results found"
-                else:
-                    # Get column names
-                    columns = [description[0] for description in cursor.description]
-
-                    # Format output as table
-                    table_lines = []
-                    table_lines.append(" | ".join(columns))
-                    table_lines.append("-" * len(table_lines[0]))
-
-                    for row in rows:
-                        table_lines.append(" | ".join(str(col) for col in row))
-
-                    output = "\n".join(table_lines)
-
-                return {"messages": messages, "output": output}
-
-        except sqlite3.Error as e:
-            output = f"Database error: {str(e)}"
-            return {"messages": messages, "output": output}
-    elif command_name == "init":
-        output = initialize_npc_project()
-        return {"messages": messages, "output": output}
-    elif (
-        command.startswith("vixynt")
-        or command.startswith("vix")
-        or (command.startswith("v") and command[1] == " ")
-    ):
-        # check if "filename=..." is in the command
-        filename = None
-        if "filename=" in command:
-            filename = command.split("filename=")[1].split()[0]
-            command = command.replace(f"filename={filename}", "").strip()
-        # Get user prompt about the image BY joining the rest of the arguments
-        user_prompt = " ".join(command.split()[1:])
-
-        output = generate_image(
-            user_prompt, npc=npc, filename=filename, model=model, provider=provider
-        )
-        
-    elif command_name == "ots":
-        command_parts = command.split()
-        image_paths = []
-        print('using vision model: ', vision_model)
-        if len(command_parts) > 1:
-            for img_path in command_parts[1:]:
-                full_path = os.path.join(os.getcwd(), img_path)
-                if os.path.exists(full_path):
-                    image_paths.append(full_path)
-                else:
-                    print(f"Error: Image file not found at {full_path}")
+                return shlex.split(cmd)
+            except ValueError:
+                return cmd.split()
         else:
-            output = capture_screenshot(npc=npc)
-            if output and "file_path" in output:
-                image_paths.append(output["file_path"])
-                print(f"Screenshot captured: {output['filename']}")
-        if not image_paths:
-            print("No valid images provided.")
-        user_prompt = input(
-            "Enter a prompt for the LLM about these images (or press Enter to skip): "
-        )
-        if not user_prompt:
-            user_prompt = "Please analyze these images."
+            return cmd.split()
 
-        
-        response = get_llm_response(
-            user_prompt, 
-            messages=messages,
-            images=image_paths,
-            stream=stream, 
-            model = vision_model,
-            provider=vision_provider,
-        )
-        # Extract the assistant's response
-        assistant_reply = response['response']
-        messages = response['messages']
-        if stream:
-            assistant_reply = print_and_process_stream_with_markdown(assistant_reply, model=model, provider=provider)
-        
-            messages.append({"role": "assistant", "content": assistant_reply})
-        if assistant_reply.count("```") % 2 != 0:
-            assistant_reply = assistant_reply + "```"
-        # Display the response
-        if not stream:
-            render_markdown(assistant_reply)
-        return {
-            "messages": messages,
-            "output": assistant_reply,
-            "current_npc": current_npc,
-        }
-        
-    elif command_name == "help":  # New help command
-        print(get_help())
-        return {
-            "messages": messages,
-            "output": get_help(),
-        }
-
-    elif command_name == "yap":
-        # try:
-        messages = enter_yap_mode(npc=npc)
-        output = "Exited yap mode."
-        # except Exception as e:
-        #    print(f"Error entering whisper mode: {str(e)}")
-        #    output = "Error entering whisper mode"
-
-    elif command_name == "notes":
-        output = enter_notes_mode(npc=npc)
-    elif command_name == "data":
-        # print("data")
-        output = enter_data_mode(npc=npc)
-        # output = enter_observation_mode(, npc=npc)
-    elif command_name == "cmd" or command_name == "command":
-        output = execute_llm_command(
-            command,
-            npc=npc,
-            stream=stream,
-            messages=messages,
-        )
-
-    elif command_name == "search":
-        result = execute_search_command(
-            command,
-            messages=messages,
-        )
-        messages = result["messages"]
-        output = result["output"]
-        return {
-            "messages": messages,
-            "output": output,
-            "current_npc": current_npc,
-        }
-    elif command_name == "rag":
-        result = execute_rag_command(command, messages=messages)
-        messages = result["messages"]
-        output = result["output"]
-        return {
-            "messages": messages,
-            "output": output,
-            "current_npc": current_npc,
-        }
-
-    elif command_name == "roll":
-
-        output = generate_video(
-            command,
-            model=NPCSH_VIDEO_GEN_MODEL,
-            provider=NPCSH_VIDEO_GEN_PROVIDER,
-            npc=npc,
-            messages=messages,
-        )
-        messages = output["messages"]
-        output = output["output"]
-
-    elif command_name == "set":
-        parts = command.split()
-        if len(parts) == 3 and parts[1] in ["model", "provider", "db_path"]:
-            output = execute_set_command(parts[1], parts[2])
-        else:
-            return {
-                "messages": messages,
-                "output": "Invalid set command. Usage: /set [model|provider|db_path] 'value_in_quotes' ",
-            }
-    elif command_name == "search":
-        output = execute_search_command(
-            command,
-            messages=messages,
-        )
-        messages = output["messages"]
-        # print(output, type(output))
-        output = output["output"]
-        # print(output, type(output))
-    elif command_name == "sample":
-        
-        prompt = " ".join(command.split()[1:])
-        
-        output = get_llm_response(
-            prompt,  # Skip the command name
-            npc=npc,
-            messages=[],
-            model=model,
-            provider=provider,
-            stream=stream,
-        )
-        messages = output["messages"]
-        # print(output, type(output))
-        output = output["response"]
-        return {
-            "messages": messages,
-            "output": output,
-            "current_npc": current_npc,
-        }
-        
-    elif command_name == "spool" or command_name == "sp":
-        inherit_last = 0
-        device = "cpu"
-        rag_similarity_threshold = 0.3
-        for part in args:
-            if part.startswith("inherit_last="):
-                try:
-                    inherit_last = int(part.split("=")[1])
-                except ValueError:
-                    return {
-                        "messages": messages,
-                        "output": "Error: inherit_last must be an integer",
-                    }
-            if part.startswith("device="):
-                device = part.split("=")[1]
-            if part.startswith("rag_similarity_threshold="):
-                rag_similarity_threshold = float(part.split("=")[1])
-            if part.startswith("model="):
-                model = part.split("=")[1]
-
-            if part.startswith("provider="):
-                provider = part.split("=")[1]
-            if part.startswith("api_url="):
-                api_url = part.split("=")[1]
-            if part.startswith("api_key="):
-                api_key = part.split("=")[1]
-
-                # load the npc properly
-
-        match = re.search(r"files=\s*\[(.*?)\]", command)
-        files = []
-        if match:
-            # Extract file list from the command
-            files = [
-                file.strip().strip("'").strip('"') for file in match.group(1).split(",")
-            ]
-
-            # Call the enter_spool_mode with the list of files
-        else:
-            files = None
-
-        if len(command_parts) >= 2 and command_parts[1] == "reattach":
-            command_history = CommandHistory()
-            last_conversation = command_history.get_last_conversation_by_path(
-                os.getcwd()
-            )
-            print(last_conversation)
-            if last_conversation:
-                spool_context = [
-                    {"role": part["role"], "content": part["content"]}
-                    for part in last_conversation
-                ]
-
-                print(f"Reattached to previous conversation:\n\n")
-                output = enter_spool_mode(
-                    inherit_last,
-                    files=files,
-                    npc=npc,
-                    model=model,
-                    provider=provider,
-                    rag_similarity_threshold=rag_similarity_threshold,
-                    device=device,
-                    messages=spool_context,
-                    conversation_id=conversation_id,
-                    stream=stream,
-                )
-                return {"messages": output["messages"], "output": output}
-
-            else:
-                return {"messages": [], "output": "No previous conversation found."}
-
-        output = enter_spool_mode(
-            inherit_last,
-            files=files,
-            npc=npc,
-            rag_similarity_threshold=rag_similarity_threshold,
-            device=device,
-            conversation_id=conversation_id,
-            stream=stream,
-        )
-        return {"messages": output["messages"], "output": output}
-
-    elif npc is not None:
-        if command_name in npc.tools_dict:
-            tool = npc.tools_dict.get(command_name) or team.tools_dict.get(command_name)
-            return execute_tool_command(
-                tool,
-                args,
-                messages,
-                npc=npc,
-            )
-    elif team is not None:
-        if command_name in team.tools_dict:
-            tool = team.tools_dict.get(command_name)
-            return execute_tool_command(
-                tool,
-                args,
-                messages,
-                npc=npc,
-            )
-    output = f"Unknown command: {command_name}"
-
-    return {
-        "messages": messages,
-        "output": output,
-        "current_npc": current_npc,
-    }
 def get_file_color(filepath: str) -> tuple:
-    """
-    Function Description:
-        Returns color and attributes for a given file path.
-    Args:
-        filepath : str : File path
-    Keyword Args:
-        None
-    Returns:
-        color : str : Color
-        attrs : list : List of attributes
-
-    """
-
+    if not os.path.exists(filepath):
+         return "grey", []
     if os.path.isdir(filepath):
         return "blue", ["bold"]
-    elif os.access(filepath, os.X_OK):
-        return "green", []
+    elif os.access(filepath, os.X_OK) and not os.path.isdir(filepath):
+        return "green", ["bold"]
     elif filepath.endswith((".zip", ".tar", ".gz", ".bz2", ".xz", ".7z")):
         return "red", []
     elif filepath.endswith((".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tiff")):
@@ -1049,376 +231,686 @@ def get_file_color(filepath: str) -> tuple:
         return "magenta", []
     elif filepath.endswith((".md", ".txt", ".log")):
         return "white", []
-    elif filepath.startswith("."):
+    elif os.path.basename(filepath).startswith("."):
         return "cyan", []
     else:
         return "white", []
 
+def format_file_listing(output: str) -> str:
+    colored_lines = []
+    current_dir = os.getcwd()
+    for line in output.strip().split("\n"):
+        parts = line.split()
+        if not parts:
+            colored_lines.append(line)
+            continue
+
+        filepath_guess = parts[-1]
+        potential_path = os.path.join(current_dir, filepath_guess)
+
+        color, attrs = get_file_color(potential_path)
+        colored_filepath = colored(filepath_guess, color, attrs=attrs)
+
+        if len(parts) > 1 :
+             # Handle cases like 'ls -l' where filename is last
+             colored_line = " ".join(parts[:-1] + [colored_filepath])
+        else:
+             # Handle cases where line is just the filename
+             colored_line = colored_filepath
+
+        colored_lines.append(colored_line)
+
+    return "\n".join(colored_lines)
 
 def wrap_text(text: str, width: int = 80) -> str:
-    """
-    Function Description:
-        Wraps text to a specified width.
-    Args:
-        text : str : Text to wrap
-        width : int : Width of text
-    Keyword Args:
-        None
-    Returns:
-        lines : str : Wrapped text
-    """
     lines = []
     for paragraph in text.split("\n"):
-        lines.extend(textwrap.wrap(paragraph, width=width))
+        if len(paragraph) > width:
+             lines.extend(textwrap.wrap(paragraph, width=width, replace_whitespace=False, drop_whitespace=False))
+        else:
+             lines.append(paragraph)
     return "\n".join(lines)
 
-def global_completions(text: str, command_parts: list) -> list:
-    """
-    Function Description:
-        Handles global autocompletions for the npcsh shell.
-    Args:
-        text : str : Text to autocomplete
-        command_parts : list : List of command parts
-    Keyword Args:
-        None
-    Returns:
-        completions : list : List of completions
+# --- Readline Setup and Completion ---
 
-    """
-    if not command_parts:
-        return [c + " " for c in valid_commands if c.startswith(text)]
-    elif command_parts[0] in ["/compile", "/com"]:
-        # Autocomplete NPC files
-        return [f for f in os.listdir(".") if f.endswith(".npc") and f.startswith(text)]
-    elif command_parts[0] == "/read":
-        # Autocomplete filenames
-        return [f for f in os.listdir(".") if f.startswith(text)]
-    else:
-        # Default filename completion
-        return [f for f in os.listdir(".") if f.startswith(text)]
+def setup_readline() -> str:
+    try:
+        readline.read_history_file(READLINE_HISTORY_FILE)
+    except FileNotFoundError:
+        pass
+    except OSError as e:
+        print(f"Warning: Could not read readline history file {READLINE_HISTORY_FILE}: {e}")
 
-def complete(text: str, state: int) -> str:
-    """
-    Function Description:
-        Handles autocompletion for the npcsh shell.
-    Args:
-        text : str : Text to autocomplete
-        state : int : State
-    Keyword Args:
-        None
-    Returns:
-        None
-
-    """
-    buffer = readline.get_line_buffer()
-    available_chat_models, available_reasoning_models = get_available_models()
-    available_models = available_chat_models + available_reasoning_models
-
-    # If completing a model name
-    if "@" in buffer:
-        at_index = buffer.rfind("@")
-        model_text = buffer[at_index + 1 :]
-        model_completions = [m for m in available_models if m.startswith(model_text)]
-
-        try:
-            # Return the full text including @ symbol
-            return "@" + model_completions[state]
-        except IndexError:
-            return None
-
-    # If completing a command
-    elif text.startswith("/"):
-        command_completions = [c for c in valid_commands if c.startswith(text)]
-        try:
-            return command_completions[state]
-        except IndexError:
-            return None
-
-    return None
-
-def main() -> None:
-    """
-    Main function for the npcsh shell and server.
-    Starts either the Flask server or the interactive shell based on the argument provided.
-    """
-    # Set up argument parsing to handle 'serve' and regular commands
-
-    check_old_par_name = os.environ.get("NPCSH_MODEL", None)
-    if check_old_par_name is not None:
-        # raise a deprecation warning
-        print(
-            """Deprecation Warning: NPCSH_MODEL and NPCSH_PROVIDER were deprecated in v0.3.5 in favor of NPCSH_CHAT_MODEL and NPCSH_CHAT_PROVIDER instead.\
-                Please update your environment variables to use the new names.
-                """
-        )
-
-    parser = argparse.ArgumentParser(description="npcsh CLI")
-    parser.add_argument(
-        "-v",
-        "--version",
-        action="version",
-        version=f"npcsh version {VERSION}",  # Use the dynamically fetched version
-    )
-    args = parser.parse_args()
-
-    setup_npcsh_config()
-    if "NPCSH_DB_PATH" in os.environ:
-        db_path = os.path.expanduser(os.environ["NPCSH_DB_PATH"])
-    else:
-        db_path = os.path.expanduser("~/npcsh_history.db")
-
-    command_history = CommandHistory(db_path)
-
-    readline.set_completer_delims(" \t\n")
-    readline.set_completer(complete)
+    readline.set_history_length(1000)
+    readline.parse_and_bind("set enable-bracketed-paste on")
+    readline.parse_and_bind(r'"\e[A": history-search-backward')
+    readline.parse_and_bind(r'"\e[B": history-search-forward')
+    readline.parse_and_bind(r'"\C-r": reverse-search-history')
+    readline.parse_and_bind(r'\C-e: end-of-line')
+    readline.parse_and_bind(r'\C-a: beginning-of-line')
     if sys.platform == "darwin":
         readline.parse_and_bind("bind ^I rl_complete")
     else:
         readline.parse_and_bind("tab: complete")
 
-    # check if ./npc_team exists
-    if os.path.exists("./npc_team"):
+    return READLINE_HISTORY_FILE
 
-        npc_directory = os.path.abspath("./npc_team/")
+def save_readline_history():
+    try:
+        readline.write_history_file(READLINE_HISTORY_FILE)
+    except OSError as e:
+        print(f"Warning: Could not write readline history file {READLINE_HISTORY_FILE}: {e}")
+
+
+# --- Placeholder for actual valid commands ---
+# This should be populated dynamically based on router, builtins, and maybe PATH executables
+valid_commands_list = list(router.routes.keys()) + list(interactive_commands.keys()) + ["cd", "exit", "quit"] + BASH_COMMANDS
+
+def complete(text: str, state: int) -> Optional[str]:
+    buffer = readline.get_line_buffer()
+    line_parts = parse_command_safely(buffer) # Use safer parsing
+    word_before_cursor = ""
+    if len(line_parts) > 0 and not buffer.endswith(' '):
+         current_word = line_parts[-1]
     else:
-        npc_directory = os.path.expanduser("~/.npcsh/npc_team/")
+         current_word = "" # Completing after a space
+
+    try:
+        # Command completion (start of line or after pipe/semicolon)
+        # This needs refinement to detect context better
+        is_command_start = not line_parts or (len(line_parts) == 1 and not buffer.endswith(' ')) # Basic check
+        if is_command_start and not text.startswith('-'): # Don't complete options as commands
+            cmd_matches = [cmd + ' ' for cmd in valid_commands_list if cmd.startswith(text)]
+            # Add executables from PATH? (Can be slow)
+            # path_executables = [f + ' ' for f in shutil.get_exec_path() if os.path.basename(f).startswith(text)]
+            # cmd_matches.extend(path_executables)
+            return cmd_matches[state]
+
+        # File/Directory completion (basic)
+        # Improve context awareness (e.g., after 'cd', 'ls', 'cat', etc.)
+        if text and (not text.startswith('/') or os.path.exists(os.path.dirname(text))):
+             basedir = os.path.dirname(text)
+             prefix = os.path.basename(text)
+             search_dir = basedir if basedir else '.'
+             try:
+                 matches = [os.path.join(basedir, f) + ('/' if os.path.isdir(os.path.join(search_dir, f)) else ' ')
+                            for f in os.listdir(search_dir) if f.startswith(prefix)]
+                 return matches[state]
+             except OSError: # Handle permission denied etc.
+                  return None
+
+    except IndexError:
+        return None
+    except Exception: # Catch broad exceptions during completion
+        return None
+
+    return None
 
 
+# --- Command Execution Logic ---
+
+def store_command_embeddings(command: str, output: Any, state: ShellState):
+    if not chroma_client or not state.embedding_model or not state.embedding_provider:
+        if not chroma_client: print("Warning: ChromaDB client not available for embeddings.", file=sys.stderr)
+        return
+    if not command and not output:
+        return
+
+    try:
+        output_str = str(output) if output else ""
+        if not command and not output_str: return # Avoid empty embeddings
+
+        texts_to_embed = [command, output_str]
+
+        embeddings = get_embeddings(
+            texts_to_embed,
+            state.embedding_model,
+            state.embedding_provider,
+        )
+
+        if not embeddings or len(embeddings) != 2:
+             print(f"Warning: Failed to generate embeddings for command: {command[:50]}...", file=sys.stderr)
+             return
+
+        timestamp = datetime.now().isoformat()
+        npc_name = state.npc.name if isinstance(state.npc, NPC) else state.npc
+
+        metadata = [
+            {
+                "type": "command", "timestamp": timestamp, "path": state.current_path,
+                "npc": npc_name, "conversation_id": state.conversation_id,
+            },
+            {
+                "type": "response", "timestamp": timestamp, "path": state.current_path,
+                "npc": npc_name, "conversation_id": state.conversation_id,
+            },
+        ]
+
+        collection_name = f"{state.embedding_provider}_{state.embedding_model}_embeddings"
+        try:
+            collection = chroma_client.get_or_create_collection(collection_name)
+            ids = [f"cmd_{timestamp}_{hash(command)}", f"resp_{timestamp}_{hash(output_str)}"]
+
+            collection.add(
+                embeddings=embeddings,
+                documents=texts_to_embed,
+                metadatas=metadata,
+                ids=ids,
+            )
+        except Exception as e:
+            print(f"Warning: Failed to add embeddings to collection '{collection_name}': {e}", file=sys.stderr)
+
+    except Exception as e:
+        print(f"Warning: Failed to store embeddings: {e}", file=sys.stderr)
+
+
+def handle_interactive_command(cmd_parts: List[str], state: ShellState) -> Tuple[ShellState, str]:
+    command_name = cmd_parts[0]
+    print(f"Starting interactive {command_name} session...")
+    try:
+        return_code = start_interactive_session(
+            interactive_commands[command_name], cmd_parts[1:]
+        )
+        output = f"Interactive {command_name} session ended with return code {return_code}"
+    except Exception as e:
+        output = f"Error starting interactive session {command_name}: {e}"
+    return state, output
+
+def handle_cd_command(cmd_parts: List[str], state: ShellState) -> Tuple[ShellState, str]:
+    original_path = os.getcwd()
+    target_path = cmd_parts[1] if len(cmd_parts) > 1 else os.path.expanduser("~")
+    try:
+        os.chdir(target_path)
+        state.current_path = os.getcwd()
+        output = f"Changed directory to {state.current_path}"
+        state.messages.append({"role": "system", "content": output}) # Log cd? Optional.
+    except FileNotFoundError:
+        output = colored(f"cd: no such file or directory: {target_path}", "red")
+    except Exception as e:
+        output = colored(f"cd: error changing directory: {e}", "red")
+        os.chdir(original_path) # Revert if error
+
+    return state, output
+
+
+def handle_bash_command(
+    cmd_parts: List[str],
+    cmd_str: str,
+    stdin_input: Optional[str],
+    state: ShellState,
+    ) -> Tuple[ShellState, str]:
+
+    command_name = cmd_parts[0]
+
+    if command_name in TERMINAL_EDITORS:
+        output = open_terminal_editor(cmd_str)
+        return state, output
+
+    try:
+        process = subprocess.Popen(
+            cmd_parts,
+            stdin=subprocess.PIPE if stdin_input is not None else None,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            cwd=state.current_path
+        )
+
+        stdout, stderr = process.communicate(input=stdin_input)
+
+        if process.returncode != 0:
+            err_msg = stderr.strip() if stderr else f"Command '{cmd_str}' failed with return code {process.returncode}."
+            # If it failed because command not found, raise specific error for fallback
+            if "No such file or directory" in err_msg or "command not found" in err_msg:
+                 raise CommandNotFoundError(err_msg)
+            # Otherwise, return the error output
+            full_output = stdout.strip() + ("\n" + colored(f"stderr: {err_msg}", "red") if err_msg else "")
+            return state, full_output.strip()
+
+
+        output = stdout.strip() if stdout else ""
+        if stderr:
+             # Log stderr but don't necessarily include in piped output unless requested
+             print(colored(f"stderr: {stderr.strip()}", "yellow"), file=sys.stderr)
+
+
+        if command_name in ["ls", "find", "dir"]:
+            output = format_file_listing(output)
+        elif not output and process.returncode == 0 and not stderr:
+             output = "" # No output is valid, don't print success message if piping
+
+        return state, output
+
+    except FileNotFoundError:
+        raise CommandNotFoundError(f"Command not found: {command_name}")
+    except PermissionError as e:
+         return state, colored(f"Error executing '{cmd_str}': Permission denied. {e}", "red")
+    except Exception as e:
+        return state, colored(f"Error executing command '{cmd_str}': {e}", "red")
+
+
+def execute_slash_command(command: str, stdin_input: Optional[str], state: ShellState, stream: bool) -> Tuple[ShellState, Any]:
+    """Executes slash commands using the router or checking NPC/Team tools."""
+    command_parts = command.split()
+    command_name = command_parts[0].lstrip('/')
+    handler = router.get_route(command_name)
+
+    if handler:
+        # Prepare kwargs for the handler
+        handler_kwargs = {
+            'stream': stream,
+            'npc': state.npc, 
+            'team': state.team,
+            'messages': state.messages,
+            'model': state.chat_model, 
+            'provider': state.chat_provider,
+            'api_url': state.api_url,
+            'api_key': state.api_key,
+        }
+        if stdin_input is not None:
+            handler_kwargs['stdin_input'] = stdin_input
+
+        try:
+            result_dict = handler(command, **handler_kwargs)
+
+            if isinstance(result_dict, dict):
+                output = result_dict.get("output")
+                state.messages = result_dict.get("messages", state.messages)
+                return state, output
+            else:
+                return state, result_dict
+
+        except Exception as e:
+            import traceback
+            print(f"Error executing slash command '{command_name}':", file=sys.stderr)
+            traceback.print_exc()
+            return state, colored(f"Error executing slash command '{command_name}': {e}", "red")
+
+    active_npc = state.npc if isinstance(state.npc, NPC) else None
+    tool_to_execute = None
+    executor = None
+    if active_npc and command_name in active_npc.tools_dict:
+        tool_to_execute = active_npc.tools_dict[command_name]
+        executor = active_npc
+    elif state.team and command_name in state.team.tools_dict:
+        tool_to_execute = state.team.tools_dict[command_name]
+        executor = state.team
+
+    if tool_to_execute:
+        args = command_parts[1:]
+        try:
+            tool_output = tool_to_execute.run(
+                *args,
+                state=state,
+                stdin_input=stdin_input,
+                messages=state.messages # Pass messages explicitly if needed
+            )
+            return state, tool_output
+        except Exception as e:
+            import traceback
+            print(f"Error executing tool '{command_name}':", file=sys.stderr)
+            traceback.print_exc()
+            return state, colored(f"Error executing tool '{command_name}': {e}", "red")
+
+    if state.team and command_name in state.team.npcs:
+        new_npc = state.team.npcs[command_name]
+        state.npc = new_npc # Update state directly
+        state.messages = [] # Optionally clear messages when switching NPC
+        return state, f"Switched to NPC: {new_npc.name}"
+
+    return state, colored(f"Unknown slash command or tool: {command_name}", "red")
+
+
+def process_pipeline_command(
+    cmd_segment: str,
+    stdin_input: Optional[str],
+    state: ShellState,
+    stream_final: bool
+    ) -> Tuple[ShellState, Any]:
+
+    if not cmd_segment:
+        return state, stdin_input
+
+    available_models_all, _ = get_available_models()
+    model_override, provider_override, cmd_cleaned = get_model_and_provider(
+        cmd_segment, available_models_all
+    )
+    cmd_to_process = cmd_cleaned.strip()
+    if not cmd_to_process:
+         return state, stdin_input
+
+    exec_model = model_override or state.chat_model    
+    exec_provider = provider_override or state.chat_provider 
+
+    if cmd_to_process.startswith("/"):
+        return execute_slash_command(cmd_to_process, stdin_input, state, stream_final)
+    else:
+        try:
+            cmd_parts = parse_command_safely(cmd_to_process)
+            if not cmd_parts:
+                 return state, stdin_input
+
+            command_name = cmd_parts[0]
+
+            if command_name in interactive_commands:
+                return handle_interactive_command(cmd_parts, state)
+            elif command_name == "cd":
+                return handle_cd_command(cmd_parts, state)
+            else:
+                try:
+                    bash_state, bash_output = handle_bash_command(cmd_parts, cmd_to_process, stdin_input, state)
+                    return bash_state, bash_output
+                except CommandNotFoundError:
+                    full_llm_cmd = f"{cmd_to_process} {stdin_input}" if stdin_input else cmd_to_process
+
+                    llm_result = check_llm_command(
+                        command=full_llm_cmd,
+                        model=exec_model,        
+                        provider=exec_provider,  
+                        api_url=state.api_url,
+                        api_key=state.api_key,
+                        npc=state.npc,
+                        team=state.team,
+                        messages=state.messages, 
+                        images=state.attachments,
+                        stream=stream_final,
+                        context=None 
+                       
+                    )
+                    if isinstance(llm_result, dict):
+                        state.messages = llm_result.get("messages", state.messages)
+                        output = llm_result.get("output")
+                        return state, output
+                    else:
+                        return state, llm_result
+
+                except Exception as bash_err:
+                     return state, colored(f"Bash execution failed: {bash_err}", "red")
+
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            return state, colored(f"Error processing command '{cmd_segment[:50]}...': {e}", "red")
+
+def execute_command(
+    command: str,
+    state: ShellState,
+    ) -> Tuple[ShellState, Any]:
+
+    if not command.strip():
+        return state, ""
+
+    original_command_for_embedding = command
+    commands = split_by_pipes(command)
+    stdin_for_next = None
+    final_output = None
+    current_state = state 
+
+    for i, cmd_segment in enumerate(commands):
+        is_last_command = (i == len(commands) - 1)
+        stream_this_segment = is_last_command and state.stream_output # Use state's stream setting
+
+        try:
+            current_state, output = process_pipeline_command(
+                cmd_segment.strip(),
+                stdin_for_next,
+                current_state, 
+                stream_final=stream_this_segment
+            )
+
+            if is_last_command:
+                final_output = output # Capture the output of the last command
+
+            if isinstance(output, str):
+                 stdin_for_next = output
+            elif isgenerator(output):
+                 if not stream_this_segment: # If intermediate output is a stream, consume for piping
+                      full_stream_output = "".join(map(str, output))
+                      stdin_for_next = full_stream_output
+                      if is_last_command: final_output = full_stream_output
+                 else: # Final output is a stream, don't consume, can't pipe
+                      stdin_for_next = None
+                      final_output = output
+            elif output is not None: # Try converting other types to string
+                 try: stdin_for_next = str(output)
+                 except Exception:
+                     print(f"Warning: Cannot convert output to string for piping: {type(output)}", file=sys.stderr)
+                     stdin_for_next = None
+            else: # Output was None
+                 stdin_for_next = None
+
+
+        except Exception as pipeline_error:
+            import traceback
+            traceback.print_exc()
+            error_msg = colored(f"Error in pipeline stage {i+1} ('{cmd_segment[:50]}...'): {pipeline_error}", "red")
+            # Return the state as it was when the error occurred, and the error message
+            return current_state, error_msg
+
+    # Store embeddings using the final state
+    if final_output is not None and not (isgenerator(final_output) and current_state.stream_output):
+        store_command_embeddings(original_command_for_embedding, final_output, current_state)
+
+    # Return the final state and the final output
+    return current_state, final_output
+
+
+# --- Main Application Logic ---
+
+def check_deprecation_warnings():
+    if os.getenv("NPCSH_MODEL"):
+        cprint(
+            "Deprecation Warning: NPCSH_MODEL/PROVIDER deprecated. Use NPCSH_CHAT_MODEL/PROVIDER.",
+            "yellow",
+        )
+
+def print_welcome_message():
+    print(
+            """
+Welcome to \033[1;94mnpc\033[0m\033[1;38;5;202msh\033[0m!
+\033[1;94m                    \033[0m\033[1;38;5;202m               \\\\
+\033[1;94m _ __   _ __    ___ \033[0m\033[1;38;5;202m ___  | |___    \\\\
+\033[1;94m| '_ \ | '_ \  / __|\033[0m\033[1;38;5;202m/ __/ | |_ _|    \\\\
+\033[1;94m| | | || |_) |( |__ \033[0m\033[1;38;5;202m\_  \ | | | |    //
+\033[1;94m|_| |_|| .__/  \___|\033[0m\033[1;38;5;202m|___/ |_| |_|   //
+        \033[1;94m| |          \033[0m\033[1;38;5;202m              //
+        \033[1;94m| |
+        \033[1;94m|_|
+
+Begin by asking a question, issuing a bash command, or typing '/help' for more information.
+
+            """
+        )
+
+
+def setup_shell() -> Tuple[CommandHistory, Team, Optional[NPC]]:
+    check_deprecation_warnings()
+    setup_npcsh_config()
+
+    db_path = os.getenv("NPCSH_DB_PATH", HISTORY_DB_DEFAULT_PATH)
+    db_path = os.path.expanduser(db_path)
+    os.makedirs(os.path.dirname(db_path), exist_ok=True)
+    command_history = CommandHistory(db_path)
+
+    history_file = setup_readline()
+    atexit.register(save_readline_history)
+    atexit.register(command_history.close)
+    readline.set_completer(complete)
+
+    npc_directory = PROJECT_NPC_TEAM_PATH if os.path.exists(PROJECT_NPC_TEAM_PATH) else DEFAULT_NPC_TEAM_PATH
     os.makedirs(npc_directory, exist_ok=True)
-    """ 
-    # Compile all NPCs in the user's npc_team directory
-    for filename in os.listdir(npc_directory):
-        if filename.endswith(".npc"):
-            npc_file_path = os.path.join(npc_directory, filename)
-            npc_compiler.compile(npc_file_path)
-
-    # Compile NPCs from project-specific npc_team directory
-    if os.path.exists(npc_directory):
-        for filename in os.listdir(npc_directory):
-            if filename.endswith(".npc"):
-                npc_file_path = os.path.join(npc_directory, filename)
-                npc_compiler.compile(npc_file_path) """
 
     if not is_npcsh_initialized():
         print("Initializing NPCSH...")
         initialize_base_npcs_if_needed(db_path)
-        print(
-            "NPCSH initialization complete. Please restart your terminal or run 'source ~/.npcshrc' for the changes to take effect."
-        )
+        print("NPCSH initialization complete. Restart or source ~/.npcshrc.")
 
-    history_file = setup_readline()
-    atexit.register(readline.write_history_file, history_file)
-    atexit.register(command_history.close)
-    # make npcsh into ascii art
-    from colorama import init
-
-    init()  # Initialize colorama for ANSI code support
-    if sys.stdin.isatty():
-
-        print(
-            """
-    Welcome to \033[1;94mnpc\033[0m\033[1;38;5;202msh\033[0m!
-    \033[1;94m                    \033[0m\033[1;38;5;202m               \\\\
-    \033[1;94m _ __   _ __    ___ \033[0m\033[1;38;5;202m ___  | |___    \\\\
-    \033[1;94m| '_ \ | '_ \  / __|\033[0m\033[1;38;5;202m/ __/ | |_ _|    \\\\
-    \033[1;94m| | | || |_) |( |__ \033[0m\033[1;38;5;202m\_  \ | | | |    //
-    \033[1;94m|_| |_|| .__/  \___|\033[0m\033[1;38;5;202m|___/ |_| |_|   //
-            \033[1;94m| |          \033[0m\033[1;38;5;202m              //
-            \033[1;94m| |
-            \033[1;94m|_|
-
-    Begin by asking a question, issuing a bash command, or typing '/help' for more information.
-            """
-        )
-
-    current_npc = None
-    messages = None
-    current_conversation_id = start_new_conversation()
     team = Team(team_path=npc_directory)
-    sibiji = NPC(file=os.path.expanduser("~/.npcsh/npc_team/sibiji.npc")    )
-    npc = sibiji
-    if not sys.stdin.isatty():
-        for line in sys.stdin:
-            user_input = line.strip()
-            if not user_input:
-                continue  # Skip empty lines
-            if user_input.lower() in ["exit", "quit"]:
-                print("Goodbye!")
-                sys.exit(0)
-            result = execute_command(
-                user_input,
-                db_path,
-                npc = npc,
-                team=team,
-                model=NPCSH_CHAT_MODEL,
-                provider=NPCSH_CHAT_PROVIDER,
-                messages=messages,
-                conversation_id=current_conversation_id,
-                stream=NPCSH_STREAM_OUTPUT,
-                api_url=NPCSH_API_URL,
-            )
-            messages = result.get("messages", messages)
-            if "current_npc" in result:
-                current_npc = result["current_npc"]
-            output = result.get("output")
-            conversation_id = result.get("conversation_id")
-            model = result.get("model")
-            provider = result.get("provider")
-            npc = result.get("npc")
-            team = result.get("team")
-            messages = result.get("messages")
-            current_path = result.get("current_path")
-            attachments = result.get("attachments")
-            npc_name = (
-                npc.name
-                if isinstance(npc, NPC)
-                else npc if isinstance(npc, str) else None
-            )
-            
-            save_conversation_message(
-                command_history,
-                conversation_id,
-                "user",
-                user_input,
-                wd=current_path,
-                model=model,
-                provider=provider,
-                npc=npc_name,
-                attachments=attachments,
-            )
-            if NPCSH_STREAM_OUTPUT and (
-                isgenerator(output)
-                or (hasattr(output, "__iter__") and hasattr(output, "__next__"))
-            ):
-                output = print_and_process_stream_with_markdown(    
-                                                                output, model, provider)
+    sibiji_path = os.path.join(DEFAULT_NPC_TEAM_PATH, "sibiji.npc")
+    default_npc = None
+    if os.path.exists(sibiji_path):
+         try:
+             default_npc = NPC(file=sibiji_path)
+         except Exception as e:
+              print(f"Warning: Could not load default NPC 'sibiji': {e}", file=sys.stderr)
+    else:
+         print(f"Warning: Default NPC file not found: {sibiji_path}", file=sys.stderr)
+         if team.npcs:
+              default_npc = next(iter(team.npcs.values()))
+              print(f"Using '{default_npc.name}' as default NPC.")
 
-                    
+    if sys.stdin.isatty():
+        print_welcome_message()
+
+    return command_history, team, default_npc
+
+
+def process_result(
+    user_input: str,
+    result_state: ShellState,
+    output: Any,
+    command_history: CommandHistory):
+
+    npc_name = result_state.npc.name if isinstance(result_state.npc, NPC) else result_state.npc
+    save_conversation_message(
+        command_history,
+        result_state.conversation_id,
+        "user",
+        user_input,
+        wd=result_state.current_path,
+        model=result_state.chat_model, # Log primary chat model? Or specific used one?
+        provider=result_state.chat_provider,
+        npc=npc_name,
+        attachments=result_state.attachments,
+    )
+    result_state.attachments = None # Clear attachments after logging user message
+
+    final_output_str = None
+    if result_state.stream_output and (isgenerator(output) or (hasattr(output, "__iter__") and hasattr(output, "__next__"))):
+        final_output_str = print_and_process_stream_with_markdown(
+             output, result_state.chat_model, result_state.chat_provider # Pass appropriate model?
+        )
+        if final_output_str and result_state.messages and result_state.messages[-1].get("role") != "assistant":
+             result_state.messages.append({"role": "assistant", "content": final_output_str})
+
+    elif output is not None:
+        final_output_str = str(output)
+        render_markdown(final_output_str)
+
+    print() # Add spacing after output
+
+    if final_output_str:
         save_conversation_message(
             command_history,
-            conversation_id,
+            result_state.conversation_id,
             "assistant",
-            output,
-            wd=current_path,
-            model=model,
-            provider=provider,
+            final_output_str,
+            wd=result_state.current_path,
+            model=result_state.chat_model,
+            provider=result_state.chat_provider,
             npc=npc_name,
         )
-        sys.exit(0)
+
+def run_repl(command_history: CommandHistory, initial_state: ShellState):
+    state = initial_state
 
     while True:
         try:
-            if current_npc:
-                prompt = f"{colored(os.getcwd(), 'blue')}:{orange(current_npc.name)}> "
+            cwd_colored = colored(os.path.basename(state.current_path), "blue")
+            if isinstance(state.npc, NPC):
+                prompt_end = f":{orange(state.npc.name)}> "
             else:
-                prompt = f"{colored(os.getcwd(), 'blue')}:\033[1;94mnpc\033[0m\033[1;38;5;202msh\033[0m!> "
+                prompt_end = f":{colored('npc', 'blue', attrs=['bold'])}{colored('sh', 'yellow')}> "
+            prompt = readline_safe_prompt(f"{cwd_colored}{prompt_end}")
 
-            prompt = readline_safe_prompt(prompt)
             user_input = get_multiline_input(prompt).strip()
             if not user_input:
                 continue
-            
+
             if user_input.lower() in ["exit", "quit"]:
-                if current_npc:
-                    print(f"Exiting {current_npc.name} mode.")
-                    current_npc = None
+                if isinstance(state.npc, NPC):
+                    print(f"Exiting {state.npc.name} mode.")
+                    state.npc = None
+                    # Decide whether to clear messages or keep context
+                    # state.messages = []
                     continue
                 else:
                     print("Goodbye!")
                     break
-            if npc is not None:
-                print(f"{npc.name}>", end="")
 
-            result = execute_command(
-                user_input,
-                npc= npc,
-                team=team,
-                model=NPCSH_CHAT_MODEL,
-                provider=NPCSH_CHAT_PROVIDER,
-                messages=messages,
-                conversation_id=current_conversation_id,
-                stream=NPCSH_STREAM_OUTPUT,
-                api_url=NPCSH_API_URL,
-            )
+            state.current_path = os.getcwd()
+            state, output = execute_command(user_input, state)
 
-            
-            messages = result.get("messages", messages)
+            process_result(user_input, state, output, command_history)
 
-            if "npc" in result:
+        except (KeyboardInterrupt):
+            print("\nUse 'exit' or 'quit' to leave.")
+        except EOFError:
+            print("\nGoodbye!")
+            break
 
-                npc = result["npc"]
-            output = result.get("output")
+def run_non_interactive(command_history: CommandHistory, initial_state: ShellState):
+    state = initial_state
+    # print("Running in non-interactive mode...", file=sys.stderr) # Optional debug
 
-            conversation_id = result.get("conversation_id")
-            model = result.get("model")
-            provider = result.get("provider")
+    for line in sys.stdin:
+        user_input = line.strip()
+        if not user_input:
+            continue
+        if user_input.lower() in ["exit", "quit"]:
+             break
 
-            messages = result.get("messages")
-            current_path = result.get("current_path")
-            attachments = result.get("attachments")
+        state.current_path = os.getcwd()
+        state, output = execute_command(user_input, state)
+        # Non-interactive: just print raw output, don't process results complexly
+        if state.stream_output and isgenerator(output):
+             for chunk in output: print(str(chunk), end='')
+             print()
+        elif output is not None:
+             print(output)
+        # Maybe still log history?
+        # process_result(user_input, state, output, command_history)
 
-            if current_npc is not None:
-                if isinstance(current_npc, NPC):
-                    npc_name = current_npc.name
-                elif isinstance(current_npc, str):
-                    npc_name = current_npc
-            else:
-                npc_name = None
-            message_id = save_conversation_message(
-                command_history,
-                conversation_id,
-                "user",
-                user_input,
-                wd=current_path,
-                model=model,
-                provider=provider,
-                npc=npc_name,
-                attachments=attachments,
-            )
+def main() -> None:
+    parser = argparse.ArgumentParser(description="npcsh - An NPC-powered shell.")
+    parser.add_argument(
+        "-v", "--version", action="version", version=f"npcsh version {VERSION}"
+    )
+    parser.add_argument(
+         "-c", "--command", type=str, help="Execute a single command and exit."
+    )
+    args = parser.parse_args()
 
+    command_history, team, default_npc = setup_shell()
 
-            try:
-                if NPCSH_STREAM_OUTPUT and hasattr(output, "__iter__"):
-                    str_output = print_and_process_stream_with_markdown(
-                        output, model, provider
-                    )
-                    output = str_output
-            except:
-                output = None
-                
+    initial_state = ShellState(
+        team=team,
+        npc=default_npc,
+        conversation_id=start_new_conversation(),
+        stream_output=NPCSH_STREAM_OUTPUT,
+        chat_model=NPCSH_CHAT_MODEL, chat_provider=NPCSH_CHAT_PROVIDER,
+        vision_model=NPCSH_VISION_MODEL, vision_provider=NPCSH_VISION_PROVIDER,
+        embedding_model=NPCSH_EMBEDDING_MODEL, embedding_provider=NPCSH_EMBEDDING_PROVIDER,
+        reasoning_model=NPCSH_REASONING_MODEL, reasoning_provider=NPCSH_REASONING_PROVIDER,
+        image_gen_model=NPCSH_IMAGE_GEN_MODEL, image_gen_provider=NPCSH_IMAGE_GEN_PROVIDER,
+        video_gen_model=NPCSH_VIDEO_GEN_MODEL, video_gen_provider=NPCSH_VIDEO_GEN_PROVIDER,
+        api_url=NPCSH_API_URL,
+    )
 
-            print("\n")
+    if args.command:
+         state = initial_state
+         state.current_path = os.getcwd()
+         final_state, output = execute_command(args.command, state)
+         if final_state.stream_output and isgenerator(output):
+              for chunk in output: print(str(chunk), end='')
+              print()
+         elif output is not None:
+              print(output)
 
-            if isinstance(output, str):
-                save_conversation_message(
-                    command_history,
-                    conversation_id,
-                    "assistant",
-                    output,
-                    wd=current_path,
-                    model=model,
-                    provider=provider,
-                    npc=npc_name,
-                )
-
-            # if there are attachments in most recent user sent message, save them
-            # save_attachment_to_message(command_history, message_id, # file_path, attachment_name, attachment_type)
-
-            if (
-                result["output"] is not None
-                and not user_input.startswith("/")
-                and not isinstance(result, dict)
-            ):
-                print("final", result)
-
-        except (KeyboardInterrupt, EOFError):
-            if current_npc:
-                print(f"\nExiting {current_npc.name} mode.")
-                current_npc = None
-            else:
-                print("\nGoodbye!")
-                break
-
+    elif not sys.stdin.isatty():
+        run_non_interactive(command_history, initial_state)
+    else:
+        run_repl(command_history, initial_state)
 
 if __name__ == "__main__":
     main()

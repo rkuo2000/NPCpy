@@ -82,6 +82,88 @@ os.environ["PYTHONWARNINGS"] = "ignore"
 os.environ["SDL_AUDIODRIVER"] = "dummy"
 
 
+
+def get_locally_available_models(project_directory):
+    global available_models
+    env_path = os.path.join(project_directory, ".env")
+    env_vars = {}
+    if os.path.exists(env_path):
+        with open(env_path, "r") as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#"):
+                    if "=" in line:
+                        key, value = line.split("=", 1)
+                        env_vars[key.strip()] = value.strip().strip("\"'")
+    if "ANTHROPIC_API_KEY" in env_vars:
+        try:
+            import anthropic
+
+            client = anthropic.Anthropic(api_key=env_vars.get("ANTHROPIC_API_KEY"))
+            models = client.models.list()
+            for model in models.data:
+                available_models[model.id] = 'anthropic'
+                    
+        except:
+            print("anthropic models not indexed")
+    if "OPENAI_API_KEY" in env_vars:
+        try:
+            import openai
+
+            openai.api_key = env_vars["OPENAI_API_KEY"]
+            models = openai.models.list()
+
+            for model in models.data:
+                if (
+                    (
+                        "gpt" in model.id
+                        or "o1" in model.id
+                        or "o3" in model.id
+                        or "chat" in model.id
+                    )
+                    and "audio" not in model.id
+                    and "realtime" not in model.id
+                ):
+                    available_models[model.id] = "openai"
+        except:
+            print("openai models not indexed")
+
+    if "GEMINI_API_KEY" in env_vars:
+        try:
+            import google.generativeai as gemini
+
+            gemini.configure(api_key=env_vars["GEMINI_API_KEY"])
+            models = gemini.list_models()
+            # available_models_providers.append(
+            #    {
+            #        "model": "gemini-2.5-pro",
+            #        "provider": "gemini",
+            #    }
+            # )
+            available_models["gemini-1.5-flash"] = "gemini"
+            available_models["gemini-2.0-flash"] = "gemini"
+            available_models["gemini-2.0-flash-lite"] = "gemini"
+            available_models["gemini-2.0-flash-lite-preview"] = "gemini"
+            available_models["gemini-2.5-pro"] = "gemini"
+            
+        except:
+            print("gemini models not indexed.")
+    if "DEEPSEEK_API_KEY" in env_vars:
+        available_models['deepseek-chat'] = 'deepseek'
+        available_models['deepseek-reasoner'] = 'deepseek'        
+    try:
+        import ollama
+        models = ollama.list()
+        for model in models.models:
+
+            if "embed" not in model.model:
+                mod = model.model
+                available_models[mod] = "ollama"
+    except Exception as e:
+        print(f"Error loading ollama models: {e}")
+    return available_models
+
+
 def validate_bash_command(command_parts: list) -> bool:
     """
     Function Description:
@@ -1068,47 +1150,84 @@ import os
 import json
 from pathlib import Path
 
-def get_help():
-    output = """# Available Commands
 
-/com [npc_file1.npc npc_file2.npc ...] # Alias for /compile.
+def change_directory(command_parts: list, messages: list) -> dict:
+    """
+    Function Description:
+        Changes the current directory.
+    Args:
+        command_parts : list : Command parts
+        messages : list : Messages
+    Keyword Args:
+        None
+    Returns:
+        dict : dict : Dictionary
 
-/compile [npc_file1.npc npc_file2.npc ...] # Compiles specified NPC profile(s). If no arguments are provided, compiles all NPCs in the npc_profi
+    """
 
-/exit or /quit # Exits the current NPC mode or the npcsh shell.
+    try:
+        if len(command_parts) > 1:
+            new_dir = os.path.expanduser(command_parts[1])
+        else:
+            new_dir = os.path.expanduser("~")
+        os.chdir(new_dir)
+        return {
+            "messages": messages,
+            "output": f"Changed directory to {os.getcwd()}",
+        }
+    except FileNotFoundError:
+        return {
+            "messages": messages,
+            "output": f"Directory not found: {new_dir}",
+        }
+    except PermissionError:
+        return {"messages": messages, "output": f"Permission denied: {new_dir}"}
 
-/help # Displays this help message.
+def ensure_dirs_exist(*dirs):
+    """Ensure all specified directories exist"""
+    for dir_path in dirs:
+        os.makedirs(os.path.expanduser(dir_path), exist_ok=True)
 
-/init # Initializes a new NPC project.
+def init_db_tables(db_path="~/npcsh_history.db"):
+    """Initialize necessary database tables"""
+    db_path = os.path.expanduser(db_path)
+    with sqlite3.connect(db_path) as conn:
+        # NPC log table for storing all kinds of entries
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS npc_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                entity_id TEXT,  
+                entry_type TEXT,
+                content TEXT,
+                metadata TEXT,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        
+        # Pipeline runs table for tracking pipeline executions
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS pipeline_runs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                pipeline_name TEXT,
+                step_name TEXT,
+                output TEXT,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        
+        # Compiled NPCs table for storing compiled NPC content
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS compiled_npcs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT UNIQUE,
+                source_path TEXT,
+                compiled_content TEXT,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        
+        conn.commit()
 
-/notes # Enter notes mode.
-
-/ots [filename] # Analyzes an image from a specified filename or captures a screenshot for analysis.
-
-/rag <search_term> # Performs a RAG (Retrieval-Augmented Generation) search based on the search term provided.
-
-/sample <question> # Asks the current NPC a question.
-
-/set <model|provider|db_path> <value> # Sets the specified parameter. Enclose the value in quotes.
-
-/sp [inherit_last=<n>] # Alias for /spool.
-
-/spool [inherit_last=<n>] # Enters spool mode. Optionally inherits the last <n> messages.
-
-/vixynt [filename=<filename>] <prompt> # Captures a screenshot and generates an image with the specified prompt.
-
-/<subcommand> # Enters the specified NPC's mode.
-
-/cmd <command/> # Execute a command using the current NPC's LLM.
-
-/command <command/> # Alias for /cmd.
-
-Tools within your npc_team directory can also be used as macro commands.
-
-
-# Note
-Bash commands and other programs can be executed directly. """
-    return output
 
 
 
@@ -1283,7 +1402,8 @@ def get_available_models() -> list:
         "gemma3",
         "llama3.3",
         "llama3.2",
-        "llama3.1" "phi4",
+        "llama3.1", 
+        "phi4",
         "phi3.5",
         "mistral",
         "llama3",

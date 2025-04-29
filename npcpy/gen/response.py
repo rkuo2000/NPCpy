@@ -354,6 +354,7 @@ def get_litellm_response(
             ]:
                 api_params[key] = value
     
+
     # Handle streaming
     if stream:
         if format == "json":

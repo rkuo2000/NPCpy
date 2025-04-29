@@ -24,6 +24,36 @@ def flush_messages(n: int, messages: list) -> dict:
     }
 
 
+def get_db_connection():
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def fetch_messages_for_conversation(conversation_id):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    query = """
+        SELECT role, content, timestamp
+        FROM conversation_history
+        WHERE conversation_id = ?
+        ORDER BY timestamp ASC
+    """
+    cursor.execute(query, (conversation_id,))
+    messages = cursor.fetchall()
+    conn.close()
+
+    return [
+        {
+            "role": message["role"],
+            "content": message["content"],
+            "timestamp": message["timestamp"],
+        }
+        for message in messages
+    ]
+
+
 
 def deep_to_dict(obj):
     """

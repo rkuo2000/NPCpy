@@ -12,10 +12,7 @@ try:
         FORMAT,
         CHANNELS,
         RATE,
-        device,
-        vad_model,
         CHUNK,
-        whisper_model,
         transcribe_recording,
         convert_mp3_to_wav,
     )
@@ -72,6 +69,17 @@ def enter_yap_mode(
     recording_data = []
     buffer_data = []
     last_speech_time = 0
+    vad_model, _ = torch.hub.load(
+        repo_or_dir="snakers4/silero-vad",
+        model="silero_vad",
+        force_reload=False,
+        onnx=False,
+        verbose=False,
+        
+    )
+    device = 'cpu'
+    vad_model.to(device)
+    
 
     print("Entering yap mode. Initializing...")
 
@@ -286,6 +294,8 @@ def enter_yap_mode(
         #    speak_text("I'm sorry, there was an error processing your request.")
 
     # Function to capture and process audio
+
+
     def capture_audio():
         nonlocal is_recording, recording_data, buffer_data, last_speech_time, running, is_speaking
         nonlocal audio_stream, transcription_queue
@@ -390,7 +400,7 @@ def enter_yap_mode(
         return text
 
     # Now that functions are defined, play welcome messages
-    speak_text("Entering whisper mode. Please wait.")
+    speak_text("Entering yap mode. Please wait.")
 
     try:
         loaded_content = {}  # New dictionary to hold loaded content

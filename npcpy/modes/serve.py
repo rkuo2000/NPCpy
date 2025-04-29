@@ -478,7 +478,34 @@ def get_models():
         # Return an empty list or a specific error structure
         return jsonify({"models": [], "error": str(e)}), 500
 
-
+@app.route('/api/<command>', methods=['POST'])
+def api_command(command):
+    data = request.json or {}
+    
+    # Check if command exists
+    handler = router.get_route(command)
+    if not handler:
+        return jsonify({"error": f"Unknown command: {command}"})
+    
+    # Check if it's shell-only
+    if router.shell_only.get(command, False):
+        return jsonify({"error": f"Command {command} is only available in shell mode"})
+    
+    # Execute the command handler
+    try:
+        # Convert positional args from JSON 
+        args = data.get('args', [])
+        kwargs = data.get('kwargs', {})
+        
+        # Add command name back to the command string
+        command_str = command
+        if args:
+            command_str += " " + " ".join(str(arg) for arg in args)
+            
+        result = handler(command_str, **kwargs)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e)})
 @app.route("/api/stream", methods=["POST"])
 def stream():
     """SSE stream that takes messages, models, providers, and attachments from frontend."""

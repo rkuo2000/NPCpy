@@ -40,6 +40,8 @@ from npcpy.npc_sysenv import (
 )
 from npcpy.gen.response import get_litellm_response
 from npcpy.gen.image_gen import generate_image_litellm
+from npcpy.gen.video_gen import generate_video_diffusers
+
 def generate_image(
     prompt: str,
     model: str = NPCSH_IMAGE_GEN_MODEL,
@@ -85,6 +87,7 @@ def generate_image(
         height=height,
         width=width,
     )
+    print(image)
     # save image
     # check if image is a PIL image
     if isinstance(image, PIL.Image.Image):
@@ -152,8 +155,8 @@ def generate_video(
 
 def get_llm_response(
     prompt: str,
-    provider: str,
-    model: str ,
+    provider: str = None,
+    model: str=None,
     images: List[Dict[str, str]] = None,
     npc: Any = None,
     team: Any = None,
@@ -926,7 +929,6 @@ ReAct choices then will enter reasoning flow
     explanation = response_content_parsed.get("explanation")
 
     render_markdown(f"- Action chosen: {action}\n")
-    render_markdown(f"- Explanation given: {explanation}\n")
 
     # print(response_content)
     if response_content_parsed.get("tool_name"):

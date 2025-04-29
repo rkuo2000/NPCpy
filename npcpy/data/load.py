@@ -81,3 +81,35 @@ def load_pdf(file_path):
     )
 
     return df
+
+
+extension_map = {
+    "PNG": "images",
+    "JPG": "images",
+    "JPEG": "images",
+    "GIF": "images",
+    "SVG": "images",
+    "MP4": "videos",
+    "AVI": "videos",
+    "MOV": "videos",
+    "WMV": "videos",
+    "MPG": "videos",
+    "MPEG": "videos",
+    "DOC": "documents",
+    "DOCX": "documents",
+    "PDF": "documents",
+    "PPT": "documents",
+    "PPTX": "documents",
+    "XLS": "documents",
+    "XLSX": "documents",
+    "TXT": "documents",
+    "CSV": "documents",
+    "ZIP": "archives",
+    "RAR": "archives",
+    "7Z": "archives",
+    "TAR": "archives",
+    "GZ": "archives",
+    "BZ2": "archives",
+    "ISO": "archives",
+}
+

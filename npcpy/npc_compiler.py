@@ -23,6 +23,7 @@ from npcpy.npc_sysenv import (
     NPCSH_CHAT_PROVIDER,
     NPCSH_API_URL,
     get_npc_path,
+    init_db_tables
     )
 
 class SilentUndefined(Undefined):
@@ -103,7 +104,7 @@ class Tool:
             context = self._execute_step(
                 step, context, jinja_env, 
                 model=model, provider=provider, npc=npc, 
-                stream=stream, messages=messages
+                messages=messages
             )
             
             # Return immediately for streaming responses in final step
@@ -1237,83 +1238,6 @@ class Pipeline:
             return f"Error: {str(e)}"
 
 
-
-def change_directory(command_parts: list, messages: list) -> dict:
-    """
-    Function Description:
-        Changes the current directory.
-    Args:
-        command_parts : list : Command parts
-        messages : list : Messages
-    Keyword Args:
-        None
-    Returns:
-        dict : dict : Dictionary
-
-    """
-
-    try:
-        if len(command_parts) > 1:
-            new_dir = os.path.expanduser(command_parts[1])
-        else:
-            new_dir = os.path.expanduser("~")
-        os.chdir(new_dir)
-        return {
-            "messages": messages,
-            "output": f"Changed directory to {os.getcwd()}",
-        }
-    except FileNotFoundError:
-        return {
-            "messages": messages,
-            "output": f"Directory not found: {new_dir}",
-        }
-    except PermissionError:
-        return {"messages": messages, "output": f"Permission denied: {new_dir}"}
-
-def ensure_dirs_exist(*dirs):
-    """Ensure all specified directories exist"""
-    for dir_path in dirs:
-        os.makedirs(os.path.expanduser(dir_path), exist_ok=True)
-
-def init_db_tables(db_path="~/npcsh_history.db"):
-    """Initialize necessary database tables"""
-    db_path = os.path.expanduser(db_path)
-    with sqlite3.connect(db_path) as conn:
-        # NPC log table for storing all kinds of entries
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS npc_log (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                entity_id TEXT,  
-                entry_type TEXT,
-                content TEXT,
-                metadata TEXT,
-                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        
-        # Pipeline runs table for tracking pipeline executions
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS pipeline_runs (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                pipeline_name TEXT,
-                step_name TEXT,
-                output TEXT,
-                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        
-        # Compiled NPCs table for storing compiled NPC content
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS compiled_npcs (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT UNIQUE,
-                source_path TEXT,
-                compiled_content TEXT,
-                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        
-        conn.commit()
 
 def log_entry(entity_id, entry_type, content, metadata=None, db_path="~/npcsh_history.db"):
     """Log an entry for an NPC or team"""

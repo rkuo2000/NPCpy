@@ -6,7 +6,7 @@ inputs:
 steps:
   - engine: "python"
     code: |
-      from npcpy.search import search_web
+      from npcpy.data.web import search_web
       from npcpy.npc_sysenv import NPCSH_SEARCH_PROVIDER
       query = "{{ query }}"
       provider = '{{ provider }}'

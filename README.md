@@ -1,26 +1,41 @@
 
-
-# NPC Toolkit
-
-
-- `npcpy` is a python framework designed to easily integrate Large Language Models and AI agents.
-- `npcpy` works with local and enterprise LLM providers through its LiteLLM integration, allowing users to run inference from Ollama, LMStudio, OpenAI, Anthropic, Gemini, and Deepseek, making it a versatile tool for both simple commands and sophisticated AI-driven tasks. 
-- In `npcpy`, all agentic capabilities are built and tested using small local models (like `llama3.2`) to ensure it can function reliably even at the edge of computing.
-- In addition to its python library capabilities, `npcpy` provides users with powerful command-line tools and macros for quick and easy access to LLMs. These programs comprise the NPC `shell` and such functionalities are available for use in multiple ways: through the `npc` bash cli, directly through the `npcsh` shell or through their individual paths. 
-- The NPC Shell `npcsh` provides a drop-in replacement for one's bash shell with natural language processing capabilities and a suite of built-in tools (macros) for tasks like voice control, image generation, and web searching. Through it's simple REPL system, one can interact with agents and orchestrate agent teams.
-- With the `npc` CLI, users can use the same tools and macros of the NPC shell through a CLI and provides a quick and simple way to RESTfully serve an NPC Team to receive HTTP requests.
-- The NPC Toolkit integrates with local and enterprise LLM providers through its LiteLLM integration, allowing users to run inference from Ollama, LMStudio, OpenAI, Anthropic, Gemini, and Deepseek, making it a versatile tool for both simple commands and sophisticated AI-driven tasks. All agentic capabilities are built and tested using small local models (like `llama3.2`) to ensure the agentic capabilities function even at the edge of computing.
-
 <p align="center">
   <img src="https://raw.githubusercontent.com/cagostino/npcsh/main/npcpy.png" alt="npcpy logo of a solarpunk sign">
 </p>
 
 
+# npcpy
 
-Read the docs at [npcpy.readthedocs.io](https://npcsh.readthedocs.io/en/latest/)
+Welcome to `npcpy`, the python library for the NPC Toolkit and the home of the core command-line programs that make up the NPC Shell (`npcsh`). `npcpy` is an agent-based framework designed to easily integrate AI models into one's daily workflow and it does this by providing users with a variety of interfaces through which they can use, test, and explore the capabilities of AI models, agents, and agent systems. These include the following:
 
-There is a graphical user interface that makes use of the NPC Toolkit through the NPC Studio. See the open source code for NPC Studio [here](https://github.com/). Download the executables (soon) at [our website](https://www.npcworldwi.de/npc-studio).
+-an extensible python library (`npcpy`) with convenient methods for getting LLM responses, loading data, creating agents, and implementing agentic capabilities in new custom systems.
 
+-a bash-replacement shell (`npcsh`) that can process bash, natural language, or special macro calls for procedures like image generation (`/vixynt 'prompt'`), web searching (`/search -p perplexity 'cal bears football schedule'`), and one-off LLM response samples (`/sample 'prompt'`). Users can specify whether natural language is processed agentically (i.e. an LLM reviews and decides to pass to other agents or use tools) or directly through bash execution.
+
+-a command line interface (`npc`) with the ability to process calls naturally (`npc 'prompt'`) or to call NPC macro commands like running a flask server to provide API access to an agent team (`npc serve`), web searching (`npc search -p perplexity 'cal bears football schedule'`), etc
+
+-a replacement shell for interpreters like python/r/node/julia (`guac`) that lets users execute code snippets or to ask LLMs questions which respond by generating and executing code directly within the interpreter. The variables and functions generated during these executions are inspectable to the user. In addition, `guac` is set up to provide users with a sense of cyclicality by progressing from a raw avocado (🥑) through a series of intermediaite steps until it is a gross brown mush (🥘). At this point, the user is asked to refresh, which initiates an LLM review of the session's commands and results and then suggests automations and then after the user reviews them they will be added to the user's `guac` module that is installed locally within the `~/.npcsh/guac/` folder and which eveolves as the user uses it. This refresh period is meant to encourage frequent reviews for users to help them work more efficiently and cognizantly.  
+
+- a reasoning REPL loop with explicit checks to request inputs from users following thinking traces  (`pti`) which can be accessed by running `pti` directly, or by running `npc pti` from the command line or `/pti` from `npcsh`.
+-a simple agentic REPL loop (`spool`) which can be accessed by running `spool` directly, or by running `npc spool` from the command line or `/spool` from `npcsh`.
+
+- a voice control REPL loop (`yap`) which can be accessed by running `yap` directly, or by running `npc yap` from the command line or `/yap` from `npcsh`.
+
+
+`npcpy` works with local and enterprise LLM providers through its LiteLLM integration, allowing users to run inference from Ollama, LMStudio, OpenAI, Anthropic, Gemini, and Deepseek, making it a versatile tool for both simple commands and sophisticated AI-driven tasks. 
+
+In `npcpy`, all agentic capabilities are built and tested using small local models (like `llama3.2`) to ensure it can function reliably even at the edge of computing.
+
+
+
+
+Read the docs at [npcpy.readthedocs.io](https://npcpy.readthedocs.io/en/latest/)
+
+## NPC Studio
+There is a graphical user interface that makes use of the NPC Toolkit through the NPC Studio. See the open source code for NPC Studio [here](https://github.com/cagostino/npc-studio). Download the executables (soon) at [our website](https://www.npcworldwi.de/npc-studio).
+
+
+## Mailing List
 Interested to stay in the loop and to hear the latest and greatest about `npcpy`, `npcsh`, and NPC Studio? Be sure to sign up for the [newsletter](https://forms.gle/n1NzQmwjsV4xv1B2A)!
 
 
@@ -32,24 +47,23 @@ Interested to stay in the loop and to hear the latest and greatest about `npcpy`
 [![Star History Chart](https://api.star-history.com/svg?repos=cagostino/npcpy&type=Date)](https://star-history.com/#cagostino/npcpy&Date)
 
 ## TLDR Cheat Sheet for NPC shell and cli
-The NPC shell and cli let users iterate and experiiment with AI in a natural way. Below is a cheat sheet that shows how to use the NPC Toolkit's macro commands in both the shell and the CLI. For the `npcsh` commands to work, one must activate `npcsh` by typing it in a shell.
+The NPC shell and cli let users iterate and experiment with AI in a natural way. Below is a cheat sheet that shows how to use the NPC Toolkit's macro commands in both the shell and the CLI. For the `npcsh` commands to work, one must activate `npcsh` by typing it in a shell.
 
 | Task | npc CLI | npcsh |
 |----------|----------|----------|
 | Ask a generic question | npc 'prompt' | 'prompt' |
 | Compile an NPC | npc compile /path/to/npc.npc | /compile /path/to/npc.npc |
 | Computer use | npc plonk -n 'npc_name' -sp 'task for plonk to carry out '| /plonk -n 'npc_name' -sp 'task for plonk to carry out ' |
-| Conjure an NPC team from context and templates | npc init -t 'template1, template2' -ctx 'context'   | /conjure  -t 'template1, 'template2' -ctx 'context'  |
-| Enter a chat with an NPC (NPC needs to be compiled first) | npc chat -n npc_name | /spool npc=<npc_name> |
+| Enter a chat with an NPC (NPC needs to be compiled first) | npc spool -n npc_name | /spool -n <npc_name> |
 | Generate image    | npc vixynt 'prompt'  | /vixynt prompt   |
 | Get a sample LLM response  | npc sample 'prompt'   | /sample prompt for llm  |
 | Search the web | npc search -q "cal golden bears football schedule" -sp perplexity | /search -p perplexity 'cal bears football schedule' |
 | Serve an NPC team | npc serve --port 5337 --cors='http://localhost:5137/' | /serve --port 5337 --cors='http://localhost:5137/' |
 | Screenshot analysis  | npc ots |  /ots  |
-| Voice Chat    | npc whisper -n 'npc_name'   | /whisper   |
+| Voice Chat    | npc yap   | /yap   |
 
 
-When beginning, `npcsh` initializes a set of agents that you can use and tweak as you go. Our mascot agent is sibiji the spider and he will help you weave your agent web! 
+When beginning, `npcsh` initializes a set of agents that you can use and tweak as you go. Our mascot agent is sibiji the spider and will help you weave your agent web! 
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/cagostino/npcsh/main/npcpy/npcsh.png" alt="npcsh logo with sibiji the spider">
@@ -202,147 +216,7 @@ print(response['response'])
 ```bash
 'The most important territory to retain in the Andes mountains for the cause of liberation in South America would be the region of Quito in present-day Ecuador. This area is strategically significant due to its location and access to key trade routes. It also acts as a vital link between the northern and southern parts of the continent, influencing both military movements and the morale of the independence struggle. Retaining control over Quito would bolster efforts to unite various factions in the fight against Spanish colonial rule across the Andean states.'
 ```
-### Example 4: Using an NPC to Analyze Data
-This example shows how to use an NPC to perform data analysis on a DataFrame using LLM commands.
-```python
-from npcpy.npc_compiler import NPC
-import sqlite3
-import os
-# Set up database connection
-db_path = '~/npcsh_history.db'
-conn = sqlite3.connect(os.path.expanduser(db_path))
-
-# make a table to put into npcsh_history.db or change this example to use an existing table in a database you have
-import pandas as pd
-data = {
-        'customer_feedback': ['The product is great!', 'The service was terrible.', 'I love the new feature.'],
-        'customer_id': [1, 2, 3],
-        'customer_rating': [5, 1, 3],
-        'timestamp': ['2022-01-01', '2022-01-02', '2022-01-03']
-        }
-
-
-df = pd.DataFrame(data)
-df.to_sql('customer_feedback', conn, if_exists='replace', index=False)
-
-
-npc = NPC(
-          name='Felix',
-          db_conn=conn,
-          primary_directive='Analyze customer feedback for sentiment.',
-          model='gpt-4o-mini',
-          provider='openai',
-          )
-response = npc.analyze_db_data('Provide a detailed report on the data contained in the `customer_feedback` table?')
-
-
-```
-
-
-### Example 5: Creating and Using a Tool
-You can define a tool and execute it from within your Python script.
-Here we'll create a tool that will take in a pdf file, extract the text, and then answer a user request about the text.
-
-```python
-from npcpy.npc_compiler import Tool, NPC
-import sqlite3
-import os
-
-from jinja2 import Environment, FileSystemLoader
-
-# Create a proper Jinja environment
-jinja_env = Environment(loader=FileSystemLoader('.'))
-
-
-tool_data = {
-    "tool_name": "pdf_analyzer",
-    "inputs": ["request", "file"],
-    "steps": [{  # Make this a list with one dict inside
-        "engine": "python",
-        "code": """
-try:
-    import fitz  # PyMuPDF
-
-    shared_context = {}
-    shared_context['inputs'] = '{{request}}'
-
-    pdf_path = '{{file}}'
-
-
-
-    # Open the PDF
-    doc = fitz.open(pdf_path)
-    text = ""
-
-    # Extract text from each page
-    for page_num in range(len(doc)):
-        page = doc[page_num]
-        text += page.get_text()
-
-    # Close the document
-    doc.close()
-
-    print(f"Extracted text length: {len(text)}")
-    if len(text) > 100:
-        print(f"First 100 characters: {text[:100]}...")
-
-    shared_context['extracted_text'] = text
-    print("Text extraction completed successfully")
-
-except Exception as e:
-    error_msg = f"Error processing PDF: {str(e)}"
-    print(error_msg)
-    shared_context['extracted_text'] = f"Error: {error_msg}"
-"""
-    },
-     {
-        "engine": "natural",
-        "code": """
-{% if shared_context and shared_context.extracted_text %}
-{% if shared_context.extracted_text.startswith('Error:') %}
-{{ shared_context.extracted_text }}
-{% else %}
-Here is the text extracted from the PDF:
-
-{{ shared_context.extracted_text }}
-
-Please provide a response to user request: {{ request }} using the information extracted above.
-{% endif %}
-{% else %}
-Error: No text was extracted from the PDF.
-{% endif %}
-"""
-    },]
-    }
-
-# Instantiate the tool
-tool = Tool(tool_data)
-
-# Create an NPC instance
-npc = NPC(
-    name='starlana',
-    primary_directive='Analyze text from Astrophysics papers with a keen attention to theoretical machinations and mechanisms.',
-    model = 'llama3.2',
-    provider='ollama',
-    db_conn=sqlite3.connect(os.path.expanduser('~/npcsh_database.db'))
-)
-
-# Define input values dictionary
-input_values = {
-    "request": "what is the point of the yuan and narayanan work?",
-    "file": os.path.abspath("test_data/yuan2004.pdf")
-}
-
-print(f"Attempting to read file: {input_values['file']}")
-print(f"File exists: {os.path.exists(input_values['file'])}")
-
-# Execute the tool
-output = tool.execute(input_values, npc.tools_dict, jinja_env, 'Sample Command',model=npc.model, provider=npc.provider,  npc=npc)
-
-print('Tool Output:', output)
-```
-
-### Example 6: Orchestrating a team
+### Example 4: Orchestrating a team
 
 
 
@@ -663,6 +537,11 @@ For cases where you wish to set up a project specific set of NPCs, tools, and as
 
 ## IMPORTANT: migrations and deprecations and major changes
 
+### v0.3.34
+-In v0.3.34, there were many significant changes to the structure of npcpy, introducing various new submodules for data I/O (`data`), AI model generation and inference (`gen`), command history, knowledge graph, and search features (`memory`), mixture of agents methods and schemes (`mix`), modes for interaction like `spool`, `guac`, `wander`, `yap`, `pti`, and more (`modes`), SQL-focused tooling (`sql`) and computer automations like `cron`, `systemctl`, `pyautogui`, etc (`work`) .
+
+
+ 
 ### v0.3.33
 -In v0.3.33, the NPCCompiler object was phased out and the global/project dichotomy was removed. 
 -the primary python package entrypoint was renamed from npcsh to npcpy
@@ -699,10 +578,6 @@ Contributions are welcome! Please submit issues and pull requests on the GitHub 
 ## Support
 If you appreciate the work here, [consider supporting NPC Worldwide](https://buymeacoffee.com/npcworldwide). If you'd like to explore how to use `npcsh` to help your business, please reach out to info@npcworldwi.de .
 
-
-## NPC Studio
-Coming soon! NPC Studio will be a desktop application for managing chats and agents on your own machine.
-Be sure to sign up for the [npcsh newsletter](https://forms.gle/n1NzQmwjsV4xv1B2A) to hear updates!
 
 ## License
 This project is licensed under the MIT License.
