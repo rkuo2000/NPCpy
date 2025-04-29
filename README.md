@@ -14,7 +14,7 @@ Welcome to `npcpy`, the python library for the NPC Toolkit and the home of the c
 
 - a command line interface (`npc`) with the ability to process calls naturally (`npc 'prompt'`) or to call NPC macro commands like running a flask server to provide API access to an agent team (`npc serve`), web searching (`npc search -p perplexity 'cal bears football schedule'`), etc
 
-- a replacement shell for interpreters like python/r/node/julia (`guac`) that lets users execute code snippets or to ask LLMs questions which respond by generating and executing code directly within the interpreter. The variables and functions generated during these executions are inspectable to the user. In addition, `guac` is set up to provide users with a sense of cyclicality by progressing from a raw avocado (🥑) through a series of intermediaite steps until it is a gross brown mush (🥘). At this point, the user is asked to refresh, which initiates an LLM review of the session's commands and results and then suggests automations and then after the user reviews them they will be added to the user's `guac` module that is installed locally within the `~/.npcsh/guac/` folder and which eveolves as the user uses it. This refresh period is meant to encourage frequent reviews for users to help them work more efficiently and cognizantly.  
+- a replacement shell for interpreters like python/r/node/julia (`guac`) that brings a pomodoro-like approach to interactive coding.
 
 - a reasoning REPL loop with explicit checks to request inputs from users following thinking traces  (`pti`) which can be accessed by running `pti` directly, or by running `npc pti` from the command line or `/pti` from `npcsh`.
 - a simple agentic REPL loop (`spool`) which can be accessed by running `spool` directly, or by running `npc spool` from the command line or `/spool` from `npcsh`.
@@ -66,9 +66,8 @@ The NPC shell and cli let users iterate and experiment with AI in a natural way.
 When beginning, `npcsh` initializes a set of agents that you can use and tweak as you go. Our mascot agent is sibiji the spider and will help you weave your agent web! 
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/cagostino/npcsh/main/npcpy/npcsh.png" alt="npcsh logo with sibiji the spider">
+  <img src="https://raw.githubusercontent.com/cagostino/npcsh/main/npcpy/npc_team/sibiji.png" alt="npcsh logo with sibiji the spider">
 </p>
-
 
 
 ## Python Examples
