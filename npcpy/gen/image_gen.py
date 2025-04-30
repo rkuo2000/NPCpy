@@ -71,7 +71,7 @@ def gpt_image_gen(
     Returns:
         str: The URL of the generated image.
     """
-    
+    print(height, width, model, prompt)
     from openai import OpenAI
     import base64
     client = OpenAI()
@@ -128,9 +128,13 @@ def generate_image_litellm(
         model = "runwayml/stable-diffusion-v1-5"
     if provider == "openai":
         if model == 'gpt-image-1':
-            return gpt_image_gen(prompt, model=model, attachments=attachments, height=height, width=width)
+            return gpt_image_gen(prompt, 
+                                 model=model, 
+                                 attachments=attachments, 
+                                 height=height, 
+                                 width=width)
         
-        if "dall" not in model and model !='gpt-image-1':
+        elif "dall" not in model:
             model = "dall-e-2"
     if provider == "diffusers":
         return generate_image_diffusers(prompt, model, height=height, width=width)

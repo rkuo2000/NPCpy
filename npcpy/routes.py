@@ -597,26 +597,33 @@ def trigger_handler(command: str, **kwargs):
 
 @router.route("vixynt", "Generate images from text descriptions")
 def vixynt_handler(command: str, **kwargs):
+    print(kwargs)
+    print(command)
     npc = safe_get(kwargs, 'npc')
     model = safe_get(kwargs, 'model', NPCSH_IMAGE_GEN_MODEL)
     provider = safe_get(kwargs, 'provider', NPCSH_IMAGE_GEN_PROVIDER)
+    height = safe_get(kwargs, 'height', None)
+    width = safe_get(kwargs, 'width', None)
+    
     if model == NPCSH_CHAT_MODEL: model = NPCSH_IMAGE_GEN_MODEL
     if provider == NPCSH_CHAT_PROVIDER: provider = NPCSH_IMAGE_GEN_PROVIDER
 
     messages = safe_get(kwargs, 'messages', [])
 
     filename = None
-    height = 256
-    width = 256
+
     prompt_parts = []
     try:
         parts = shlex.split(command)
         for part in parts[1:]:
+            
             if part.startswith("filename="):
                 filename = part.split("=", 1)[1]
             elif part.startswith("height="):
-                try: height = int(part.split("=", 1)[1])
-                except ValueError: pass
+                try: 
+                    height = int(part.split("=", 1)[1])
+                except ValueError:
+                    pass
             elif part.startswith("width="):
                 try: width = int(part.split("=", 1)[1])
                 except ValueError: pass

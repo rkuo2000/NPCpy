@@ -92,9 +92,33 @@ def main():
             sys.exit(1)
 
         full_command_str = args.command
+        command_args = []
+        extras = {}
+        
+        # Parse command args properly
+        print(args)
         if args.command_args:
-            full_command_str += " " + " ".join(args.command_args)
-
+            i = 0
+            while i < len(args.command_args):
+                
+                arg = args.command_args[i]
+                if arg.startswith("--"):
+                    param = arg[2:]  # Remove --
+                    if i + 1 < len(args.command_args) and not args.command_args[i+1].startswith("--"):
+                        extras[param] = args.command_args[i+1]
+                        i += 2
+                    else:
+                        extras[param] = True
+                        i += 1
+                else:
+                    command_args.append(arg)
+                    i += 1
+            
+            prompt_parts = command_args
+            if prompt_parts:
+                full_command_str += " " + " ".join(prompt_parts)
+        
+        print(full_command_str)
         handler_kwargs = {
             "model": effective_model,
             "provider": effective_provider,
@@ -104,6 +128,8 @@ def main():
             "messages": [],
             "team": None,
             "current_path": os.getcwd(),
+            # Add any parsed parameters directly to kwargs
+            **extras
         }
 
         try:

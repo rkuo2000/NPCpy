@@ -62,6 +62,7 @@ def generate_image(
     Returns:
         str: The filename of the saved image.
     """
+    print(height)
     if model is not None and provider is not None:
         pass
     elif model is not None and provider is None:
@@ -525,9 +526,6 @@ def handle_tool_call(
         the tool call.
 
     """
-    print(npc)
-    print("handling tool call")
-    print(command)
     if npc is None:
         return f"No tools are available. "
     else:
@@ -565,13 +563,6 @@ def handle_tool_call(
                     context_info += f"- {df_name}\n"
                 prompt += f"""Here is contextual info that may affect your choice: {context_info}
                 """
-        if context is not None:
-            prompt += f"Here is some additional context: {context}"
-
-        # print(prompt)
-
-        # print(
-        # print(prompt)
         response = get_llm_response(
             prompt,
             format="json",
@@ -614,7 +605,7 @@ def handle_tool_call(
                 print("llm response", response)
                 print("input values", input_values)
                 return handle_tool_call(
-                    command,
+                    command +' . In the previous attempt, the inputs were: ' + str(input_values) + ' and the missing inputs were: ' + str(missing_inputs) +' . Please ensure to not make this mistake again.',
                     tool_name,
                     model=model,
                     provider=provider,
@@ -627,54 +618,28 @@ def handle_tool_call(
                     n_attempts=n_attempts,
                 )
             return {
-                "output": f"Missing inputs for tool '{tool_name}': {missing_inputs}",
+                "response": f"Missing inputs for tool '{tool_name}': {missing_inputs}",
                 "messages": messages,
             }
 
         # try:
+        print(npc.name+'>', end='')
+
         print("Executing tool with input values:", input_values)
 
-        # try:
-        tool_output = tool.execute(
-            input_values,
-            npc.tools_dict,
-            jinja_env,
-            command,
-            model=model,
-            provider=provider,
-            npc=npc,
-            stream=stream,
-            messages=messages,
-        )
-        if not stream:
-            if "Error" in tool_output:
-                raise Exception(tool_output)
-            # except Exception as e:
-            # diagnose_problem = get_llm_response(
-            ##    f"""a problem has occurred.
-            #                                    Please provide a diagnosis of the problem and a suggested #fix.
-
-            #                                    The tool call failed with this error:
-            #                                    {e}
-            #                                    Please return a json object containing two fields
-            ##                                    -problem
-            #                                    -suggested solution.
-            #                                    do not include any additional markdown formatting or #leading json tags
-
-            #                                    """,
-            #    model=model,
-            #    provider=provider,
-            #    npc=npc,
-            ##    api_url=api_url,
-            #    api_ley=api_key,
-            #    format="json",
-            # )
-            # print(e)
-            # problem = diagnose_problem.get("response", {}).get("problem")
-            # suggested_solution = diagnose_problem.get("response", {}).get(
-            #    "suggested_solution"
-            # )
-            '''
+        try:
+            tool_output = tool.execute(
+                input_values,
+                npc.tools_dict,
+                jinja_env,
+                command,
+                model=model,
+                provider=provider,
+                npc=npc,
+                stream=stream,
+                messages=messages,
+            )
+        except Exception as e:
             print(f"An error occurred while executing the tool: {e}")
             print(f"trying again, attempt {attempt+1}")
             if attempt < n_attempts:
@@ -696,18 +661,40 @@ def handle_tool_call(
                 user_input = input(
                     "the tool execution has failed after three tries, can you add more context to help or would you like to run again?"
                 )
-                return
-            '''
-        if stream:
-            return tool_output
-        # print(f"Tool output: {tool_output}")
-        # render_markdown(str(tool_output))
-        if messages is not None:  # Check if messages is not None
-            messages.append({"role": "assistant", "content": tool_output})
-        return {"messages": messages, "output": tool_output}
-        # except Exception as e:
-        #    print(f"Error executing tool {tool_name}: {e}")
-        #    return f"Error executing tool {tool_name}: {e}"
+                return handle_tool_call(
+                    command + " " + user_input,
+                    tool_name,
+                    model=model,
+                    provider=provider,
+                    messages=messages,
+                    npc=npc,
+                    api_url=api_url,
+                    api_key=api_key,
+                    stream=stream,
+                    attempt=attempt + 1,
+                    n_attempts=n_attempts,
+                )
+        # process the tool call
+        render_markdown(f""" ## TOOL OUTPUT FROM CALLING {tool_name} \n \n {tool_output}""" )
+        response = get_llm_response(f"""
+            The user had the following request: {command}. 
+            Here were the tool outputs from calling {tool_name}: {tool_output}
+            
+            Given the tool outputs and the user request, please format a simple answer that 
+            provides the answer without requiring the user to carry out any further steps.
+            """,
+            model=model,
+            provider=provider,
+            api_url=api_url,
+            api_key=api_key,
+            npc=npc,
+            messages=messages,
+            stream=stream,
+        )
+        messages = response['messages']
+        response = response.get("response", {})
+        
+        return {'messages': messages, 'response': response}
 
 
 
@@ -930,9 +917,6 @@ ReAct choices then will enter reasoning flow
 
     render_markdown(f"- Action chosen: {action}\n")
 
-    # print(response_content)
-    if response_content_parsed.get("tool_name"):
-        print(f"tool name: {response_content_parsed.get('tool_name')}")
     if action == "execute_command":
 
         result = execute_llm_command(
@@ -953,7 +937,6 @@ ReAct choices then will enter reasoning flow
     elif action == "invoke_tool":
         tool_name = response_content_parsed.get("tool_name")
         # print(npc)
-        print(f"tool name: {tool_name}")
         result = handle_tool_call(
             command,
             tool_name,
