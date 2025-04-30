@@ -11,7 +11,79 @@ Welcome to `npcpy`, the python library for the NPC Toolkit and the home of the c
 
 `npcpy` is an agent-based framework designed to easily integrate AI models into one's daily workflow and it does this by providing users with a variety of interfaces through which they can use, test, and explore the capabilities of AI models, agents, and agent systems. These include the following:
 
-- `npcpy`: an extensible python library with convenient methods for getting LLM responses, loading data, creating agents, and implementing agentic capabilities in new custom systems.
+- `npcpy`: an extensible python library with convenient methods for getting LLM responses, loading data, creating agents, and implementing agentic capabilities in new custom systems. Here is an example for getting responses for a particular agent:
+
+```
+from npcpy.npc_compiler import NPC
+simon = NPC(
+          name='Simon Bolivar',
+          primary_directive='Liberate South America from the Spanish Royalists.',
+          model='gemma3',
+          provider='ollama',
+         
+          )
+response = simon.get_llm_response("What is the most important territory to retain in the Andes mountains?")
+print(response['response'])
+```
+``` 
+The most important territory to retain in the Andes mountains is **Cuzco**. 
+It’s the heart of the Inca Empire, a crucial logistical hub, and holds immense symbolic value for our liberation efforts. Control of Cuzco is paramount.
+```
+
+or with an agentic tool check
+```
+from npcpy.npc_compiler import NPC, Tool
+search_tool = Tool( {'tool_name': 'web_search',
+              'inputs': ['search_query'],
+              'description': 'a tool that searches the internet for information that depends on up-to-date information like weather, political situations, sports, etc.',
+              'steps':   [
+                            {
+                            "engine": "python",
+                              "code": """
+from npcpy.memory.search import execute_search_command
+query = "{{search_query}}"
+output = execute_search_command(query)['output']
+                                      """,
+                           }
+                         ],
+                        }
+                    )
+simon = NPC(
+          name='Simon Bolivar',
+          primary_directive='Liberate South America from the Spanish Royalists.',
+          model='gemma3',
+          provider='ollama',
+          )
+
+
+check = npc.check_llm_command("search when will the sun set 4/30 in lima ? ")
+```
+```
+ • Action chosen: invoke_tool                                                                               
+Tool found: web_search
+Simon Bolivar>Executing tool with input values: {'search_query': 'when will the sun set 4/30 in lima'}
+
+                                    TOOL OUTPUT FROM CALLING web_search                                     
+April 2025 - Lima, Lima - Sunrise and sunset calendar. Sunrise and sunset times, civil twilight start and   
+end times as well as solar noon, and day length for every day of April in Lima. The day length shortens by  
+17 minutes over the course of April 2025 in Lima - from 12 hours, 0 minutes on the first day to 11 hours, 43
+minutes on the last day.                                                                                    
+Citation: https://sunrise-sunset.org/pe/lima                                                                
+Calculations of sunrise and sunset in Lima - Lima - Peru for April 2025. Generic astronomy calculator to    
+calculate times for sunrise, sunset, moonrise, moonset for many cities, with daylight saving time and time  
+zones taken in account. ... April 2025 — Sun in Lima. March; April; May; Month: ... 30 pm: 12:11 pm (72.3°) 
+92.955 ...                                                                                                  
+...
+...
+https://www.sunrise-and-sunset.com/en/sun/peru/lima/2025/april/30                                           
+https://www.sunrisesunsettime.org/south-america/peru/lima.htm                                               
+```
+
+```
+print(check['output'])
+
+The sunrise in Lima, Peru on April 30, 2025, will be at 6:13 AM, and the sunset will be at 5:56 PM.
+ ```
 
 - `npcsh`: a bash-replacement shell (`npcsh`) that can process bash, natural language, or special macro calls for procedures like image generation (`/vixynt 'prompt'`), web searching (`/search -p perplexity 'cal bears football schedule'`), and one-off LLM response samples (`/sample 'prompt'`). Users can specify whether natural language is processed agentically (i.e. an LLM reviews and decides to pass to other agents or use tools) or directly through bash execution.
 
@@ -32,7 +104,8 @@ Welcome to `npcpy`, the python library for the NPC Toolkit and the home of the c
 <p align="center"><a href ="https://github.com/cagostino/npcpy/blob/main/docs/pti.md"> 
   <img src="https://raw.githubusercontent.com/cagostino/npcpy/main/npcpy/npc_team/frederic4.png" alt="npcpy logo of frederic the bear and the pti logo", width=250></a>
 </p>
-- `spool` : a simple agentic REPL chat loop with a specified agent.
+
+- `spool`: a simple agentic REPL chat loop with a specified agent.
 
 <p align="center"><a href ="https://github.com/cagostino/npcpy/blob/main/docs/spool.md"> 
   <img src="https://raw.githubusercontent.com/cagostino/npcpy/main/npcpy/npc_team/spool.png" alt="logo for spool", width=250></a>
