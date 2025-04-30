@@ -11,6 +11,11 @@ Welcome to `npcpy`, the python library for the NPC Toolkit and the home of the c
 
 `npcpy` is an agent-based framework designed to easily integrate AI models into one's daily workflow and it does this by providing users with a variety of interfaces through which they can use, test, and explore the capabilities of AI models, agents, and agent systems. These include the following:
 
+<p align="center">
+  <a href= "https://github.com/cagostino/npcpy/blob/main/docs/npcpy.md"> 
+  <img src="https://raw.githubusercontent.com/cagostino/npcpy/main/npcpy/npc-python.png" alt="npc-python logo" width=250></a>
+</p>
+
 - `npcpy`: an extensible python library with convenient methods for getting LLM responses, loading data, creating agents, and implementing agentic capabilities in new custom systems. 
 Here is an example for getting responses for a particular agent:
 
@@ -31,11 +36,11 @@ The most important territory to retain in the Andes mountains is **Cuzco**.
 It’s the heart of the Inca Empire, a crucial logistical hub, and holds immense symbolic value for our liberation efforts. Control of Cuzco is paramount.
 ```
 Click on the logo just below to see more examples of how to use `npcpy` to create agents and agentic systems.
-<p align="center">
-  <a href= "https://github.com/cagostino/npcpy/blob/main/docs/npcpy.md"> 
-  <img src="https://raw.githubusercontent.com/cagostino/npcpy/main/npcpy/npc-python.png" alt="npc-python logo" width=250></a>
-</p>
 
+<p align="center">
+  <a href= "https://github.com/cagostino/npcpy/blob/main/docs/guide.md"> 
+  <img src="https://raw.githubusercontent.com/cagostino/npcpy/main/npcpy/npcsh.png" alt="npcsh logo" width=250></a>
+</p>
 - `npcsh`: a bash-replacement shell (`npcsh`) that can process bash, natural language, or special macro calls for procedures like image generation (`/vixynt 'prompt'`), web searching (`/search -p perplexity 'cal bears football schedule'`), and one-off LLM response samples (`/sample 'prompt'`). Users can specify whether natural language is processed agentically (i.e. an LLM reviews and decides to pass to other agents or use tools) or directly through bash execution.                
 
     <details>  <summary>Click to see some examples</summary>
@@ -67,10 +72,10 @@ Click on the logo just below to see more examples of how to use `npcpy` to creat
 
 
 
-<p align="center">
-  <a href= "https://github.com/cagostino/npcpy/blob/main/docs/guide.md"> 
-  <img src="https://raw.githubusercontent.com/cagostino/npcpy/main/npcpy/npcsh.png" alt="npcsh logo" width=250></a>
-</p>
+
+<p align="center"><a href ="https://github.com/cagostino/npcpy/blob/main/docs/guac.md"> 
+  <img src="https://raw.githubusercontent.com/cagostino/npcpy/main/npcpy/npc_team/guac.png" alt="npcpy logo of a solarpunk sign", width=250></a>
+</p> 
 
 - `guac`: a replacement shell for interpreters like python/r/node/julia (`guac`) with an avocado input marker 🥑 that brings a pomodoro-like approach to interactive coding. <details>  <summary>Click to see some examples</summary>
 
@@ -132,30 +137,28 @@ Click on the logo just below to see more examples of how to use `npcpy` to creat
     A guac session progresses through a series of stages, each of equal length. Each stage adjusts the emoji input prompt. Once the stages have passed, it is time to refresh. Stage 1: `🥑`, Stage 2: `🥑🔪` Stage 3: `🥑🥣` Stage:4 `🥑🥣🧂`, `Stage 5: 🥘 TIME TO REFRESH`. At stage 5, the user is reminded to refresh with the /refresh macro. This will evaluate the session so farand suggest and implement new functions or automations that will aid in future sessions, with the ultimate approval of the user.
  </details>
 
-<p align="center"><a href ="https://github.com/cagostino/npcpy/blob/main/docs/guac.md"> 
-  <img src="https://raw.githubusercontent.com/cagostino/npcpy/main/npcpy/npc_team/guac.png" alt="npcpy logo of a solarpunk sign", width=250></a>
-</p> 
-
 - `npc`: a command line interface offering the capabilities of the npc shell from a regular bash shell.
 
-- `pti`: a reasoning REPL loop with explicit checks to request inputs from users following thinking traces.
- 
 <p align="center"><a href ="https://github.com/cagostino/npcpy/blob/main/docs/pti.md"> 
   <img src="https://raw.githubusercontent.com/cagostino/npcpy/main/npcpy/npc_team/frederic4.png" alt="npcpy logo of frederic the bear and the pti logo", width=250></a>
 </p>
 
-- `spool`: a simple agentic REPL chat loop with a specified agent.
+- `pti`: a reasoning REPL loop with explicit checks to request inputs from users following thinking traces.
+ 
 
 <p align="center"><a href ="https://github.com/cagostino/npcpy/blob/main/docs/spool.md"> 
   <img src="https://raw.githubusercontent.com/cagostino/npcpy/main/npcpy/npc_team/spool.png" alt="logo for spool", width=250></a>
 </p>
 
+- `spool`: a simple agentic REPL chat loop with a specified agent.
 
-- `yap`: an agentic voice control loop with a specified agent. 
 
 <p align="center"><a href ="https://github.com/cagostino/npcpy/blob/main/docs/yap.md"> 
   <img src="https://raw.githubusercontent.com/cagostino/npcpy/main/npcpy/npc_team/yap.png" alt="logo for yap ", width=250></a>
 </p>
+- `yap`: an agentic voice control loop with a specified agent. 
+
+
 
 `npcpy` works with local and enterprise LLM providers through its LiteLLM integration, allowing users to run inference from Ollama, LMStudio, OpenAI, Anthropic, Gemini, and Deepseek, making it a versatile tool for both simple commands and sophisticated AI-driven tasks. In addition, we provide simple interfaces for direct operation of `diffusers` models and are developing simple systems for creating fine-tuning loops that operate on regular cadences. `npcpy` provides pioneering methods in the construction and updating of knowledge graphs as well as in the development and testing of complex mixture of agent scenarios. The agentic modes provided as part of `npcpy` that are described above provide templates for users to modify in order to create own specialized loops that fit their own workflow best. `npcpy` is meant to be a framework that speeds of and simplifies the development of NLP-based applications and provides researchers with methods to easily explore and test across dozens of models and providers and personas and other hyperparameters.
 

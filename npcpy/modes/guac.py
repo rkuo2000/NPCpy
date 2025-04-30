@@ -553,7 +553,7 @@ def get_guac_prompt(command_count):
         "\U0001F951",
         "\U0001F951 🔪",
         "\U0001F951 🥣",
-        "\U0001F951 🥣 🧂",
+        "\U0001F951 🥣🧂",
         "\U0001F958 TIME TO REFRESH"
     ]
 
