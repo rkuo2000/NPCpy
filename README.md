@@ -35,7 +35,8 @@ print(response['response'])
 The most important territory to retain in the Andes mountains is **Cuzco**. 
 It’s the heart of the Inca Empire, a crucial logistical hub, and holds immense symbolic value for our liberation efforts. Control of Cuzco is paramount.
 ```
-Click on the logo just below to see more examples of how to use `npcpy` to create agents and agentic systems.
+
+See more examples of how to use `npcpy` to create agents and agentic systems [here](https://github.com/cagostino/npcpy/blob/main/docs/npcpy.md).
 
 <p align="center">
   <a href= "https://github.com/cagostino/npcpy/blob/main/docs/guide.md"> 
