@@ -42,6 +42,7 @@ See more examples of how to use `npcpy` to create agents and agentic systems [he
   <a href= "https://github.com/cagostino/npcpy/blob/main/docs/guide.md"> 
   <img src="https://raw.githubusercontent.com/cagostino/npcpy/main/npcpy/npcsh.png" alt="npcsh logo" width=250></a>
 </p>
+
 - `npcsh`: a bash-replacement shell (`npcsh`) that can process bash, natural language, or special macro calls for procedures like image generation (`/vixynt 'prompt'`), web searching (`/search -p perplexity 'cal bears football schedule'`), and one-off LLM response samples (`/sample 'prompt'`). Users can specify whether natural language is processed agentically (i.e. an LLM reviews and decides to pass to other agents or use tools) or directly through bash execution.                
 
     <details>  <summary>Click to see some examples</summary>
