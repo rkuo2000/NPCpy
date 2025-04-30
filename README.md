@@ -36,51 +36,6 @@ The most important territory to retain in the Andes mountains is **Cuzco**.
 It’s the heart of the Inca Empire, a crucial logistical hub, and holds immense symbolic value for our liberation efforts. Control of Cuzco is paramount.
 ```
 
-or with an agentic tool check
-```
-from npcpy.npc_compiler import NPC, Tool
-search_tool = Tool( {'tool_name': 'web_search',
-              'inputs': ['search_query'],
-              'description': 'a tool that searches the internet for information that depends on up-to-date information like weather, political situations, sports, etc.',
-              'steps':   [ {
-                            "engine": "python",
-                              "code": """
-from npcpy.memory.search import execute_search_command
-query = "{{search_query}}"
-output = execute_search_command(query)['output']
-                                      """,
-                           }], })
-simon = NPC(
-          name='Simon Bolivar',
-          primary_directive='Liberate South America from the Spanish Royalists.',
-          model='gemma3',
-          provider='ollama',
-          )
-check = npc.check_llm_command("search when will the sun set 4/30 in lima ? ")
-```
-```
-- Action chosen:  invoke_tool
-
-- Tool found: web_search
-
-Simon Bolivar>Executing tool with input values: {'search_query': 'when will the sun set 4/30 in lima'}
-
- TOOL OUTPUT FROM CALLING web_search    
-
-April 2025 - Lima, Lima - Sunrise and sunset calendar. Sunrise and sunset times, civil twilight start and
-...                                                                                           
-...
-...
-https://www.sunrise-and-sunset.com/en/sun/peru/lima/2025/april/30                                           
-https://www.sunrisesunsettime.org/south-america/peru/lima.htm                                               
-```
-
-```
-print(check['output'])
-
-The sunrise in Lima, Peru on April 30, 2025, will be at 6:13 AM, and the sunset will be at 5:56 PM.
- ```
-
 - `npcsh`: a bash-replacement shell (`npcsh`) that can process bash, natural language, or special macro calls for procedures like image generation (`/vixynt 'prompt'`), web searching (`/search -p perplexity 'cal bears football schedule'`), and one-off LLM response samples (`/sample 'prompt'`). Users can specify whether natural language is processed agentically (i.e. an LLM reviews and decides to pass to other agents or use tools) or directly through bash execution.
 
 <p align="center">
