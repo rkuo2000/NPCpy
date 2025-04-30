@@ -13,6 +13,11 @@ Welcome to `npcpy`, the python library for the NPC Toolkit and the home of the c
 
 - `npcpy`: an extensible python library with convenient methods for getting LLM responses, loading data, creating agents, and implementing agentic capabilities in new custom systems. Here is an example for getting responses for a particular agent:
 
+<p align="center">
+  <a href= "https://github.com/cagostino/npcpy/blob/main/docs/npcpy.md"> 
+  <img src="https://raw.githubusercontent.com/cagostino/npcpy/main/npcpy/npc-python.png" alt="npc-python logo" width=250></a>
+</p>
+
 ```
 from npcpy.npc_compiler import NPC
 simon = NPC(
