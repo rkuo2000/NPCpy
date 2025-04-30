@@ -43,33 +43,47 @@ See more examples of how to use `npcpy` to create agents and agentic systems [he
   <img src="https://raw.githubusercontent.com/cagostino/npcpy/main/npcpy/npcsh.png" alt="npcsh logo" width=250></a>
 </p>
 
-- `npcsh`: a bash-replacement shell (`npcsh`) that can process bash, natural language, or special macro calls for procedures like image generation (`/vixynt 'prompt'`), web searching (`/search -p perplexity 'cal bears football schedule'`), and one-off LLM response samples (`/sample 'prompt'`). Users can specify whether natural language is processed agentically (i.e. an LLM reviews and decides to pass to other agents or use tools) or directly through bash execution.                
+- `npcsh`: a bash-replacement shell (`npcsh`) that can process bash, natural language, or special macro calls. `npcsh` detects whether input is bash or natural language and processes it accordingly. Users can specify whether natural language cinnabds are processed agentically (i.e. an NPC reviews and decides to pass to other NPCs or to use tools), conversationally (the NPC generates a response which the user can approve to run) or directly through bash execution (the NPC responds by generating executable bash code which is then processed automatically in the shell.
 
     <details>  <summary>Click to see some examples</summary>
-    The default NPC in the NPC shell is `sibiji`, a spider agent that helps you weave your agent web and accomplish your goals. When you are in the NPC shell, the input prompt will specify the agent to which you are talking and so in the following examples, the input prompt will be `sibiji>`. If you select another agent by activating them directly `/<agent_name>`, the input prompt will change to reflect that agent's name and it will be processed using that agent's primary directive, model, and provider.
-    Here are some examples of how to use the NPC shell:
+    - Web searching (`/search -p perplexity 'cal bears football schedule'`)
+    - One shot sampling 
+        ```
+        /sample 'prompt'
+        ```
 
     - Image generation:      
         ```
-        sibiji>/vixynt 'an image of a dog eating a hat'
+        /vixynt 'an image of a dog eating a hat'
         ```
         
     - Process Identification:       
         ```    
-        sibiji>please identify the process consuming the most memory on my computer
+        please identify the process consuming the most memory on my computer
         ```
         
 
     - Tool Use:   
         ```
-        sibiji>identify what windows are open on my computer desktop at the moment
+        identify what windows are open on my computer desktop at the moment
         ```
     
     - Screenshot analysis:     
         ```
-        sibiji>/ots
+        /ots
         ```
-
+    - voice chat:     
+        ```
+        /yap
+        ```
+    - Computer use:     
+        ```
+        /plonk -n 'npc_name' -sp 'task for plonk to carry out '
+        ```
+    - Enter chat loop with an NPC:     
+        ```
+        /spool -n <npc_name>
+        ```
     </details>
 
 

@@ -32,7 +32,7 @@ from npcpy.npc_sysenv import (
     NPCSH_REASONING_MODEL, NPCSH_REASONING_PROVIDER,
     NPCSH_IMAGE_GEN_MODEL, NPCSH_IMAGE_GEN_PROVIDER,
     NPCSH_VIDEO_GEN_MODEL, NPCSH_VIDEO_GEN_PROVIDER,
-    NPCSH_API_URL,
+    NPCSH_API_URL,NPCSH_DEFAULT_MODE, 
     setup_npcsh_config,
     is_npcsh_initialized,
     initialize_base_npcs_if_needed,
@@ -101,6 +101,7 @@ class ShellState:
     image_gen_provider: str = NPCSH_IMAGE_GEN_PROVIDER
     video_gen_model: str = NPCSH_VIDEO_GEN_MODEL
     video_gen_provider: str = NPCSH_VIDEO_GEN_PROVIDER
+    default_mode: str = NPCSH_DEFAULT_MODE
 
     api_key: Optional[str] = None
     api_url: Optional[str] = NPCSH_API_URL
@@ -645,54 +646,63 @@ def execute_command(
     stdin_for_next = None
     final_output = None
     current_state = state 
+    if state.default_mode == 'agent':
 
-    for i, cmd_segment in enumerate(commands):
-        is_last_command = (i == len(commands) - 1)
-        stream_this_segment = is_last_command and state.stream_output # Use state's stream setting
+        for i, cmd_segment in enumerate(commands):
+            is_last_command = (i == len(commands) - 1)
+            stream_this_segment = is_last_command and state.stream_output # Use state's stream setting
 
-        try:
-            current_state, output = process_pipeline_command(
-                cmd_segment.strip(),
-                stdin_for_next,
-                current_state, 
-                stream_final=stream_this_segment
-            )
+            try:
+                current_state, output = process_pipeline_command(
+                    cmd_segment.strip(),
+                    stdin_for_next,
+                    current_state, 
+                    stream_final=stream_this_segment
+                )
 
-            if is_last_command:
-                final_output = output # Capture the output of the last command
+                if is_last_command:
+                    final_output = output # Capture the output of the last command
 
-            if isinstance(output, str):
-                 stdin_for_next = output
-            elif isgenerator(output):
-                 if not stream_this_segment: # If intermediate output is a stream, consume for piping
-                      full_stream_output = "".join(map(str, output))
-                      stdin_for_next = full_stream_output
-                      if is_last_command: final_output = full_stream_output
-                 else: # Final output is a stream, don't consume, can't pipe
-                      stdin_for_next = None
-                      final_output = output
-            elif output is not None: # Try converting other types to string
-                 try: stdin_for_next = str(output)
-                 except Exception:
-                     print(f"Warning: Cannot convert output to string for piping: {type(output)}", file=sys.stderr)
-                     stdin_for_next = None
-            else: # Output was None
-                 stdin_for_next = None
+                if isinstance(output, str):
+                    stdin_for_next = output
+                elif isgenerator(output):
+                    if not stream_this_segment: # If intermediate output is a stream, consume for piping
+                        full_stream_output = "".join(map(str, output))
+                        stdin_for_next = full_stream_output
+                        if is_last_command: final_output = full_stream_output
+                    else: # Final output is a stream, don't consume, can't pipe
+                        stdin_for_next = None
+                        final_output = output
+                elif output is not None: # Try converting other types to string
+                    try: stdin_for_next = str(output)
+                    except Exception:
+                        print(f"Warning: Cannot convert output to string for piping: {type(output)}", file=sys.stderr)
+                        stdin_for_next = None
+                else: # Output was None
+                    stdin_for_next = None
 
 
-        except Exception as pipeline_error:
-            import traceback
-            traceback.print_exc()
-            error_msg = colored(f"Error in pipeline stage {i+1} ('{cmd_segment[:50]}...'): {pipeline_error}", "red")
-            # Return the state as it was when the error occurred, and the error message
-            return current_state, error_msg
+            except Exception as pipeline_error:
+                import traceback
+                traceback.print_exc()
+                error_msg = colored(f"Error in pipeline stage {i+1} ('{cmd_segment[:50]}...'): {pipeline_error}", "red")
+                # Return the state as it was when the error occurred, and the error message
+                return current_state, error_msg
 
-    # Store embeddings using the final state
-    if final_output is not None and not (isgenerator(final_output) and current_state.stream_output):
-        store_command_embeddings(original_command_for_embedding, final_output, current_state)
+        # Store embeddings using the final state
+        if final_output is not None and not (isgenerator(final_output) and current_state.stream_output):
+            store_command_embeddings(original_command_for_embedding, final_output, current_state)
 
-    # Return the final state and the final output
-    return current_state, final_output
+        # Return the final state and the final output
+        return current_state, final_output
+    elif state.default_mode == 'chat':
+        # do bash commands first
+        # then just get a chat explanation of what happened
+        return current_state, final_output
+    elif state.default_mode == 'code':
+        # return a coding agent
+        return current_state, final_output
+    
 
 
 # --- Main Application Logic ---
@@ -839,6 +849,7 @@ def run_repl(command_history: CommandHistory, initial_state: ShellState):
                     break
 
             state.current_path = os.getcwd()
+            
             state, output = execute_command(user_input, state)
 
             process_result(user_input, state, output, command_history)
