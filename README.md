@@ -43,10 +43,20 @@ See more examples of how to use `npcpy` to create agents and agentic systems [he
   <img src="https://raw.githubusercontent.com/cagostino/npcpy/main/npcpy/npcsh.png" alt="npcsh logo" width=250></a>
 </p>
 
-- `npcsh`: a bash-replacement shell (`npcsh`) that can process bash, natural language, or special macro calls. `npcsh` detects whether input is bash or natural language and processes it accordingly. Users can specify whether natural language cinnabds are processed agentically (i.e. an NPC reviews and decides to pass to other NPCs or to use tools), conversationally (the NPC generates a response which the user can approve to run) or directly through bash execution (the NPC responds by generating executable bash code which is then processed automatically in the shell.
-
+- `npcsh`: a bash-replacement shell (`npcsh`) that can process bash, natural language, or special macro calls. `npcsh` detects whether input is bash or natural language and processes it accordingly. 
+    
+    - Users can specify whether natural language commands are processed in one of three ways:
+        - agentically (i.e. an NPC reviews and decides to pass to other NPCs or to use tools),
+        - conversationally (the NPC generates a response which the user can approve to run) 
+        - directly through bash execution (the NPC responds by generating executable bash code which is then processed automatically in the shell.
+    
+        Switching between the modes within the session is straightforward and the user can specify the default mode in the `.npcshrc` file described in greater detail below. The default mode is agentic, but the user can switch by typing `/chat` to switch to conversational mode or `/cmd` to switch to bash execution mode.
     <details>  <summary>Click to see some examples</summary>
-    - Web searching (`/search -p perplexity 'cal bears football schedule'`)
+    
+    - Web searching     
+        ```
+        /search -p perplexity 'cal bears football schedule'
+        ```
     - One shot sampling 
         ```
         /sample 'prompt'
@@ -177,9 +187,21 @@ See more examples of how to use `npcpy` to create agents and agentic systems [he
 
 
 
-`npcpy` works with local and enterprise LLM providers through its LiteLLM integration, allowing users to run inference from Ollama, LMStudio, OpenAI, Anthropic, Gemini, and Deepseek, making it a versatile tool for both simple commands and sophisticated AI-driven tasks. In addition, we provide simple interfaces for direct operation of `diffusers` models and are developing simple systems for creating fine-tuning loops that operate on regular cadences. `npcpy` provides pioneering methods in the construction and updating of knowledge graphs as well as in the development and testing of complex mixture of agent scenarios. The agentic modes provided as part of `npcpy` that are described above provide templates for users to modify in order to create own specialized loops that fit their own workflow best. `npcpy` is meant to be a framework that speeds of and simplifies the development of NLP-based applications and provides researchers with methods to easily explore and test across dozens of models and providers and personas and other hyperparameters.
+## Inference Capabilities
+- `npcpy` works with local and enterprise LLM providers through its LiteLLM integration, allowing users to run inference from Ollama, LMStudio, OpenAI, Anthropic, Gemini, and Deepseek, making it a versatile tool for both simple commands and sophisticated AI-driven tasks. 
 
-In `npcpy`, all agentic capabilities are built and tested using small local models (like `llama3.2`) to ensure it can function reliably even at the edge of computing.
+- In addition, we provide simple interfaces for direct operation of `diffusers` models and are developing simple systems for creating fine-tuning loops that operate on regular cadences. 
+
+- `npcpy` provides pioneering methods in the construction and updating of knowledge graphs as well as in the development and testing of complex mixture of agent scenarios. 
+
+## Enabling Innovation
+- The agentic interfaces provided as part of `npcpy` that are described above provide templates for developers to modify in order to create their own specialized loops that fit their own workflow best. 
+- `npcpy` is meant to be a framework that speeds up and simplifies the development of NLP-based or Agent-based applications and provides researchers with methods to easily explore and test across dozens of models and providers and personas and other hyperparameters, incorporating an array of data sources and common tools.
+- The `npcpy` agent data layer makes it easy to set up teams and serve them so you can focus more on the agent personas and less on the nitty gritty of inference.
+
+## Specs
+
+In `npcpy`, all agentic capabilities are developed and tested using small local models (like `llama3.2`, `gemma3`) to ensure it can function reliably at the edge of computing. 
 
 
 
@@ -201,32 +223,32 @@ If you appreciate the work here, [consider supporting NPC Worldwide](https://buy
 
 
 
-<details>  <summary>Cheat Sheet for NPC shell and cli
-    </summary>
+## Cheat Sheet for NPC shell and cli
+ <details>  <summary> Toggle Cheat Sheet </summary>
 
-The NPC shell and CLI let users iterate and experiment with AI in a natural way. Below is a cheat sheet that shows how to use the NPC Toolkit's macro commands in both the shell and the CLI. For the `npcsh` commands to work, one must activate `npcsh` by typing it in a shell.
+- The NPC shell and CLI let users iterate and experiment with AI in a natural way. Below is a cheat sheet that shows how to use the NPC Toolkit's macro commands in both the shell and the CLI. For the `npcsh` commands to work, one must activate `npcsh` by typing it in a shell.
 
-| Task | npc CLI | npcsh |
-|----------|----------|----------|
-| Ask a generic question | npc 'prompt' | 'prompt' |
-| Compile an NPC | npc compile /path/to/npc.npc | /compile /path/to/npc.npc |
-| Computer use | npc plonk -n 'npc_name' -sp 'task for plonk to carry out '| /plonk -n 'npc_name' -sp 'task for plonk to carry out ' |
-| Enter a chat with an NPC (NPC needs to be compiled first) | npc spool -n npc_name | /spool -n <npc_name> |
-| Generate image    | npc vixynt 'prompt'  | /vixynt prompt   |
-| Get a sample LLM response  | npc sample 'prompt'   | /sample prompt for llm  |
-| Search the web | npc search -q "cal golden bears football schedule" -sp perplexity | /search -p perplexity 'cal bears football schedule' |
-| Serve an NPC team | npc serve --port 5337 --cors='http://localhost:5137/' | /serve --port 5337 --cors='http://localhost:5137/' |
-| Screenshot analysis  | npc ots |  /ots  |
-| Voice Chat    | npc yap   | /yap   |
+    | Task | npc CLI | npcsh |
+    |----------|----------|----------|
+    | Ask a generic question | npc 'prompt' | 'prompt' |
+    | Compile an NPC | npc compile /path/to/npc.npc | /compile /path/to/npc.npc |
+    | Computer use | npc plonk -n 'npc_name' -sp 'task for plonk to carry out '| /plonk -n 'npc_name' -sp 'task for plonk to carry out ' |
+    | Enter a chat with an NPC (NPC needs to be compiled first) | npc spool -n npc_name | /spool -n <npc_name> |
+    | Generate image    | npc vixynt 'prompt'  | /vixynt prompt   |
+    | Get a sample LLM response  | npc sample 'prompt'   | /sample prompt for llm  |
+    | Search the web | npc search -q "cal golden bears football schedule" -sp perplexity | /search -p perplexity 'cal bears football schedule' |
+    | Serve an NPC team | npc serve --port 5337 --cors='http://localhost:5137/' | /serve --port 5337 --cors='http://localhost:5137/' |
+    | Screenshot analysis  | npc ots |  /ots  |
+    | Voice Chat    | npc yap   | /yap   |
+    
 
 
-    </details>
+    When beginning, `npcsh` initializes a set of agents that you can use and tweak as you go. Our mascot agent sibiji the spider will help you weave your agent web! 
 
-When beginning, `npcsh` initializes a set of agents that you can use and tweak as you go. Our mascot agent sibiji the spider will help you weave your agent web! 
-
-<p align="center">
-  <img src="https://raw.githubusercontent.com/cagostino/npcsh/main/npcpy/npc_team/sibiji.png" alt="npcsh logo with sibiji the spider">
-</p>
+    <p align="center">
+    <img src="https://raw.githubusercontent.com/cagostino/npcsh/main/npcpy/npc_team/sibiji.png" alt="npcsh logo with sibiji the spider">
+    </p>
+</details> 
 
 
 ## Installation
