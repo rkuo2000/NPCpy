@@ -29,9 +29,12 @@ Welcome to `npcpy`, the python library for the NPC Toolkit and the home of the c
 
 - `pti`: a reasoning REPL loop with explicit checks to request inputs from users following thinking traces  (`pti`) which can be accessed by running `pti` directly, or by running `npc pti` from the command line or `/pti` from `npcsh`.
  
+<p align="center"><a href ="https://github.com/cagostino/npcpy/blob/main/docs/pti.md"> 
+  <img src="https://raw.githubusercontent.com/cagostino/npcpy/main/npcpy/npc_team/frederic.png" alt="npcpy logo of frederic the bear and the pti logo", width=250></a>
+</p>
 - `spool`: a simple agentic REPL loop (`spool`) which can be accessed by running `spool` directly, or by running `npc spool` from the command line or `/spool` from `npcsh`.
 
-<p align="center"><a href ="https://github.com/cagostino/npcpy/blob/main/docs/yap.md"> 
+<p align="center"><a href ="https://github.com/cagostino/npcpy/blob/main/docs/spool.md"> 
   <img src="https://raw.githubusercontent.com/cagostino/npcpy/main/npcpy/npc_team/spool.png" alt="logo for spool", width=250></a>
 </p>
 
