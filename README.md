@@ -190,21 +190,18 @@ See more examples of how to use `npcpy` to create agents and agentic systems [he
 ## Inference Capabilities
 - `npcpy` works with local and enterprise LLM providers through its LiteLLM integration, allowing users to run inference from Ollama, LMStudio, OpenAI, Anthropic, Gemini, and Deepseek, making it a versatile tool for both simple commands and sophisticated AI-driven tasks. 
 
-- In addition, we provide simple interfaces for direct operation of `diffusers` models and are developing simple systems for creating fine-tuning loops that operate on regular cadences. 
-
-- `npcpy` provides pioneering methods in the construction and updating of knowledge graphs as well as in the development and testing of complex mixture of agent scenarios. 
-
 ## Enabling Innovation
-- The agentic interfaces provided as part of `npcpy` that are described above provide templates for developers to modify in order to create their own specialized loops that fit their own workflow best. 
-- `npcpy` is meant to be a framework that speeds up and simplifies the development of NLP-based or Agent-based applications and provides researchers with methods to easily explore and test across dozens of models and providers and personas and other hyperparameters, incorporating an array of data sources and common tools.
+- `npcpy` is a framework that speeds up and simplifies the development of NLP-based or Agent-based applications and provides developers and researchers with methods to explore and test across dozens of models, providers, and personas as well as other model-level hyperparameters (e.g. `temperature`, `top_k`, etc.), incorporating an array of data sources and common tools.
 - The `npcpy` agent data layer makes it easy to set up teams and serve them so you can focus more on the agent personas and less on the nitty gritty of inference.
+- `npcpy` provides pioneering methods in the construction and updating of knowledge graphs as well as in the development and testing of novel mixture of agent scenarios.
+- The agentic interfaces (`npcsh`, `guac`, etc.) provided as part of `npcpy` can serve as templates for developers to modify in order to create their own specialized loops that fit their own workflow best or to adapt even to their own full stack application. 
 
-## Specs
-
-In `npcpy`, all agentic capabilities are developed and tested using small local models (like `llama3.2`, `gemma3`) to ensure it can function reliably at the edge of computing. 
+- In `npcpy`, all agentic capabilities are developed and tested using small local models (like `llama3.2`, `gemma3`) to ensure it can function reliably at the edge of computing.
 
 
 
+
+## Read the Docs
 
 Read the docs at [npcpy.readthedocs.io](https://npcpy.readthedocs.io/en/latest/)
 
