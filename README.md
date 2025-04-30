@@ -600,7 +600,7 @@ to provide a more consistent naming scheme now that we have additionally introdu
 Contributions are welcome! Please submit issues and pull requests on the GitHub repository.
 
 ## Support
-If you appreciate the work here, [consider supporting NPC Worldwide](https://buymeacoffee.com/npcworldwide). If you'd like to explore how to use `npcsh` to help your business, please reach out to info@npcworldwi.de .
+If you appreciate the work here, [consider supporting NPC Worldwide](https://buymeacoffee.com/npcworldwide). If you'd like to explore how to use `npcpy` to help your business, please reach out to info@npcworldwi.de .
 
 
 ## License
