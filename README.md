@@ -96,7 +96,7 @@ When beginning, `npcsh` initializes a set of agents that you can use and tweak a
 ## Python Examples
 Integrate `npcpy` into your Python projects for additional flexibility. Below are a few examples of how to use the library programmatically.
 
-### Example 1: using npcpy's get_llm_response and get_stream
+### Example 1: using npcpy's get_llm_response
 
 ```python
 from npcpy.llm_funcs import get_llm_response
@@ -124,7 +124,6 @@ response = get_llm_response("What is the capital of France? Respond with a json 
                             format='json')
 print(response)
 # anthropic's claude haikue 3.5 latest
-from npcpy.llm_funcs import get_llm_response
 
 response = get_llm_response("What is the capital of France? Respond with a json object containing 'capital' as the key and the capital as the value.",
                             model='claude-3-5-haiku-latest',
@@ -202,13 +201,6 @@ response = check_llm_command(
     command, model="gpt-4o-mini", provider="openai", npc=npc, stream=False
 )
 
-
-# or by attaching an NPC Team
-from npcpy.npc_compiler import NPC
-
-response = check_llm_command(command,
-                             model='gpt-4o-mini',
-                              provider='openai',)
 ```
 
 
@@ -226,10 +218,10 @@ conn = sqlite3.connect(os.path.expanduser(db_path))
 # Load NPC from a file
 npc = NPC(
           name='Simon Bolivar',
-          db_conn=conn,
           primary_directive='Liberate South America from the Spanish Royalists.',
           model='gpt-4o-mini',
           provider='openai',
+          db_conn=conn,
           )
 
 response = npc.get_llm_response("What is the most important territory to retain in the Andes mountains?")
@@ -238,6 +230,16 @@ print(response['response'])
 ```bash
 'The most important territory to retain in the Andes mountains for the cause of liberation in South America would be the region of Quito in present-day Ecuador. This area is strategically significant due to its location and access to key trade routes. It also acts as a vital link between the northern and southern parts of the continent, influencing both military movements and the morale of the independence struggle. Retaining control over Quito would bolster efforts to unite various factions in the fight against Spanish colonial rule across the Andean states.'
 ```
+
+
+or to stream a response, 
+```python
+from npcpy.npc_sysenv import print_and_process_stream
+response = npc.get_llm_response("What is the most important territory to retain in the Andes mountains?",
+                                 stream=True)
+accumulated_response = print_and_process_stream(response['response'])
+```
+
 ### Example 4: Orchestrating a team
 
 
@@ -559,8 +561,8 @@ For cases where you wish to set up a project specific set of NPCs, tools, and as
 
 ## IMPORTANT: migrations and deprecations and major changes
 
-### v0.3.34
--In v0.3.34, there were many significant changes to the structure of npcpy, introducing various new submodules for data I/O (`data`), AI model generation and inference (`gen`), command history, knowledge graph, and search features (`memory`), mixture of agents methods and schemes (`mix`), modes for interaction like `spool`, `guac`, `wander`, `yap`, `pti`, and more (`modes`), SQL-focused tooling (`sql`) and computer automations like `cron`, `systemctl`, `pyautogui`, etc (`work`) .
+### v0.3.35
+-In v0.3.35, there were many significant changes to the structure of npcpy, introducing various new submodules for data I/O (`data`), AI model generation and inference (`gen`), command history, knowledge graph, and search features (`memory`), mixture of agents methods and schemes (`mix`), modes for interaction like `spool`, `guac`, `wander`, `yap`, `pti`, and more (`modes`), SQL-focused tooling (`sql`) and computer automations like `cron`, `systemctl`, `pyautogui`, etc (`work`) .
 
 
  
