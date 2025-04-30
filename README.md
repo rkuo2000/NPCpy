@@ -158,6 +158,7 @@ See more examples of how to use `npcpy` to create agents and agentic systems [he
 <p align="center"><a href ="https://github.com/cagostino/npcpy/blob/main/docs/yap.md"> 
   <img src="https://raw.githubusercontent.com/cagostino/npcpy/main/npcpy/npc_team/yap.png" alt="logo for yap ", width=250></a>
 </p>
+
 - `yap`: an agentic voice control loop with a specified agent. 
 
 
