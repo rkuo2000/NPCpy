@@ -12,11 +12,6 @@ Welcome to `npcpy`, the python library for the NPC Toolkit and the home of the c
 `npcpy` is an agent-based framework designed to easily integrate AI models into one's daily workflow and it does this by providing users with a variety of interfaces through which they can use, test, and explore the capabilities of AI models, agents, and agent systems. These include the following:
 
 - `npcpy`: an extensible python library with convenient methods for getting LLM responses, loading data, creating agents, and implementing agentic capabilities in new custom systems. 
-<p align="center">
-  <a href= "https://github.com/cagostino/npcpy/blob/main/docs/npcpy.md"> 
-  <img src="https://raw.githubusercontent.com/cagostino/npcpy/main/npcpy/npc-python.png" alt="npc-python logo" width=250></a>
-</p>
-
 Here is an example for getting responses for a particular agent:
 
 ```
@@ -35,18 +30,111 @@ print(response['response'])
 The most important territory to retain in the Andes mountains is **Cuzco**. 
 It’s the heart of the Inca Empire, a crucial logistical hub, and holds immense symbolic value for our liberation efforts. Control of Cuzco is paramount.
 ```
+Click on the logo just below to see more examples of how to use `npcpy` to create agents and agentic systems.
+<p align="center">
+  <a href= "https://github.com/cagostino/npcpy/blob/main/docs/npcpy.md"> 
+  <img src="https://raw.githubusercontent.com/cagostino/npcpy/main/npcpy/npc-python.png" alt="npc-python logo" width=250></a>
+</p>
 
-- `npcsh`: a bash-replacement shell (`npcsh`) that can process bash, natural language, or special macro calls for procedures like image generation (`/vixynt 'prompt'`), web searching (`/search -p perplexity 'cal bears football schedule'`), and one-off LLM response samples (`/sample 'prompt'`). Users can specify whether natural language is processed agentically (i.e. an LLM reviews and decides to pass to other agents or use tools) or directly through bash execution.
+- `npcsh`: a bash-replacement shell (`npcsh`) that can process bash, natural language, or special macro calls for procedures like image generation (`/vixynt 'prompt'`), web searching (`/search -p perplexity 'cal bears football schedule'`), and one-off LLM response samples (`/sample 'prompt'`). Users can specify whether natural language is processed agentically (i.e. an LLM reviews and decides to pass to other agents or use tools) or directly through bash execution.                
+
+    <details>  <summary>Click to see some examples</summary>
+    The default NPC in the NPC shell is `sibiji`, a spider agent that helps you weave your agent web and accomplish your goals. When you are in the NPC shell, the input prompt will specify the agent to which you are talking and so in the following examples, the input prompt will be `sibiji>`. If you select another agent by activating them directly `/<agent_name>`, the input prompt will change to reflect that agent's name and it will be processed using that agent's primary directive, model, and provider.
+    Here are some examples of how to use the NPC shell:
+
+    - Image generation:      
+        ```
+        sibiji>/vixynt 'an image of a dog eating a hat'
+        ```
+        
+    - Process Identification:       
+        ```    
+        sibiji>please identify the process consuming the most memory on my computer
+        ```
+        
+
+    - Tool Use:   
+        ```
+        sibiji>identify what windows are open on my computer desktop at the moment
+        ```
+    
+    - Screenshot analysis:     
+        ```
+        sibiji>/ots
+        ```
+
+    </details>
+
+
 
 <p align="center">
   <a href= "https://github.com/cagostino/npcpy/blob/main/docs/guide.md"> 
   <img src="https://raw.githubusercontent.com/cagostino/npcpy/main/npcpy/npcsh.png" alt="npcsh logo" width=250></a>
 </p>
 
-- `guac`: a replacement shell for interpreters like python/r/node/julia (`guac`) that brings a pomodoro-like approach to interactive coding.
+- `guac`: a replacement shell for interpreters like python/r/node/julia (`guac`) with an avocado input marker 🥑 that brings a pomodoro-like approach to interactive coding. <details>  <summary>Click to see some examples</summary>
+
+    - Simulation:      
+        `🥑 Make a markov chain simulation of a random walk in 2D space with 1000 steps and visualize`
+        ```
+        # Generated python code:
+        import numpy as np
+        import matplotlib.pyplot as plt
+
+        # Number of steps
+        n_steps = 1000
+
+        # Possible moves: up, down, left, right
+        moves = np.array([[0, 1], [0, -1], [1, 0], [-1, 0]])
+
+        # Initialize position array
+        positions = np.zeros((n_steps+1, 2), dtype=int)
+
+        # Generate random moves
+        for i in range(1, n_steps+1):
+            step = moves[np.random.choice(4)]
+            positions[i] = positions[i-1] + step
+
+        # Plot the random walk
+        plt.figure(figsize=(8, 8))
+        plt.plot(positions[:, 0], positions[:, 1], lw=1)
+        plt.scatter([positions[0, 0]], [positions[0, 1]], color='green', label='Start')
+        plt.scatter([positions[-1, 0]], [positions[-1, 1]], color='red', label='End')
+        plt.title('2D Random Walk - 1000 Steps (Markov Chain)')
+        plt.xlabel('X Position')
+        plt.ylabel('Y Position')
+        plt.legend()
+        plt.grid(True)
+        plt.axis('equal')
+        plt.show()
+        # Generated code executed successfully
+
+        ```
+        Access the variables created in the code:    
+        `🥑 print(positions)`
+        ```
+        [[  0   0]
+        [  0  -1]
+        [ -1  -1]
+        ...
+        [ 29 -23]
+        [ 28 -23]
+        [ 27 -23]]
+        ```
+
+    - Run a python script:   
+        `🥑 run file.py`    
+    - Refresh:    
+        `🥑 /refresh`       
+    - Show current variables:    
+        `🥑 /show`    
+
+    A guac session progresses through a series of stages, each of equal length. Each stage adjusts the emoji input prompt. Once the stages have passed, it is time to refresh. Stage 1: `🥑`, Stage 2: `🥑🔪` Stage 3: `🥑🥣` Stage:4 `🥑🥣🧂`, `Stage 5: 🥘 TIME TO REFRESH`. At stage 5, the user is reminded to refresh with the /refresh macro. This will evaluate the session so farand suggest and implement new functions or automations that will aid in future sessions, with the ultimate approval of the user.
+ </details>
+
 <p align="center"><a href ="https://github.com/cagostino/npcpy/blob/main/docs/guac.md"> 
   <img src="https://raw.githubusercontent.com/cagostino/npcpy/main/npcpy/npc_team/guac.png" alt="npcpy logo of a solarpunk sign", width=250></a>
-</p>
+</p> 
 
 - `npc`: a command line interface offering the capabilities of the npc shell from a regular bash shell.
 
@@ -93,9 +181,10 @@ If you appreciate the work here, [consider supporting NPC Worldwide](https://buy
 
 
 
+<details>  <summary>Cheat Sheet for NPC shell and cli
+    </summary>
 
-## Cheat Sheet for NPC shell and cli
-The NPC shell and cli let users iterate and experiment with AI in a natural way. Below is a cheat sheet that shows how to use the NPC Toolkit's macro commands in both the shell and the CLI. For the `npcsh` commands to work, one must activate `npcsh` by typing it in a shell.
+The NPC shell and CLI let users iterate and experiment with AI in a natural way. Below is a cheat sheet that shows how to use the NPC Toolkit's macro commands in both the shell and the CLI. For the `npcsh` commands to work, one must activate `npcsh` by typing it in a shell.
 
 | Task | npc CLI | npcsh |
 |----------|----------|----------|
@@ -110,6 +199,8 @@ The NPC shell and cli let users iterate and experiment with AI in a natural way.
 | Screenshot analysis  | npc ots |  /ots  |
 | Voice Chat    | npc yap   | /yap   |
 
+
+    </details>
 
 When beginning, `npcsh` initializes a set of agents that you can use and tweak as you go. Our mascot agent sibiji the spider will help you weave your agent web! 
 
