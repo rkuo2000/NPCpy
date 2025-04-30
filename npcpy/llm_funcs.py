@@ -96,7 +96,7 @@ def generate_image(
 
     else:
         try:
-            # image is at a private url
+            # image is at a private url (for dall-e?)
             response = requests.get(image.data[0].url)
             with open(filename, "wb") as file:
                 file.write(response.content)
