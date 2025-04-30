@@ -31,10 +31,15 @@ Welcome to `npcpy`, the python library for the NPC Toolkit and the home of the c
  
 - `spool`: a simple agentic REPL loop (`spool`) which can be accessed by running `spool` directly, or by running `npc spool` from the command line or `/spool` from `npcsh`.
 
+<p align="center"><a href ="https://github.com/cagostino/npcpy/blob/main/docs/yap.md"> 
+  <img src="https://raw.githubusercontent.com/cagostino/npcpy/main/npcpy/npc_team/spool.png" alt="logo for spool", width=250></a>
+</p>
+
+
 - `yap`: a voice control REPL loop (`yap`) which can be accessed by running `yap` directly, or by running `npc yap` from the command line or `/yap` from `npcsh`.
 
 <p align="center"><a href ="https://github.com/cagostino/npcpy/blob/main/docs/yap.md"> 
-  <img src="https://raw.githubusercontent.com/cagostino/npcpy/main/npcpy/npc_team/yap.png" alt="npcpy logo of a solarpunk sign", width=250></a>
+  <img src="https://raw.githubusercontent.com/cagostino/npcpy/main/npcpy/npc_team/yap.png" alt="logo for yap ", width=250></a>
 </p>
 
 `npcpy` works with local and enterprise LLM providers through its LiteLLM integration, allowing users to run inference from Ollama, LMStudio, OpenAI, Anthropic, Gemini, and Deepseek, making it a versatile tool for both simple commands and sophisticated AI-driven tasks. 
