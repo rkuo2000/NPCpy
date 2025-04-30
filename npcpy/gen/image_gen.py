@@ -15,6 +15,8 @@ from npcpy.npc_sysenv import (
     NPCSH_IMAGE_GEN_MODEL,
     NPCSH_IMAGE_GEN_PROVIDER,
 )
+import PIL
+import io
 
 
 def generate_image_diffusers(
@@ -48,6 +50,54 @@ def generate_image_diffusers(
 
     return image
 
+def gpt_image_gen(
+    prompt: str,
+    model: str = "gpt-image-1",
+    attachments: list = None,
+    height: int = 256,
+    width: int = 256,
+    n_images: int = 1,
+):
+    """
+    Function Description:
+        This function generates an image using the OpenAI API.
+    Args:
+        prompt (str): The prompt for generating the image.
+        model (str): The model to use for generating the image.
+        api_key (str): The API key  .
+        api_url (str): The API URL  LITELLM DOES NOT YET SUPPORT CUSTOM.
+    Keyword Args:
+        None
+    Returns:
+        str: The URL of the generated image.
+    """
+    
+    from openai import OpenAI
+    import base64
+    client = OpenAI()
+    if attachments is not None:
+        result = client.images.edit(
+            model=model,
+            image= attachments[0] if len(attachments)==1 else attachments,
+            prompt=prompt, 
+            n=n_images,
+            size=f"{height}x{width}",
+        )
+        
+    else:
+        result = client.images.generate(
+            model=model,
+            prompt=prompt,
+            n=1,
+            size=f"{height}x{width}",
+        )        
+
+    image_base64 = result.data[0].b64_json
+    image_bytes = base64.b64decode(image_base64)
+    #return a PIL image 
+    image = PIL.Image.open(io.BytesIO(image_bytes))
+    # Save the image to a file
+    return image
 
 def generate_image_litellm(
     prompt: str,
@@ -55,6 +105,7 @@ def generate_image_litellm(
     provider: str = NPCSH_IMAGE_GEN_PROVIDER,
     height: int = 256,
     width: int = 256,
+    attachments: list = None,
     n_images: int = 1,
     api_key: str = None,
     api_url: str = None,
@@ -76,7 +127,10 @@ def generate_image_litellm(
     if model is None:
         model = "runwayml/stable-diffusion-v1-5"
     if provider == "openai":
-        if "dall" not in model:
+        if model == 'gpt-image-1':
+            return gpt_image_gen(prompt, model=model, attachments=attachments, height=height, width=width)
+        
+        if "dall" not in model and model !='gpt-image-1':
             model = "dall-e-2"
     if provider == "diffusers":
         return generate_image_diffusers(prompt, model, height=height, width=width)
