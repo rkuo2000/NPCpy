@@ -104,7 +104,8 @@ The sunrise in Lima, Peru on April 30, 2025, will be at 6:13 AM, and the sunset 
 <p align="center"><a href ="https://github.com/cagostino/npcpy/blob/main/docs/pti.md"> 
   <img src="https://raw.githubusercontent.com/cagostino/npcpy/main/npcpy/npc_team/frederic4.png" alt="npcpy logo of frederic the bear and the pti logo", width=250></a>
 </p>
-- `spool` : a simple agentic REPL chat loop with a specified agent.
+
+- `spool`: a simple agentic REPL chat loop with a specified agent.
 
 <p align="center"><a href ="https://github.com/cagostino/npcpy/blob/main/docs/spool.md"> 
   <img src="https://raw.githubusercontent.com/cagostino/npcpy/main/npcpy/npc_team/spool.png" alt="logo for spool", width=250></a>
