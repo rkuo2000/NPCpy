@@ -13,6 +13,85 @@ Welcome to `npcpy`, the python library for the NPC Toolkit and the home of the c
 
 - `npcpy`: an extensible python library with convenient methods for getting LLM responses, loading data, creating agents, and implementing agentic capabilities in new custom systems.
 
+```
+from npcpy.npc_compiler import NPC, Tool
+search_tool = Tool( {'tool_name': 'web_search',
+              'inputs': ['search_query'],
+              'description': 'a tool that searches the internet for information that depends on up-to-date information like weather, political situations, sports, etc.',
+              'steps':   [
+            {
+                "engine": "python",
+                "code": """
+from npcpy.memory.search import execute_search_command
+query = "{{search_query}}"
+output = execute_search_command(query)['output']
+""",
+            }
+        ],})
+
+npc = NPC(
+          name='Simon Bolivar',
+          primary_directive='Liberate South America from the Spanish Royalists.',
+          model='gemma3',
+          provider='ollama',
+          tools = [search_tool]
+          
+          )
+
+response = npc.get_llm_response("What is the most important territory to retain in the Andes mountains?")
+print(response['response'])
+```
+``` 
+The most important territory to retain in the Andes mountains is **Cuzco**. 
+
+It’s the heart of the Inca Empire, a crucial logistical hub, and holds immense symbolic value for our liberation efforts. Control of Cuzco is paramount.
+```
+or with an agentic check
+```
+
+check = npc.check_llm_command("search when will the sun set 4/30 in lima ? ")
+
+```
+```
+ • Action chosen: invoke_tool                                                                               
+Tool found: web_search
+Simon Bolivar>Executing tool with input values: {'search_query': 'when will the sun set 4/30 in lima'}
+
+                                    TOOL OUTPUT FROM CALLING web_search                                     
+April 2025 - Lima, Lima - Sunrise and sunset calendar. Sunrise and sunset times, civil twilight start and   
+end times as well as solar noon, and day length for every day of April in Lima. The day length shortens by  
+17 minutes over the course of April 2025 in Lima - from 12 hours, 0 minutes on the first day to 11 hours, 43
+minutes on the last day.                                                                                    
+Citation: https://sunrise-sunset.org/pe/lima                                                                
+Calculations of sunrise and sunset in Lima - Lima - Peru for April 2025. Generic astronomy calculator to    
+calculate times for sunrise, sunset, moonrise, moonset for many cities, with daylight saving time and time  
+zones taken in account. ... April 2025 — Sun in Lima. March; April; May; Month: ... 30 pm: 12:11 pm (72.3°) 
+92.955 ...                                                                                                  
+Citation: https://www.timeanddate.com/sun/peru/lima                                                         
+Sunrise and sunset times, day length, and twilight in Lima, Peru today and for the current month. ... April 
+30 6:13 AM: 5:56 PM: 12:05 PM: 11:43:05 Twilight calendar — Lima, Peru. Date Twilight; ... During civil     
+twilight the geometric center of the sun is between 0 and 6 degrees below the horizon. Objects are clearly  
+distinguished without ...                                                                                   
+Citation: https://dateandtime.info/citysunrisesunset.php?id=3936456                                         
+The sunrise, sunset and twilight times in Lima (Peru - Lima) for Wednesday, April 30, 2025.                 
+Citation: https://www.sunrise-and-sunset.com/en/sun/peru/lima/2025/april/30                                 
+Table showing sunrise and sunset times in Lima for April 2025. The table also provides information on the   
+sun's position as it rises and sets along with the time the sun is at its highest position in the sky (solar
+noon).                                                                                                      
+Citation: https://www.sunrisesunsettime.org/south-america/peru/lima.htm                                     
+Citation Links: https://sunrise-sunset.org/pe/lima                                                          
+https://www.timeanddate.com/sun/peru/lima                                                                   
+https://dateandtime.info/citysunrisesunset.php?id=3936456                                                   
+https://www.sunrise-and-sunset.com/en/sun/peru/lima/2025/april/30                                           
+https://www.sunrisesunsettime.org/south-america/peru/lima.htm                                               
+```
+
+```
+print(check['output'])
+
+The sunrise in Lima, Peru on April 30, 2025, will be at 6:13 AM, and the sunset will be at 5:56 PM.
+ ```
+
 - `npcsh`: a bash-replacement shell (`npcsh`) that can process bash, natural language, or special macro calls for procedures like image generation (`/vixynt 'prompt'`), web searching (`/search -p perplexity 'cal bears football schedule'`), and one-off LLM response samples (`/sample 'prompt'`). Users can specify whether natural language is processed agentically (i.e. an LLM reviews and decides to pass to other agents or use tools) or directly through bash execution.
 
 <p align="center">
