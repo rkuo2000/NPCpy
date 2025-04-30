@@ -25,27 +25,27 @@ Welcome to `npcpy`, the python library for the NPC Toolkit and the home of the c
   <img src="https://raw.githubusercontent.com/cagostino/npcpy/main/npcpy/npc_team/guac.png" alt="npcpy logo of a solarpunk sign", width=250></a>
 </p>
 
-- `npc`: a command line interface (`npc`) offering the capabilities of the npc shell from a regular bash shell.
+- `npc`: a command line interface offering the capabilities of the npc shell from a regular bash shell.
 
-- `pti`: a reasoning REPL loop with explicit checks to request inputs from users following thinking traces  (`pti`) which can be accessed by running `pti` directly, or by running `npc pti` from the command line or `/pti` from `npcsh`.
+- `pti`: a reasoning REPL loop with explicit checks to request inputs from users following thinking traces.
  
 <p align="center"><a href ="https://github.com/cagostino/npcpy/blob/main/docs/pti.md"> 
   <img src="https://raw.githubusercontent.com/cagostino/npcpy/main/npcpy/npc_team/frederic4.png" alt="npcpy logo of frederic the bear and the pti logo", width=250></a>
 </p>
-- `spool`: a simple agentic REPL loop (`spool`) which can be accessed by running `spool` directly, or by running `npc spool` from the command line or `/spool` from `npcsh`.
+- `spool` : a simple agentic REPL chat loop with a specified agent.
 
 <p align="center"><a href ="https://github.com/cagostino/npcpy/blob/main/docs/spool.md"> 
   <img src="https://raw.githubusercontent.com/cagostino/npcpy/main/npcpy/npc_team/spool.png" alt="logo for spool", width=250></a>
 </p>
 
 
-- `yap`: a voice control REPL loop (`yap`) which can be accessed by running `yap` directly, or by running `npc yap` from the command line or `/yap` from `npcsh`.
+- `yap`: an agentic voice control loop with a specified agent. 
 
 <p align="center"><a href ="https://github.com/cagostino/npcpy/blob/main/docs/yap.md"> 
   <img src="https://raw.githubusercontent.com/cagostino/npcpy/main/npcpy/npc_team/yap.png" alt="logo for yap ", width=250></a>
 </p>
 
-`npcpy` works with local and enterprise LLM providers through its LiteLLM integration, allowing users to run inference from Ollama, LMStudio, OpenAI, Anthropic, Gemini, and Deepseek, making it a versatile tool for both simple commands and sophisticated AI-driven tasks. 
+`npcpy` works with local and enterprise LLM providers through its LiteLLM integration, allowing users to run inference from Ollama, LMStudio, OpenAI, Anthropic, Gemini, and Deepseek, making it a versatile tool for both simple commands and sophisticated AI-driven tasks. In addition, we provide simple interfaces for direct operation of `diffusers` models and are developing simple systems for creating fine-tuning loops that operate on regular cadences. `npcpy` provides pioneering methods in the construction and updating of knowledge graphs as well as in the development and testing of complex mixture of agent scenarios. The agentic modes provided as part of `npcpy` that are described above provide templates for users to modify in order to create own specialized loops that fit their own workflow best. `npcpy` is meant to be a framework that speeds of and simplifies the development of NLP-based applications and provides researchers with methods to easily explore and test across dozens of models and providers and personas and other hyperparameters.
 
 In `npcpy`, all agentic capabilities are built and tested using small local models (like `llama3.2`) to ensure it can function reliably even at the edge of computing.
 
@@ -86,7 +86,7 @@ The NPC shell and cli let users iterate and experiment with AI in a natural way.
 | Voice Chat    | npc yap   | /yap   |
 
 
-When beginning, `npcsh` initializes a set of agents that you can use and tweak as you go. Our mascot agent is sibiji the spider and will help you weave your agent web! 
+When beginning, `npcsh` initializes a set of agents that you can use and tweak as you go. Our mascot agent sibiji the spider will help you weave your agent web! 
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/cagostino/npcsh/main/npcpy/npc_team/sibiji.png" alt="npcsh logo with sibiji the spider">
