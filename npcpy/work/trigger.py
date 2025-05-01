@@ -1,4 +1,7 @@
-
+import os 
+import platform
+import subprocess
+from npcpy.llm_funcs import get_llm_response
 def execute_trigger_command(
     command, npc=None, model=None, provider=None, messages=None, api_url=None
 ):
