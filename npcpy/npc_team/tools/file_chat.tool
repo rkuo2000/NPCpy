@@ -1,11 +1,12 @@
-tool_name: pdf_chat
-description: Execute queries on the ~/npcsh_history.db to pull data. The database contains only information about conversations and other user-provided data. It does not store any information about individual files.
+tool_name: file_chat
+description: Enter spool mode with a list of files that will be loaded in automatically for rag for user responses.
 inputs:
-  - files_list:  # list of files 
+  - files_list  # list of files 
 steps:
   - engine: python
     code: |
       from npcpy.modes.spool import enter_spool_mode
+
       files_list = {{files_list}}
       output = enter_spool_mode(
         files = files_list
