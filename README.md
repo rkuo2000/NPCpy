@@ -345,7 +345,7 @@ xhost +  (pyautogui)
 python-tkinter (pyautogui)
 
 ## Startup Configuration and Project Structure
-After `npcpy`` has been pip installed, `npcsh`, `guac`, `pti`, `spool`, `yap` and the `npc` CLI can be used as command line tools. To initialize these correctly, first start by starting the NPC shell:
+After `npcpy` has been pip installed, `npcsh`, `guac`, `pti`, `spool`, `yap` and the `npc` CLI can be used as command line tools. To initialize these correctly, first start by starting the NPC shell:
 ```bash
 npcsh
 ```
