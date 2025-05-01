@@ -170,6 +170,7 @@ class Tool:
                 "plt": plt,
                 "np": np,
                 "os": os,
+                're': re, 
                 "json": json,
                 "Path": pathlib.Path,
                 "fnmatch": fnmatch,

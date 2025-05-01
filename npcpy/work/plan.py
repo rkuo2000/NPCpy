@@ -1,6 +1,6 @@
 import json
 import time
-
+import platform
 try:
     import pyautogui
 except KeyError as e:
@@ -11,7 +11,7 @@ from npcpy.llm_funcs import get_llm_response
 
 import subprocess
 import os
-
+import tempfile
 
 from typing import Any
 

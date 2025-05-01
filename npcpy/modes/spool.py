@@ -18,12 +18,13 @@ from npcpy.llm_funcs import (get_llm_response,  rehash_last_message)
 from npcpy.npc_compiler import NPC
 from typing import Any, List, Dict, Union
 from npcpy.modes.yap import enter_yap_mode
+# replace with the shell state  for the kwargs.
+
 
 def enter_spool_mode(
-    inherit_last: int = 0,
     npc = None,    
-    model: str = None, 
-    provider: str =  None,
+    model: str = NPCSH_CHAT_MODEL, 
+    provider: str =  NPCSH_CHAT_PROVIDER,
     vision_model:str = NPCSH_VISION_MODEL,
     vision_provider:str = NPCSH_VISION_PROVIDER,
     files: List[str] = None,
@@ -36,7 +37,7 @@ def enter_spool_mode(
     Function Description:
         This function is used to enter the spool mode where files can be loaded into memory.
     Args:
-        inherit_last : int : The number of last commands to inherit.
+
         npc : Any : The NPC object.
         files : List[str] : List of file paths to load into the context.
     Returns:
@@ -83,12 +84,6 @@ def enter_spool_mode(
     else:
         spool_context.append({"role": "system", "content": system_message})
     # Inherit last n messages if specified
-    if inherit_last > 0:
-        last_commands = command_history.get_all(limit=inherit_last)
-        for cmd in reversed(last_commands):
-            spool_context.append({"role": "user", "content": cmd[2]})
-            spool_context.append({"role": "assistant", "content": cmd[4]})
-
     if npc is not None:
         if model is None:
             model = npc.model
@@ -251,7 +246,6 @@ def enter_spool_mode(
                 npc=npc.name if npc else None,
             )
             
-            # Use the simplified get_llm_response function
             response = get_llm_response(
                 user_input, 
                 provider, 
