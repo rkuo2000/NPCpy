@@ -336,7 +336,8 @@ def execute_llm_command(
     Returns:
         str: The result of the LLM command.
     """
-
+    if messages is None:
+        messages = []
     max_attempts = 5
     attempt = 0
     subcommands = []
@@ -349,52 +350,22 @@ def execute_llm_command(
         prompt = f"""
         A user submitted this query: {command}.
         You need to generate a bash command that will accomplish the user's intent.
-        Respond ONLY with the command that should be executed.
-        in the json key "bash_command".
-        You must reply with valid json and nothing else. Do not include markdown formatting
+        Respond ONLY with the bash command that should be executed. 
+        Do not include markdown formatting
         """
-        if len(context) > 0:
-            prompt += f"""
-            What follows is the context of the text files in the user's directory that are potentially relevant to their request
-            Use these to help inform your decision.
-            {context}
-            """
-        if len(messages) > 0:
-            prompt += f"""
-            The following messages have been exchanged between the user and the assistant:
-            {messages}
-            """
-
         response = get_llm_response(
             prompt,
             model=model,
             provider=provider,
             api_url=api_url,
             api_key=api_key,
-            messages=[],
+            messages=messages,
             npc=npc,
-            format="json",
             context=context,
         )
 
-        llm_response = response.get("response", {})
-        # messages.append({"role": "assistant", "content": llm_response})
-        # print(f"LLM response type: {type(llm_response)}")
-        # print(f"LLM response: {llm_response}")
-
-        try:
-            if isinstance(llm_response, str):
-                llm_response = json.loads(llm_response)
-
-            if isinstance(llm_response, dict) and "bash_command" in llm_response:
-                bash_command = llm_response["bash_command"]
-            else:
-                raise ValueError("Invalid response format from LLM")
-        except (json.JSONDecodeError, ValueError) as e:
-            print(f"Error parsing LLM response: {e}")
-            attempt += 1
-            continue
-
+        bash_command = response.get("response", {})
+ 
         print(f"LLM suggests the following bash command: {bash_command}")
         subcommands.append(bash_command)
 
@@ -414,16 +385,7 @@ def execute_llm_command(
                 Provide a simple response to the user that explains to them
                 what you did and how it accomplishes what they asked for.
                 """
-            if len(context) > 0:
-                prompt += f"""
-                What follows is the context of the text files in the user's directory that are potentially relevant to their request
-                Use these to help inform how you respond.
-                You must read the context and use it to provide the user with a more helpful answer related to their specific text data.
 
-                CONTEXT:
-
-                {context}
-                """
             messages.append({"role": "user", "content": prompt})
             # print(messages, stream)
             response = get_llm_response(
@@ -435,9 +397,10 @@ def execute_llm_command(
                 npc=npc,
                 messages=messages,
                 context=context,
+                stream =stream
             )
-            output = response.get("response", "")
-            return {"messages": messages, "output": output}
+
+            return response
         except subprocess.CalledProcessError as e:
             print(f"Command failed with error:")
             print(e.stderr)
@@ -450,13 +413,6 @@ def execute_llm_command(
             Do not include any additional markdown formatting.
 
             """
-
-            if len(context) > 0:
-                error_prompt += f"""
-                    What follows is the context of the text files in the user's directory that are potentially relevant to their request
-                    Use these to help inform your decision.
-                    {context}
-                    """
 
             fix_suggestion = get_llm_response(
                 error_prompt,
@@ -724,10 +680,6 @@ def check_llm_command(
     Returns:
         Any: The result of checking the LLM command.
     """
-
-    ENTER_REASONING_FLOW = False
-    if NPCSH_DEFAULT_MODE == "reasoning":
-        ENTER_REASONING_FLOW = True
     if model in available_reasoning_models:
         print(
             """
@@ -809,6 +761,7 @@ ReAct choices then will enter reasoning flow
                             {tool_name} : {tool_description} \n
 
                             """
+
     if team is None:
         prompt += "No NPCs available for alternative answers."
     else:

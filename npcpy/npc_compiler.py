@@ -343,7 +343,7 @@ class NPC:
             self._setup_db()
             
         # Load tools
-        self.tools = self._load_npc_tools(tools or [])
+        self.tools = self._load_npc_tools(self.tools_spec or [])
         
         # Set up shared context for NPC
         self.shared_context = {
@@ -381,12 +381,13 @@ class NPC:
         
         # Handle wildcard tools specification
         tools_spec = npc_data.get("tools", [])
+        #print(tools_spec)
         if tools_spec == "*":
             # Will be loaded in _load_npc_tools
-            self.tools = "*" 
+            self.tools_spec = "*" 
         else:
-            self.tools = tools_spec
-            
+            self.tools_spec = tools_spec
+
         self.model = npc_data.get("model", NPCSH_CHAT_MODEL)
         self.provider = npc_data.get("provider", NPCSH_CHAT_PROVIDER)
         self.api_url = npc_data.get("api_url", NPCSH_API_URL)
@@ -434,19 +435,19 @@ class NPC:
         
         # Handle wildcard case - load all tools from the tools directory
         if tools == "*":
+            #print(f'loading all tools for {self.name}')
             # Try to find tools in NPC-specific tools dir first
-            if hasattr(self, 'npc_tools_directory') and os.path.exists(self.npc_tools_directory):
-                npc_tools.extend(load_tools_from_directory(self.npc_tools_directory))
-                
-            # Then load from global tools directory
+            #print(self.npc_tools_directory)
+            npc_tools.extend(load_tools_from_directory(self.npc_tools_directory))
+            #print(npc_tools)               
             if os.path.exists(self.tools_directory):
-                npc_tools.extend(load_tools_from_directory(self.tools_directory))
-                
+                npc_tools.extend(load_tools_from_directory(self.tools_directory))                
             # Return all loaded tools
             self.tools_dict = {tool.tool_name: tool for tool in npc_tools}
+            #print(npc_tools)
             return npc_tools
             
-        # Handle normal case - specified tools
+
         for tool in tools:
             #need to add a block here for mcp tools.
                 

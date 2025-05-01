@@ -54,7 +54,7 @@ from npcpy.memory.command_history import (
     save_conversation_message,
 )
 from npcpy.npc_compiler import NPC, Team
-from npcpy.llm_funcs import check_llm_command, get_llm_response
+from npcpy.llm_funcs import check_llm_command, get_llm_response, execute_llm_command
 from npcpy.gen.embeddings import get_embeddings
 
 # --- Constants ---
@@ -101,7 +101,8 @@ class ShellState:
     image_gen_provider: str = NPCSH_IMAGE_GEN_PROVIDER
     video_gen_model: str = NPCSH_VIDEO_GEN_MODEL
     video_gen_provider: str = NPCSH_VIDEO_GEN_PROVIDER
-    default_mode: str = NPCSH_DEFAULT_MODE
+    current_mode: str = NPCSH_DEFAULT_MODE
+    
 
     api_key: Optional[str] = None
     api_url: Optional[str] = NPCSH_API_URL
@@ -424,7 +425,6 @@ def handle_cd_command(cmd_parts: List[str], state: ShellState) -> Tuple[ShellSta
         os.chdir(target_path)
         state.current_path = os.getcwd()
         output = f"Changed directory to {state.current_path}"
-        state.messages.append({"role": "system", "content": output}) # Log cd? Optional.
     except FileNotFoundError:
         output = colored(f"cd: no such file or directory: {target_path}", "red")
     except Exception as e:
@@ -556,7 +556,6 @@ def execute_slash_command(command: str, stdin_input: Optional[str], state: Shell
     if state.team and command_name in state.team.npcs:
         new_npc = state.team.npcs[command_name]
         state.npc = new_npc # Update state directly
-        state.messages = [] # Optionally clear messages when switching NPC
         return state, f"Switched to NPC: {new_npc.name}"
 
     return state, colored(f"Unknown slash command or tool: {command_name}", "red")
@@ -632,7 +631,12 @@ def process_pipeline_command(
             import traceback
             traceback.print_exc()
             return state, colored(f"Error processing command '{cmd_segment[:50]}...': {e}", "red")
+def check_mode_switch(command:str , state: ShellState):
+    if command in ['/cmd', '/agent', '/chat', '/ride']:
+        state.current_mode = command[1:]
+        return True, state     
 
+    return False, state
 def execute_command(
     command: str,
     state: ShellState,
@@ -640,14 +644,16 @@ def execute_command(
 
     if not command.strip():
         return state, ""
+    mode_change, state = check_mode_switch(command, state)
+    if mode_change:
+        return state, 'Mode changed.'
 
     original_command_for_embedding = command
     commands = split_by_pipes(command)
     stdin_for_next = None
     final_output = None
     current_state = state 
-    if state.default_mode == 'agent':
-
+    if state.current_mode == 'agent':
         for i, cmd_segment in enumerate(commands):
             is_last_command = (i == len(commands) - 1)
             stream_this_segment = is_last_command and state.stream_output # Use state's stream setting
@@ -695,13 +701,36 @@ def execute_command(
 
         # Return the final state and the final output
         return current_state, final_output
-    elif state.default_mode == 'chat':
-        # do bash commands first
-        # then just get a chat explanation of what happened
-        return current_state, final_output
-    elif state.default_mode == 'code':
-        # return a coding agent
-        return current_state, final_output
+    elif state.current_mode == 'chat':
+
+
+
+        response = get_llm_response(
+            command, 
+            model = state.chat_model, 
+            provider = state.chat_provider, 
+            npc= state.npc ,
+            stream = state.stream_output,
+            messages = state.messages
+        )
+        
+        state.messages = response['messages']     
+        
+        return state, response['response']
+    elif state.current_mode == 'cmd':
+
+        response = execute_llm_command(command, 
+                                                 model = state.chat_model, 
+                                                 provider = state.chat_provider, 
+                                                 npc = state.npc, 
+                                                 stream = state.stream_output, 
+                                                 messages = state.messages) 
+        state.messages = response['messages']     
+        return state, response['response']
+
+    elif state.current_mode == 'ride':     
+        print('To be implemented soon')   
+        return state, final_output
     
 
 
@@ -793,19 +822,22 @@ def process_result(
         npc=npc_name,
         attachments=result_state.attachments,
     )
+    
     result_state.attachments = None # Clear attachments after logging user message
 
     final_output_str = None
-    if result_state.stream_output and (isgenerator(output) or (hasattr(output, "__iter__") and hasattr(output, "__next__"))):
+    if result_state.stream_output and not isinstance(output, str):
         final_output_str = print_and_process_stream_with_markdown(
              output, result_state.chat_model, result_state.chat_provider # Pass appropriate model?
         )
-        if final_output_str and result_state.messages and result_state.messages[-1].get("role") != "assistant":
-             result_state.messages.append({"role": "assistant", "content": final_output_str})
-
+    
     elif output is not None:
         final_output_str = str(output)
         render_markdown(final_output_str)
+    if final_output_str and result_state.messages and result_state.messages[-1].get("role") != "assistant":
+        result_state.messages.append({"role": "assistant", "content": final_output_str})
+
+    #print(result_state.messages)
 
     print() # Add spacing after output
 
@@ -907,7 +939,8 @@ def main() -> None:
         video_gen_model=NPCSH_VIDEO_GEN_MODEL, video_gen_provider=NPCSH_VIDEO_GEN_PROVIDER,
         api_url=NPCSH_API_URL,
     )
-
+    #import pdb 
+    #pdb.set_trace()
     if args.command:
          state = initial_state
          state.current_path = os.getcwd()
