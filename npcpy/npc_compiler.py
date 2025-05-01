@@ -16,8 +16,9 @@ import subprocess
 from typing import Any, Dict, List, Optional, Union
 from jinja2 import Environment, FileSystemLoader, Template, Undefined
 from sqlalchemy import create_engine
+import npcpy as npy 
 
-from npcpy.llm_funcs import get_llm_response, check_llm_command
+
 from npcpy.npc_sysenv import (
     NPCSH_CHAT_MODEL,
     NPCSH_CHAT_PROVIDER,
@@ -25,6 +26,7 @@ from npcpy.npc_sysenv import (
     get_npc_path,
     init_db_tables
     )
+
 
 class SilentUndefined(Undefined):
     def _fail_with_undefined_error(self, *args, **kwargs):
@@ -144,7 +146,7 @@ class Tool:
         if rendered_engine == "natural":
             if rendered_code.strip():
                 # Handle streaming case
-                response =  get_llm_response(
+                response =  npy.llm_funcs.get_llm_response(
                     rendered_code,
                     model=model,
                     provider=provider,
@@ -173,7 +175,7 @@ class Tool:
                 "fnmatch": fnmatch,
                 "pathlib": pathlib,
                 "subprocess": subprocess,
-                "get_llm_response": get_llm_response}
+                "get_llm_response": npy.llm_funcs.get_llm_response}
             
             
             # Execute the code
@@ -287,7 +289,7 @@ def load_tools_from_directory(directory):
 class NPC:
     def __init__(
         self,
-        file: str,
+        file: str = None,
         name: str = None,
         primary_directive: str = None,
         tools: list = None,
@@ -311,17 +313,19 @@ class NPC:
             api_key: API key for LLM
             db_conn: Database connection
         """
-        self.tools_directory = os.path.abspath("./npc_team/tools")        
-        if file.endswith(".npc"):
-            self._load_from_file(file)
+        self.tools_directory = os.path.abspath("./npc_team/tools")       
+        if not file and not name and not primary_directive:
+            raise ValueError("Either 'file' or 'name' and 'primary_directive' must be provided") 
+        if file:
+            if file.endswith(".npc"):
+                self._load_from_file(file)
         else:
             self.name = name            
             self.primary_directive = primary_directive
-            self.model = model or os.environ.get("NPCSH_CHAT_MODEL", "llama3.2")
-            self.provider = provider or os.environ.get("NPCSH_CHAT_PROVIDER", "ollama")
-            self.api_url = api_url or os.environ.get("NPCSH_API_URL")
+            self.model = model or NPCSH_CHAT_MODEL
+            self.provider = provider or NPCSH_CHAT_PROVIDER
+            self.api_url = api_url or NPCSH_API_URL
             self.api_key = api_key
-            self.tools = tools or []
         self.npc_directory = os.path.abspath('./npc_team/')
 
         self.jinja_env = Environment(
@@ -338,7 +342,7 @@ class NPC:
             self._setup_db()
             
         # Load tools
-        self.tools = self._load_npc_tools()
+        self.tools = self._load_npc_tools(tools or [])
         
         # Set up shared context for NPC
         self.shared_context = {
@@ -423,12 +427,12 @@ class NPC:
             self.tables = None
             self.db_type = None
     
-    def _load_npc_tools(self):
+    def _load_npc_tools(self, tools):
         """Load and process NPC-specific tools"""
         npc_tools = []
         
         # Handle wildcard case - load all tools from the tools directory
-        if self.tools == "*":
+        if tools == "*":
             # Try to find tools in NPC-specific tools dir first
             if hasattr(self, 'npc_tools_directory') and os.path.exists(self.npc_tools_directory):
                 npc_tools.extend(load_tools_from_directory(self.npc_tools_directory))
@@ -442,7 +446,7 @@ class NPC:
             return npc_tools
             
         # Handle normal case - specified tools
-        for tool in self.tools:
+        for tool in tools:
             #need to add a block here for mcp tools.
                 
             if isinstance(tool, Tool):
@@ -481,11 +485,11 @@ class NPC:
         self.tools_dict = {tool.tool_name: tool for tool in npc_tools}
         return npc_tools
     
-    def _get_llm_response(self, request, **kwargs):
+    def get_llm_response(self, request, **kwargs):
         """Get a response from the LLM"""
         
         # Call the LLM
-        response = get_llm_response(
+        response = npy.llm_funcs.get_llm_response(
             request, 
             model=self.model, 
             provider=self.provider, 
@@ -522,13 +526,13 @@ class NPC:
         
         return result
     
-    def _check_llm_command(self, command, messages=None, context=None, shared_context=None):
+    def check_llm_command(self, command, messages=None, context=None, shared_context=None):
         """Check if a command is for the LLM"""
         if shared_context is not None:
             self.shared_context = shared_context
             
         # Call the LLM command checker
-        return check_llm_command(
+        return npy.llm_funcs.check_llm_command(
             command,
             model=self.model,
             provider=self.provider,
@@ -575,7 +579,7 @@ class NPC:
         )
         
         # Pass to the target NPC
-        return target_npc._check_llm_command(
+        return target_npc.check_llm_command(
             updated_command,
             messages=messages,
             shared_context=self.shared_context,
@@ -789,7 +793,7 @@ class Team:
         )
         
         # Initial request goes to foreman
-        result = foreman._check_llm_command(
+        result = foreman.check_llm_command(
             request,
             context=getattr(self, 'context', {}),
             shared_context=self.shared_context,
@@ -810,7 +814,7 @@ class Team:
                     )
             
             # Check if the result is complete
-            completion_check = get_llm_response(
+            completion_check = npy.llm_funcs.get_llm_response(
                 f"""Context: User request '{request}' returned:
                 {result}
 
@@ -842,7 +846,7 @@ class Team:
             
             if complete:
                 # Generate summary
-                debrief = get_llm_response(
+                debrief = npy.llm_funcs.get_llm_response(
                     f"""Context:
                     Original request: {request}
                     Execution history: {self.shared_context['execution_history']}
@@ -885,7 +889,7 @@ class Team:
                 )
                 
                 # Call foreman again
-                result = foreman._check_llm_command(
+                result = foreman.check_llm_command(
                     updated_request,
                     context=getattr(self, 'context', {}),
                     shared_context=self.shared_context,
@@ -1018,7 +1022,7 @@ class Pipeline:
                     response = self._execute_data_source_step(step, context, source_matches, npc, model, provider)
                 else:
                     # Standard LLM execution
-                    llm_response = get_llm_response(task, model=model, provider=provider, npc=npc)
+                    llm_response = npy.llm_funcs.get_llm_response(task, model=model, provider=provider, npc=npc)
                     response = llm_response.get("response", "")
             
             # Store result
@@ -1162,7 +1166,7 @@ class Pipeline:
         # Step 1: Initial Response Generation
         round_responses = []
         for _ in range(num_generating_agents):
-            response = get_llm_response(task, model=model, provider=provider, npc=npc)
+            response = npy.llm_funcs.get_llm_response(task, model=model, provider=provider, npc=npc)
             round_responses.append(response.get("response", ""))
             
         # Loop for each round of voting and refining
@@ -1183,7 +1187,7 @@ class Pipeline:
                     f"\n\nRefine your response #{i+1}: {resp}"
                 )
                 
-                response = get_llm_response(feedback, model=model, provider=provider, npc=npc)
+                response = npy.llm_funcs.get_llm_response(feedback, model=model, provider=provider, npc=npc)
                 refined_responses.append(response.get("response", ""))
                 
             # Update responses for next round
@@ -1194,7 +1198,7 @@ class Pipeline:
             "Synthesize these responses into a coherent answer:\n" +
             "\n".join(round_responses)
         )
-        final_response = get_llm_response(synthesis_prompt, model=model, provider=provider, npc=npc)
+        final_response = npy.llm_funcs.get_llm_response(synthesis_prompt, model=model, provider=provider, npc=npc)
         
         return final_response.get("response", "")
         
@@ -1217,7 +1221,7 @@ class Pipeline:
                 task = self._render_template(task, context)
                 
                 # Process all at once
-                response = get_llm_response(task, model=model, provider=provider, npc=npc)
+                response = npy.llm_funcs.get_llm_response(task, model=model, provider=provider, npc=npc)
                 return response.get("response", "")
             else:
                 # Process each row individually
@@ -1229,7 +1233,7 @@ class Pipeline:
                     row_task = self._render_template(row_task, context)
                     
                     # Process row
-                    response = get_llm_response(row_task, model=model, provider=provider, npc=npc)
+                    response = npy.llm_funcs.get_llm_response(row_task, model=model, provider=provider, npc=npc)
                     results.append(response.get("response", ""))
                     
                 return results

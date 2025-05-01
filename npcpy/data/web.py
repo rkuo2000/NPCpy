@@ -65,7 +65,7 @@ def search_perplexity(
 def search_web(
     query: str,
     num_results: int = 5,
-    provider: str = "duckduckgo",
+    provider: str=None,
     api_key=None,
     **kwargs,
 ) -> List[Dict[str, str]]:
@@ -81,8 +81,9 @@ def search_web(
         A list of dictionaries with 'title', 'link', and 'content' keys.
     """
     results = []
+    if provider is None:
+        provider = 'duckduckgo'
 
-    # try:
     if provider == "perplexity":
         search_result = search_perplexity(query, api_key=api_key, **kwargs)
         # print(search_result, type(search_result))
@@ -96,7 +97,6 @@ def search_web(
 
         try:
             search_results = ddgs.text(query, max_results=num_results)
-            print(search_results, type(search_results))
             urls = [r["href"] for r in search_results]
             results = [
                 {"title": r["title"], "link": r["href"], "content": r["body"]}
@@ -107,7 +107,7 @@ def search_web(
             urls = []
             results = []
 
-    else:  # google
+    elif provider =='google':  # google
         urls = list(search(query, num_results=num_results))
         # google shit doesnt seem to be working anymore, apparently a lbock they made on browsers without js?
         #print("urls", urls)

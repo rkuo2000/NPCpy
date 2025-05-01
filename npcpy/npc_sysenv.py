@@ -1651,8 +1651,9 @@ NPCSH_DB_PATH = os.path.expanduser(
 NPCSH_VECTOR_DB_PATH = os.path.expanduser(
     os.environ.get("NPCSH_VECTOR_DB_PATH", "~/npcsh_chroma.db")
 )
-NPCSH_DEFAULT_MODE = os.path.expanduser(os.environ.get("NPCSH_DEFAULT_MODE", "chat"))
+#DEFAULT MODES = ['CHAT', 'AGENT', 'CODE', ]
 
+NPCSH_DEFAULT_MODE = os.path.expanduser(os.environ.get("NPCSH_DEFAULT_MODE", "agent"))
 NPCSH_VISION_MODEL = os.environ.get("NPCSH_VISION_MODEL", "llava:7b")
 NPCSH_VISION_PROVIDER = os.environ.get("NPCSH_VISION_PROVIDER", "ollama")
 NPCSH_IMAGE_GEN_MODEL = os.environ.get(
@@ -1671,3 +1672,5 @@ NPCSH_REASONING_PROVIDER = os.environ.get("NPCSH_REASONING_PROVIDER", "ollama")
 NPCSH_STREAM_OUTPUT = eval(os.environ.get("NPCSH_STREAM_OUTPUT", "0")) == 1
 NPCSH_API_URL = os.environ.get("NPCSH_API_URL", None)
 NPCSH_SEARCH_PROVIDER = os.environ.get("NPCSH_SEARCH_PROVIDER", "duckduckgo")
+
+
