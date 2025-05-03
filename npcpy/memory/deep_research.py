@@ -128,3 +128,11 @@ def consolidate_research(chains, facts, groups, model=model, provider=provider):
 ## ultimately wwell do the vector store in the main db. so when we eventually starti adding new facts well  do so by checking similar facts
 # there and then if were doing the rag search well do a rag and then graph
     
+    
+def enter_dive_mode():
+    return
+
+def main():
+     
+if __name__=='__main__':
+    main()

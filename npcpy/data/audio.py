@@ -16,6 +16,8 @@ try:
     from typing import Optional, List, Dict, Any
     from gtts import gTTS
     from faster_whisper import WhisperModel
+    os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
+    
     import pygame
 
     FORMAT = pyaudio.paInt16

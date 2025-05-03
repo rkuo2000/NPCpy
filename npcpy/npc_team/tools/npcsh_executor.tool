@@ -1,9 +1,8 @@
 tool_name: npcsh_executor
-description: Execute npcsh commands. Use the macro commands.
+description: Issue npc shell requests. Uses one of the NPC macros.
 inputs:
-  - code
-  - language
+  - request to make. 
 steps:
-  - engine: "{{language}}"
+  - engine: "python"
     code: |
       {{code}}

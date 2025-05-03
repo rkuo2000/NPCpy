@@ -1,0 +1,8 @@
+tool_name: python_executor
+description: Execute scripts with python. Set the ultimate result as the "output" variable. It must be a string. Do not add unnecessary print statements.
+inputs:
+  - code
+steps:
+  - engine: 'python'
+    code: |
+      {{code}}
