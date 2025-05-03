@@ -210,6 +210,7 @@ def get_litellm_response(
             model = "llava:7b"
         else:
             model = "llama3.2"
+    print(model, provider   )
     
     # Handle Ollama separately
     if provider == "ollama":
@@ -460,79 +461,79 @@ def process_tool_calls(response_dict, tool_map):
     
     # Process each tool call
     for tool_call in tool_calls:
-        try:
-            # Extract tool details - handle both Ollama and LiteLLM formats
-            if isinstance(tool_call, dict):  # Ollama format
-                tool_id = tool_call.get("id", str(uuid.uuid4()))
-                tool_name = tool_call.get("function", {}).get("name")
-                arguments_str = tool_call.get("function", {}).get("arguments", "{}")
-            else:  # LiteLLM format - expect object with attributes
-                tool_id = getattr(tool_call, "id", str(uuid.uuid4()))
-                # Handle function as either attribute or dict
-                if hasattr(tool_call, "function"):
-                    if isinstance(tool_call.function, dict):
-                        tool_name = tool_call.function.get("name")
-                        arguments_str = tool_call.function.get("arguments", "{}")
-                    else:
-                        tool_name = getattr(tool_call.function, "name", None)
-                        arguments_str = getattr(tool_call.function, "arguments", "{}")
+        #try:
+        # Extract tool details - handle both Ollama and LiteLLM formats
+        if isinstance(tool_call, dict):  # Ollama format
+            tool_id = tool_call.get("id", str(uuid.uuid4()))
+            tool_name = tool_call.get("function", {}).get("name")
+            arguments_str = tool_call.get("function", {}).get("arguments", "{}")
+        else:  # LiteLLM format - expect object with attributes
+            tool_id = getattr(tool_call, "id", str(uuid.uuid4()))
+            # Handle function as either attribute or dict
+            if hasattr(tool_call, "function"):
+                if isinstance(tool_call.function, dict):
+                    tool_name = tool_call.function.get("name")
+                    arguments_str = tool_call.function.get("arguments", "{}")
                 else:
-                    raise ValueError("Tool call missing function attribute or property")
-            
-            # Parse arguments
-            if not arguments_str:
-                arguments = {}
+                    tool_name = getattr(tool_call.function, "name", None)
+                    arguments_str = getattr(tool_call.function, "arguments", "{}")
             else:
-                try:
-                    arguments = json.loads(arguments_str) if isinstance(arguments_str, str) else arguments_str
-                except json.JSONDecodeError:
-                    arguments = {"raw_arguments": arguments_str}
-            
-            # Execute the tool if it exists in the tool map
-            if tool_name and tool_name in tool_map:
-                tool_result = tool_map[tool_name](arguments)
-                result["tool_results"].append({
-                    "tool_call_id": tool_id,
-                    "tool_name": tool_name,
-                    "arguments": arguments,
-                    "result": tool_result
-                })
-                
-                # Add tool result to messages
-                result["messages"].append({
-                    "role": "tool",
-                    "tool_call_id": tool_id,
-                    "content": json.dumps(tool_result)
-                })
-            else:
-                tool_name = tool_name or "unknown"
-                raise ValueError(f"Tool {tool_name} not found in tool map")
-                
-        except Exception as e:
-            error_msg = f"Error executing tool: {str(e)}"
-            print(error_msg)
-            
-            # Set defaults for variables that might not be defined in case of early errors
-            if 'tool_id' not in locals():
-                tool_id = str(uuid.uuid4())
-            if 'tool_name' not in locals():
-                tool_name = "unknown"
-            if 'arguments' not in locals():
-                arguments = {}
-                
+                raise ValueError("Tool call missing function attribute or property")
+        
+        # Parse arguments
+        if not arguments_str:
+            arguments = {}
+        else:
+            try:
+                arguments = json.loads(arguments_str) if isinstance(arguments_str, str) else arguments_str
+            except json.JSONDecodeError:
+                arguments = {"raw_arguments": arguments_str}
+        
+        # Execute the tool if it exists in the tool map
+        if tool_name and tool_name in tool_map:
+            tool_result = tool_map[tool_name](arguments)
             result["tool_results"].append({
                 "tool_call_id": tool_id,
                 "tool_name": tool_name,
                 "arguments": arguments,
-                "error": str(e)
+                "result": tool_result
             })
             
-            # Add error to messages
+            # Add tool result to messages
             result["messages"].append({
                 "role": "tool",
                 "tool_call_id": tool_id,
-                "content": json.dumps({"error": str(e)})
+                "content": json.dumps(tool_result)
             })
+        else:
+            tool_name = tool_name or "unknown"
+            raise ValueError(f"Tool {tool_name} not found in tool map")
+            
+        #except Exception as e:
+        #error_msg = f"Error executing tool: {str(e)}"
+        #print(error_msg)
+        
+        """ # Set defaults for variables that might not be defined in case of early errors
+        if 'tool_id' not in locals():
+            tool_id = str(uuid.uuid4())
+        if 'tool_name' not in locals():
+            tool_name = "unknown"
+        if 'arguments' not in locals():
+            arguments = {}
+            
+        result["tool_results"].append({
+            "tool_call_id": tool_id,
+            "tool_name": tool_name,
+            "arguments": arguments,
+            "error": str(e)
+        })
+        
+        # Add error to messages
+        result["messages"].append({
+            "role": "tool",
+            "tool_call_id": tool_id,
+            "content": json.dumps({"error": str(e)})
+        }) """
     
     # Get a follow-up response with the tool results if there were any successful tool calls
     successful_tools = [t for t in result["tool_results"] if "result" in t]

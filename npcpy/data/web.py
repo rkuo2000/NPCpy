@@ -67,7 +67,7 @@ def search_web(
     num_results: int = 5,
     provider: str=None,
     api_key=None,
-    **kwargs,
+    perplexity_kwargs: Optional[Dict[str, Any]] = None,
 ) -> List[Dict[str, str]]:
     """
     Function Description:
@@ -85,7 +85,7 @@ def search_web(
         provider = 'duckduckgo'
 
     if provider == "perplexity":
-        search_result = search_perplexity(query, api_key=api_key, **kwargs)
+        search_result = search_perplexity(query, api_key=api_key, **perplexity_kwargs)
         # print(search_result, type(search_result))
         return search_result
 
