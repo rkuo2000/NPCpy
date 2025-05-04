@@ -255,8 +255,8 @@ def main():
     import argparse    
     parser = argparse.ArgumentParser(description="Enter PTI mode for chatting with an LLM")
     parser.add_argument("--npc", default='~/.npcsh/npc_team/frederic.npc', help="Path to NPC File")    
-    parser.add_argument("--model", default=NPCSH_CHAT_MODEL, help="Model to use")
-    parser.add_argument("--provider", default=NPCSH_CHAT_PROVIDER, help="Provider to use")
+    parser.add_argument("--model", default=NPCSH_REASONING_MODEL, help="Model to use")
+    parser.add_argument("--provider", default=NPCSH_REASONING_PROVIDER, help="Provider to use")
     parser.add_argument("--files", nargs="*", help="Files to load into context")
     args = parser.parse_args()
     
@@ -264,10 +264,9 @@ def main():
     enter_reasoning_human_in_the_loop(
         messages = [],
         npc=npc,
-        reasoning_model=NPCSH_REASONING_MODEL,
-        reasoning_provider=NPCSH_REASONING_PROVIDER,
+        reasoning_model=args.model,
+        reasoning_provider=args.provider,
         files=args.files,
-
     )
 
 if __name__ == "__main__":
