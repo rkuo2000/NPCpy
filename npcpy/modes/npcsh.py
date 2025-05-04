@@ -1,7 +1,6 @@
 # Standard Library Imports
 import os
 import sys
-import readline
 import atexit
 import subprocess
 import shlex
@@ -25,15 +24,6 @@ except ImportError:
 # Local Application Imports
 from npcpy.npc_sysenv import (
     print_and_process_stream_with_markdown,
-    NPCSH_STREAM_OUTPUT,
-    NPCSH_CHAT_MODEL, NPCSH_CHAT_PROVIDER,
-    NPCSH_VISION_MODEL, NPCSH_VISION_PROVIDER,
-    NPCSH_EMBEDDING_MODEL, NPCSH_EMBEDDING_PROVIDER,
-    NPCSH_REASONING_MODEL, NPCSH_REASONING_PROVIDER,
-    NPCSH_IMAGE_GEN_MODEL, NPCSH_IMAGE_GEN_PROVIDER,
-    NPCSH_VIDEO_GEN_MODEL, NPCSH_VIDEO_GEN_PROVIDER,
-    NPCSH_API_URL,
-    NPCSH_DEFAULT_MODE, 
     setup_npcsh_config,
     is_npcsh_initialized,
     initialize_base_npcs_if_needed,
@@ -50,13 +40,15 @@ from npcpy.routes import router
 from npcpy.data.image import capture_screenshot
 from npcpy.memory.command_history import (
     CommandHistory,
-    start_new_conversation,
     save_conversation_message,
 )
 from npcpy.npc_compiler import NPC, Team
 from npcpy.llm_funcs import check_llm_command, get_llm_response, execute_llm_command
 from npcpy.gen.embeddings import get_embeddings
-
+try:
+    import readline
+except:
+    print('no readline support, some features may not work as desired. ')
 # --- Constants ---
 try:
     VERSION = importlib.metadata.version("npcpy")
@@ -81,52 +73,8 @@ except Exception as e:
 class CommandNotFoundError(Exception):
     pass
 
-# --- Shell State ---
-@dataclass
-class ShellState:
-    npc: Optional[Union[NPC, str]] = None
-    team: Optional[Team] = None
-    messages: List[Dict[str, Any]] = field(default_factory=list)
-    conversation_id: Optional[int] = None
 
-    chat_model: str = NPCSH_CHAT_MODEL
-    chat_provider: str = NPCSH_CHAT_PROVIDER
-    vision_model: str = NPCSH_VISION_MODEL
-    vision_provider: str = NPCSH_VISION_PROVIDER
-    embedding_model: str = NPCSH_EMBEDDING_MODEL
-    embedding_provider: str = NPCSH_EMBEDDING_PROVIDER
-    reasoning_model: str = NPCSH_REASONING_MODEL
-    reasoning_provider: str = NPCSH_REASONING_PROVIDER
-    image_gen_model: str = NPCSH_IMAGE_GEN_MODEL
-    image_gen_provider: str = NPCSH_IMAGE_GEN_PROVIDER
-    video_gen_model: str = NPCSH_VIDEO_GEN_MODEL
-    video_gen_provider: str = NPCSH_VIDEO_GEN_PROVIDER
-    current_mode: str = NPCSH_DEFAULT_MODE
-    
-
-    api_key: Optional[str] = None
-    api_url: Optional[str] = NPCSH_API_URL
-    current_path: str = field(default_factory=os.getcwd)
-    stream_output: bool = NPCSH_STREAM_OUTPUT
-    attachments: Optional[List[Any]] = None
-
-    def get_model_for_command(self, model_type: str = "chat"):
-        if model_type == "chat":
-            return self.chat_model, self.chat_provider
-        elif model_type == "vision":
-            return self.vision_model, self.vision_provider
-        elif model_type == "embedding":
-            return self.embedding_model, self.embedding_provider
-        elif model_type == "reasoning":
-            return self.reasoning_model, self.reasoning_provider
-        elif model_type == "image_gen":
-            return self.image_gen_model, self.image_gen_provider
-        elif model_type == "video_gen":
-            return self.video_gen_model, self.video_gen_provider
-        else:
-            return self.chat_model, self.chat_provider # Default fallback
-
-# --- Helper Functions ---
+from npcpy.modes._state import initial_state, ShellState
 
 def readline_safe_prompt(prompt: str) -> str:
     ansi_escape = re.compile(r"(\033\[[0-9;]*[a-zA-Z])")
@@ -278,24 +226,26 @@ def wrap_text(text: str, width: int = 80) -> str:
 def setup_readline() -> str:
     try:
         readline.read_history_file(READLINE_HISTORY_FILE)
+
+        readline.set_history_length(1000)
+        readline.parse_and_bind("set enable-bracketed-paste on")
+        readline.parse_and_bind(r'"\e[A": history-search-backward')
+        readline.parse_and_bind(r'"\e[B": history-search-forward')
+        readline.parse_and_bind(r'"\C-r": reverse-search-history')
+        readline.parse_and_bind(r'\C-e: end-of-line')
+        readline.parse_and_bind(r'\C-a: beginning-of-line')
+        if sys.platform == "darwin":
+            readline.parse_and_bind("bind ^I rl_complete")
+        else:
+            readline.parse_and_bind("tab: complete")
+
+        return READLINE_HISTORY_FILE
+
+
     except FileNotFoundError:
         pass
     except OSError as e:
         print(f"Warning: Could not read readline history file {READLINE_HISTORY_FILE}: {e}")
-
-    readline.set_history_length(1000)
-    readline.parse_and_bind("set enable-bracketed-paste on")
-    readline.parse_and_bind(r'"\e[A": history-search-backward')
-    readline.parse_and_bind(r'"\e[B": history-search-forward')
-    readline.parse_and_bind(r'"\C-r": reverse-search-history')
-    readline.parse_and_bind(r'\C-e: end-of-line')
-    readline.parse_and_bind(r'\C-a: beginning-of-line')
-    if sys.platform == "darwin":
-        readline.parse_and_bind("bind ^I rl_complete")
-    else:
-        readline.parse_and_bind("tab: complete")
-
-    return READLINE_HISTORY_FILE
 
 def save_readline_history():
     try:
@@ -309,7 +259,10 @@ def save_readline_history():
 valid_commands_list = list(router.routes.keys()) + list(interactive_commands.keys()) + ["cd", "exit", "quit"] + BASH_COMMANDS
 
 def complete(text: str, state: int) -> Optional[str]:
-    buffer = readline.get_line_buffer()
+    try:
+        buffer = readline.get_line_buffer()
+    except:
+        print('couldnt get readline buffer')
     line_parts = parse_command_safely(buffer) # Use safer parsing
     word_before_cursor = ""
     if len(line_parts) > 0 and not buffer.endswith(' '):
@@ -772,10 +725,14 @@ def setup_shell() -> Tuple[CommandHistory, Team, Optional[NPC]]:
     os.makedirs(os.path.dirname(db_path), exist_ok=True)
     command_history = CommandHistory(db_path)
 
-    history_file = setup_readline()
-    atexit.register(save_readline_history)
-    atexit.register(command_history.close)
-    readline.set_completer(complete)
+    try:
+        readline.set_completer(complete)
+   
+        history_file = setup_readline()
+        atexit.register(save_readline_history)
+        atexit.register(command_history.close)        
+    except:
+        pass
 
     npc_directory = PROJECT_NPC_TEAM_PATH if os.path.exists(PROJECT_NPC_TEAM_PATH) else DEFAULT_NPC_TEAM_PATH
     os.makedirs(npc_directory, exist_ok=True)
@@ -856,7 +813,7 @@ def process_result(
 
 def run_repl(command_history: CommandHistory, initial_state: ShellState):
     state = initial_state
-    print(f'Using {NPCSH_DEFAULT_MODE} mode. Use /agent, /cmd, or /chat to switch to other modes')
+    print(f'Using {state.current_mode} mode. Use /agent, /cmd, or /chat to switch to other modes')
     print(f'To switch to a different NPC, type /<npc_name>')
     while True:
         try:
@@ -928,19 +885,8 @@ def main() -> None:
 
     command_history, team, default_npc = setup_shell()
 
-    initial_state = ShellState(
-        team=team,
-        npc=default_npc,
-        conversation_id=start_new_conversation(),
-        stream_output=NPCSH_STREAM_OUTPUT,
-        chat_model=NPCSH_CHAT_MODEL, chat_provider=NPCSH_CHAT_PROVIDER,
-        vision_model=NPCSH_VISION_MODEL, vision_provider=NPCSH_VISION_PROVIDER,
-        embedding_model=NPCSH_EMBEDDING_MODEL, embedding_provider=NPCSH_EMBEDDING_PROVIDER,
-        reasoning_model=NPCSH_REASONING_MODEL, reasoning_provider=NPCSH_REASONING_PROVIDER,
-        image_gen_model=NPCSH_IMAGE_GEN_MODEL, image_gen_provider=NPCSH_IMAGE_GEN_PROVIDER,
-        video_gen_model=NPCSH_VIDEO_GEN_MODEL, video_gen_provider=NPCSH_VIDEO_GEN_PROVIDER,
-        api_url=NPCSH_API_URL,
-    )
+    initial_state.npc = default_npc 
+    initial_state.team = team
     #import pdb 
     #pdb.set_trace()
     if args.command:

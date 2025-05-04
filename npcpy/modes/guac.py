@@ -4,7 +4,6 @@ import sys
 import code
 import yaml
 from pathlib import Path
-import readline
 import atexit
 import traceback
 from npcpy.memory.command_history import CommandHistory, start_new_conversation
@@ -16,9 +15,18 @@ import numpy as np
 import matplotlib.pyplot as plt
 import datetime
 import argparse
+from npcpy.modes._state import initial_state
+try:
+    import readline
+except:
+    pass
 
-GUAC_REFRESH_PERIOD = 100
+
+GUAC_REFRESH_PERIOD  = os.environ.get('GUAC_REFRESH_PERIOD', 100)
 READLINE_HISTORY_FILE = os.path.expanduser("~/.guac_readline_history")
+
+initial_state.GUAC_REFRESH_PERIOD = GUAC_REFRESH_PERIOD
+
 
 def setup_guac_mode(config_dir=None, plots_dir=None, npc_team_dir=None):
     home_dir = Path.home()
@@ -563,7 +571,6 @@ def get_guac_prompt(command_count):
 
 def enter_guac_mode(npc=None, team=None, config_dir=None, plots_dir=None, npc_team_dir=None,
                     refresh_period=None, lang=None):
-    global GUAC_REFRESH_PERIOD
     if refresh_period is not None:
         try:
             GUAC_REFRESH_PERIOD = int(refresh_period)
@@ -597,9 +604,12 @@ def enter_guac_mode(npc=None, team=None, config_dir=None, plots_dir=None, npc_te
                  npc = next(iter(team.npcs.values()))
         except Exception as e:
             pass
-
-    setup_guac_readline()
-    
+    initial_state.npc = npc 
+    initial_state.team = team
+    try:
+        setup_guac_readline()
+    except:
+        print('couldnt set up readline.')
     print_guac_bowl()
 
     if lang == "python":

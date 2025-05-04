@@ -1,18 +1,14 @@
 import re
 from datetime import datetime
-from typing import Any
+
 import os
-import io
 import sqlite3
 from dotenv import load_dotenv
-from PIL import Image
 import logging
-from typing import List, Dict, Any, Optional
-import os
-import sqlite3
+from typing import List, Any
+
 import subprocess
 import platform
-import yaml
 
 try:
     import nltk
@@ -31,22 +27,16 @@ try:
 except Exception as e:
     print(f"Error importing sentence_transformers: {e}")
 
-import os
-import pandas as pd
 
-import threading
+
 
 from typing import Dict, Any, List, Optional, Union
 import numpy as np
-import readline
 from colorama import Fore, Back, Style
 import re
 import tempfile
 import sqlite3
-import wave
 from datetime import datetime
-import glob
-import shlex
 import logging
 import textwrap
 import subprocess
