@@ -20,8 +20,9 @@ from npcpy.llm_funcs import (
     get_llm_response,
     execute_llm_command,
     rehash_last_message,
-    generate_image,
-    handle_tool_call, generate_video,
+    gen_image,
+    handle_tool_call,
+    generate_video,
 )
 from npcpy.npc_compiler import NPC, Team, Tool
 from npcpy.npc_compiler import initialize_npc_project
@@ -594,7 +595,6 @@ def trigger_handler(command: str, **kwargs):
     except Exception as e:
         traceback.print_exc()
         return {"output": f"Error executing trigger: {e}", "messages": messages}
-
 @router.route("vixynt", "Generate images from text descriptions")
 def vixynt_handler(command: str, **kwargs):
     print(kwargs)
@@ -602,8 +602,8 @@ def vixynt_handler(command: str, **kwargs):
     npc = safe_get(kwargs, 'npc')
     model = safe_get(kwargs, 'model', NPCSH_IMAGE_GEN_MODEL)
     provider = safe_get(kwargs, 'provider', NPCSH_IMAGE_GEN_PROVIDER)
-    height = safe_get(kwargs, 'height', None)
-    width = safe_get(kwargs, 'width', None)
+    height = safe_get(kwargs, 'height', 1024)
+    width = safe_get(kwargs, 'width', 1024)
     
     if model == NPCSH_CHAT_MODEL: model = NPCSH_IMAGE_GEN_MODEL
     if provider == NPCSH_CHAT_PROVIDER: provider = NPCSH_IMAGE_GEN_PROVIDER
@@ -611,12 +611,12 @@ def vixynt_handler(command: str, **kwargs):
     messages = safe_get(kwargs, 'messages', [])
 
     filename = None
+    attachments = None  # For image editing
 
     prompt_parts = []
     try:
         parts = shlex.split(command)
         for part in parts[1:]:
-            
             if part.startswith("filename="):
                 filename = part.split("=", 1)[1]
             elif part.startswith("height="):
@@ -627,18 +627,21 @@ def vixynt_handler(command: str, **kwargs):
             elif part.startswith("width="):
                 try: width = int(part.split("=", 1)[1])
                 except ValueError: pass
+            elif part.startswith("input="):  # New parameter for image editing
+                input_image = part.split("=", 1)[1]
+                # Pass the input image as a list to maintain consistency
+                attachments = [input_image]
             else:
                 prompt_parts.append(part)
     except Exception as parse_err:
-        return {"output": f"Error parsing arguments: {parse_err}. Usage: /vixynt <prompt> [filename=...] [height=...] [width=...]", "messages": messages}
-
+        return {"output": f"Error parsing arguments: {parse_err}. Usage: /vixynt <prompt> [filename=...] [height=...] [width=...] [input=...for editing]", "messages": messages}
 
     user_prompt = " ".join(prompt_parts)
     if not user_prompt:
-        return {"output": "Usage: /vixynt <prompt> [filename=...] [height=...] [width=...]", "messages": messages}
+        return {"output": "Usage: /vixynt <prompt> [filename=...] [height=...] [width=...] [input=...for editing]", "messages": messages}
 
     try:
-        image_filename = generate_image(
+        image_filename = gen_image(
             prompt=user_prompt,
             model=model,
             provider=provider,
@@ -646,11 +649,16 @@ def vixynt_handler(command: str, **kwargs):
             npc=npc,
             height=height,
             width=width,
+            input_images=attachments  # Pass the input image as a list
         )
-        output = f"Image generated and saved to: {image_filename}"
+        
+        if attachments:
+            output = f"Image edited and saved to: {image_filename}"
+        else:
+            output = f"Image generated and saved to: {image_filename}"
     except Exception as e:
         traceback.print_exc()
-        output = f"Error generating image: {e}"
+        output = f"Error {'editing' if attachments else 'generating'} image: {e}"
 
     return {"output": output, "messages": messages}
 

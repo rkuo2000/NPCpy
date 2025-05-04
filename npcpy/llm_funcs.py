@@ -16,37 +16,22 @@ import numpy as np
 from sqlalchemy import create_engine
 
 from npcpy.npc_sysenv import (
-    get_system_message,
-    get_model_and_provider,
     render_markdown,
     lookup_provider,
-    NPCSH_CHAT_PROVIDER,
-    NPCSH_CHAT_MODEL,
-    NPCSH_API_URL,
-    NPCSH_EMBEDDING_MODEL,
-    NPCSH_EMBEDDING_PROVIDER,
-    NPCSH_DEFAULT_MODE,
-    NPCSH_REASONING_MODEL,
-    NPCSH_REASONING_PROVIDER,
-    NPCSH_IMAGE_GEN_MODEL,
-    NPCSH_IMAGE_GEN_PROVIDER,
-    NPCSH_VIDEO_GEN_MODEL,
-    NPCSH_VIDEO_GEN_PROVIDER,
-    NPCSH_VISION_MODEL,
-    NPCSH_VISION_PROVIDER,
 )
 from npcpy.gen.response import get_litellm_response
-from npcpy.gen.image_gen import generate_image_litellm
+from npcpy.gen.image_gen import generate_image, edit_image
 from npcpy.gen.video_gen import generate_video_diffusers
 
-def generate_image(
+def gen_image(
     prompt: str,
-    model: str = NPCSH_IMAGE_GEN_MODEL,
-    provider: str = NPCSH_IMAGE_GEN_PROVIDER,
+    model: str = None,
+    provider: str = None,
     filename: str = None,
     npc: Any = None,
-    height: int = 256,
-    width: int = 256,
+    height: int = 1024,
+    width: int = 1024,
+    input_images: List[Union[str, bytes, PIL.Image.Image]] = None,
 ):
     """This function generates an image using the specified provider and model.
     Args:
@@ -78,16 +63,15 @@ def generate_image(
             os.path.expanduser("~/.npcsh/images/")
             + f"image_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
         )
-    image = generate_image_litellm(
+    image = generate_image(
         prompt=prompt,
         model=model,
         provider=provider,
         height=height,
-        width=width,
+        width=width, 
+        attachments=input_images,
+        
     )
-    print(image)
-    # save image
-    # check if image is a PIL image
     if isinstance(image, PIL.Image.Image):
         image.save(filename)
         return filename
@@ -112,8 +96,8 @@ def generate_image(
 
 def generate_video(
     prompt,
-    model: str = NPCSH_VIDEO_GEN_MODEL,
-    provider: str = NPCSH_VIDEO_GEN_PROVIDER,
+    model: str = None,
+    provider: str = None,
     npc: Any = None,
     device: str = "cpu",
     output_path="",
@@ -159,7 +143,7 @@ def get_llm_response(
     npc: Any = None,
     team: Any = None,
     messages: List[Dict[str, str]] = None,
-    api_url: str = NPCSH_API_URL,
+    api_url: str = None,
     api_key: str = None,
     context=None,    
     stream: bool = False,
@@ -314,7 +298,7 @@ def execute_llm_command(
     command: str,
     model: Optional[str] = None,
     provider: Optional[str] = None,
-    api_url: str = NPCSH_API_URL,
+    api_url: str = None,
     api_key: str = None,
     npc: Optional[Any] = None,
     messages: Optional[List[Dict[str, str]]] = None,
@@ -454,9 +438,9 @@ def execute_llm_command(
 def handle_tool_call(
     command: str,
     tool_name: str,
-    model: str = NPCSH_CHAT_MODEL,
-    provider: str = NPCSH_CHAT_PROVIDER,
-    api_url: str = NPCSH_API_URL,
+    model: str = None,
+    provider: str = None,
+    api_url: str = None,
     api_key: str = None,
     messages: List[Dict[str, str]] = None,
     npc: Any = None,
@@ -655,7 +639,7 @@ def check_llm_command(
     command: str,
     model: str = None, 
     provider: str  = None, 
-    api_url: str = NPCSH_API_URL,
+    api_url: str = None,
     api_key: str = None,
     npc: Any = None,
     team: Any = None,
