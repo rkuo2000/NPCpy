@@ -34,8 +34,15 @@ nav:
   - Home: index.md
   - Installation: installation.md
   - 'Using npcsh, the NPC Shell': guide.md
+  - 'Using dive': dive.md
+  - 'Using guac': guac.md
+  - 'Using pti': pti.md
+  - 'Using spool': spool.md
+  - 'Using wander': wander.md
+  - 'Using yap': yap.md
+
+
   - TLDR Cheat Sheet: TLDR_Cheat_sheet.md
   - API:
-    - Audio: api/audio.md
     - Image: api/image.md
     - LLM Functions: api/llm_funcs.md
