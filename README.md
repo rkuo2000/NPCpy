@@ -165,6 +165,14 @@ See more examples of how to use `npcpy` to create agents and agentic systems [he
 
 - `npc`: a command line interface offering the capabilities of the npc shell from a regular bash shell.
 
+<p align="center"><a href ="https://github.com/cagostino/npcpy/blob/main/docs/deep.md"> 
+  <img src="https://raw.githubusercontent.com/cagostino/npcpy/main/npcpy/npc_team/alicanto.png" alt="logo for deep research", width=250></a>
+</p>
+
+- `dive`: a deep research focused tool. 
+
+
+ 
 <p align="center"><a href ="https://github.com/cagostino/npcpy/blob/main/docs/pti.md"> 
   <img src="https://raw.githubusercontent.com/cagostino/npcpy/main/npcpy/npc_team/frederic4.png" alt="npcpy logo of frederic the bear and the pti logo", width=250></a>
 </p>
@@ -184,9 +192,11 @@ See more examples of how to use `npcpy` to create agents and agentic systems [he
 </p>
 
 - `yap`: an agentic voice control loop with a specified agent. 
+<p align="center"><a href ="https://github.com/cagostino/npcpy/blob/main/docs/wander.md"> 
+  <img src="https://raw.githubusercontent.com/cagostino/npcpy/main/npcpy/npc_team/kadiefa.png" alt="logo for yap ", width=250></a>
+</p>
 
-
-
+- `wander`: a system for thinking outside of the box
 ## Inference Capabilities
 - `npcpy` works with local and enterprise LLM providers through its LiteLLM integration, allowing users to run inference from Ollama, LMStudio, OpenAI, Anthropic, Gemini, and Deepseek, making it a versatile tool for both simple commands and sophisticated AI-driven tasks. 
 
