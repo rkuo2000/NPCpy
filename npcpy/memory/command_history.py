@@ -870,3 +870,28 @@ def save_attachment_to_message(
     except Exception as e:
         print(f"Error saving attachment: {str(e)}")
         return False
+
+def get_available_tables(db_path: str) -> str:
+    """
+    Function Description:
+        This function gets the available tables in the database.
+    Args:
+        db_path (str): The database path.
+    Keyword Args:
+        None
+    Returns:
+        str: The available tables in the database.
+    """
+
+    try:
+        with sqlite3.connect(db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name != 'command_history'"
+            )
+            tables = cursor.fetchall()
+
+            return tables
+    except Exception as e:
+        print(f"Error getting available tables: {e}")
+        return ""
