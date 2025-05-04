@@ -1,7 +1,7 @@
 from typing import Any, Dict, List, Union
 from pydantic import BaseModel
 from npcpy.data.image import compress_image
-from npcpy.npc_sysenv import get_system_message, available_reasoning_models, lookup_provider
+from npcpy.npc_sysenv import get_system_message, lookup_provider
 import base64
 import json
 import uuid
@@ -156,8 +156,6 @@ def get_ollama_response(
     
     # Handle JSON format if specified
     if format == "json":
-        if model in available_reasoning_models:
-            raise NotImplementedError("Reasoning models do not support JSON output.")
         try:
             if isinstance(response_content, str):
                 if response_content.startswith("```json"):

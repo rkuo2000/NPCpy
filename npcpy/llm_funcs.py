@@ -17,7 +17,6 @@ from sqlalchemy import create_engine
 
 from npcpy.npc_sysenv import (
     get_system_message,
-    get_available_models,
     get_model_and_provider,
     render_markdown,
     lookup_provider,
@@ -35,8 +34,6 @@ from npcpy.npc_sysenv import (
     NPCSH_VIDEO_GEN_PROVIDER,
     NPCSH_VISION_MODEL,
     NPCSH_VISION_PROVIDER,
-    available_reasoning_models,
-    available_chat_models,
 )
 from npcpy.gen.response import get_litellm_response
 from npcpy.gen.image_gen import generate_image_litellm
@@ -680,15 +677,6 @@ def check_llm_command(
     Returns:
         Any: The result of checking the LLM command.
     """
-    if model in available_reasoning_models:
-        print(
-            """
-Model provided is a reasoning model, defaulting to non reasoning model for
-ReAct choices then will enter reasoning flow
-            """
-        )
-        model = NPCSH_CHAT_MODEL
-        provider = NPCSH_CHAT_PROVIDER
     if messages is None:
         messages = []
 

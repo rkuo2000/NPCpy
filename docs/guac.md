@@ -31,16 +31,13 @@ Items added/modified from llm_funcs.py:
   PIL: <module 'PIL' from '/home/caug/.pyenv/versions/3.11.0/envs/npcsh/lib/python3.11/site-packages/PIL/__...
   render_markdown: <function or class>
   NPCSH_VIDEO_GEN_PROVIDER: 'diffusers'
-  available_chat_models: ['gemma3', 'llama3.3', 'llama3.2', 'llama3.1', 'phi4', 'phi3.5', 'mistral', 'llama3', 'gemma', 'qwen...
   generate_image: <function or class>
   NPCSH_IMAGE_GEN_PROVIDER: 'openai'
   Union: <function or class>
   requests: <module 'requests' from '/home/caug/.pyenv/versions/3.11.0/envs/npcsh/lib/python3.11/site-packages/r...
   NPCSH_CHAT_MODEL: 'gpt-4.1-mini'
   rehash_last_message: <function or class>
-  get_model_and_provider: <function or class>
   generate_video: <function or class>
-  available_reasoning_models: ['o1-mini', 'o1', 'o1-preview', 'o3-mini', 'o3-preview', 'deepseek-reasoner']
   get_system_message: <function or class>
   get_llm_response: <function or class>
   Optional: <function or class>
@@ -56,7 +53,6 @@ Items added/modified from llm_funcs.py:
   NPCSH_API_URL: ''
   NPCSH_REASONING_PROVIDER: 'deepseek'
   execute_llm_command: <function or class>
-  get_available_models: <function or class>
   lookup_provider: <function or class>
   Dict: <function or class>
   create_engine: <function or class>

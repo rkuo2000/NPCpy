@@ -84,7 +84,7 @@ os.environ["SDL_AUDIODRIVER"] = "dummy"
 
 
 def get_locally_available_models(project_directory):
-    global available_models
+    available_models = {}
     env_path = os.path.join(project_directory, ".env")
     env_vars = {}
     if os.path.exists(env_path):
@@ -1382,105 +1382,8 @@ def print_and_process_stream(response, model, provider):
 
     print("\n")
                 
-    return conversation_result                    
-def get_available_models() -> list:
-    """
-    Function Description:
-        Fetches available models from Ollama, OpenAI, and Anthropic.
-    Args:
-        None
-    Keyword Args:
-        None
-    Returns:
-        available_models : list : List of available models
-
-    """
-    available_chat_models = []
-    available_reasoning_models = []
-    available_vision_models = []
-    ollama_chat_models = [
-        "gemma3",
-        "llama3.3",
-        "llama3.2",
-        "llama3.1", 
-        "phi4",
-        "phi3.5",
-        "mistral",
-        "llama3",
-        "gemma",
-        "qwen",
-        "qwen2",
-        "qwen2.5",
-        "phi3",
-        "llava",
-        "codellama",
-        "qwen2.5-coder",
-        "tinyllama",
-        "mistral-nemo",
-        "llama3.2-vesion",
-        "starcoder2",
-        "mixtral",
-        "dolphin-mixtral",
-        "deepseek-coder-v2",
-        "codegemma",
-        "phi",
-        "deepseek-coder",
-        "wizardlm2",
-        "llava-llama3",
-    ]
-
-    available_chat_models.extend(ollama_chat_models)
-    
-    ollama_reasoning_models = ["deepseek-r1", "qwq"]
-
-    # OpenAI models
-    openai_chat_models = [
-        "gpt-4-turbo",
-        "gpt-4o",
-        "gpt-4o-mini",
-        "dall-e-3",
-        "dall-e-2",
-    ]
-    openai_reasoning_models = [
-        "o1-mini",
-        "o1",
-        "o1-preview",
-        "o3-mini",
-        "o3-preview",
-    ]
-    available_reasoning_models.extend(openai_reasoning_models)
-
-    available_chat_models.extend(openai_chat_models)
-
-    # Anthropic models
-    anthropic_chat_models = [
-        "claude-3-opus-20240229",
-        "claude-3-sonnet-20240229",
-        "claude-3-5-sonnet-20241022",
-        "claude-3-haiku-20240307",
-        "claude-2.1",
-        "claude-2.0",
-        "claude-instant-1.2",
-    ]
-    available_chat_models.extend(anthropic_chat_models)
-    diffusers_models = [
-        "runwayml/stable-diffusion-v1-5",
-    ]
-    available_chat_models.extend(diffusers_models)
-
-    deepseek_chat_models = [
-        "deepseek-chat",
-    ]
-
-    deepseek_reasoning_models = [
-        "deepseek-reasoner",
-    ]
-
-    available_chat_models.extend(deepseek_chat_models)
-    available_reasoning_models.extend(deepseek_reasoning_models)
-    return available_chat_models, available_reasoning_models
-
-
+    return conversation_result   
+                 
 def get_system_message(npc: Any) -> str:
     """
     Function Description:
@@ -1532,9 +1435,6 @@ def get_system_message(npc: Any) -> str:
     return system_message
 
 
-available_chat_models, available_reasoning_models = get_available_models()
-
-
 
 # Load environment variables from .env file
 def load_env_from_execution_dir() -> None:
@@ -1563,30 +1463,6 @@ def load_env_from_execution_dir() -> None:
         print(f"Warning: No .env file found in {execution_dir}")
 
 
-def get_available_tables(db_path: str) -> str:
-    """
-    Function Description:
-        This function gets the available tables in the database.
-    Args:
-        db_path (str): The database path.
-    Keyword Args:
-        None
-    Returns:
-        str: The available tables in the database.
-    """
-
-    try:
-        with sqlite3.connect(db_path) as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name != 'command_history'"
-            )
-            tables = cursor.fetchall()
-
-            return tables
-    except Exception as e:
-        print(f"Error getting available tables: {e}")
-        return ""
 
 
 def lookup_provider(model: str) -> str:

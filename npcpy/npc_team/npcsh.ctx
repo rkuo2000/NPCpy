@@ -6,8 +6,5 @@ context: |
 databases:
     - ~/npcsh_history.db
 mcp_servers:
-    - /path/to/mcp/server.py
-    - @npm for server
-    - <server_name>
-       - commands...
+    - ~/.npcsh/mcp_server.py
        

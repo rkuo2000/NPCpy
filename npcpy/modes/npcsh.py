@@ -32,17 +32,17 @@ from npcpy.npc_sysenv import (
     NPCSH_REASONING_MODEL, NPCSH_REASONING_PROVIDER,
     NPCSH_IMAGE_GEN_MODEL, NPCSH_IMAGE_GEN_PROVIDER,
     NPCSH_VIDEO_GEN_MODEL, NPCSH_VIDEO_GEN_PROVIDER,
-    NPCSH_API_URL,NPCSH_DEFAULT_MODE, 
+    NPCSH_API_URL,
+    NPCSH_DEFAULT_MODE, 
     setup_npcsh_config,
     is_npcsh_initialized,
     initialize_base_npcs_if_needed,
-    get_available_models,
     orange,
     interactive_commands,
     BASH_COMMANDS,
     log_action,
     render_markdown,
-    change_directory,
+    get_locally_available_models,
     start_interactive_session,
     get_model_and_provider,
 )
@@ -571,9 +571,10 @@ def process_pipeline_command(
     if not cmd_segment:
         return state, stdin_input
 
-    available_models_all, _ = get_available_models()
+    available_models_all = get_locally_available_models(state.current_path)
+    available_models_all_list = [item for key, item in available_models_all.items()]
     model_override, provider_override, cmd_cleaned = get_model_and_provider(
-        cmd_segment, available_models_all
+        cmd_segment, available_models_all_list
     )
     cmd_to_process = cmd_cleaned.strip()
     if not cmd_to_process:
@@ -855,7 +856,8 @@ def process_result(
 
 def run_repl(command_history: CommandHistory, initial_state: ShellState):
     state = initial_state
-
+    print(f'Using {NPCSH_DEFAULT_MODE} mode. Use /agent, /cmd, or /chat to switch to other modes')
+    print(f'To switch to a different NPC, type /<npc_name>')
     while True:
         try:
             cwd_colored = colored(os.path.basename(state.current_path), "blue")

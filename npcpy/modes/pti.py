@@ -254,12 +254,10 @@ def main():
     # Example usage
     import argparse    
     parser = argparse.ArgumentParser(description="Enter PTI mode for chatting with an LLM")
+    parser.add_argument("--npc", default='~/.npcsh/npc_team/frederic.npc', help="Path to NPC File")    
     parser.add_argument("--model", default=NPCSH_CHAT_MODEL, help="Model to use")
     parser.add_argument("--provider", default=NPCSH_CHAT_PROVIDER, help="Provider to use")
     parser.add_argument("--files", nargs="*", help="Files to load into context")
-    parser.add_argument("--npc", type=str, default=os.path.expanduser('~/.npcsh/npc_team/sibiji.npc'), help="Path to NPC file")
-    
-    
     args = parser.parse_args()
     
     npc = NPC(file=args.npc)
