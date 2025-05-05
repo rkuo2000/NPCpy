@@ -3,7 +3,10 @@ from . import npc_sysenv
 from . import routes
 from . import llm_funcs
 from . import modes
-from . import npcs
+try:
+    from . import npcs
+except ImportError:
+    pass
 from . import sql
 from . import work 
 
