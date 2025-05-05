@@ -80,6 +80,8 @@ def search_web(
     Returns:
         A list of dictionaries with 'title', 'link', and 'content' keys.
     """
+    if perplexity_kwargs is None:
+        perplexity_kwargs = {}
     results = []
     if provider is None:
         provider = 'duckduckgo'

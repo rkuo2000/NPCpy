@@ -225,7 +225,7 @@ def guac_handler( **kwargs):
 
 
 @router.route("help", "Show help information")
-def help_handler(**kwargs):
+def help_handler(command, **kwargs):
     return {"output": get_help_text(), "messages": safe_get(kwargs, "messages", [])}
 
 @router.route("init", "Initialize NPC project")
