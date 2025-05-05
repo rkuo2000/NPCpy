@@ -311,7 +311,7 @@ brew services start ollama
 ollama pull llama3.2
 ollama pull llava:7b
 ollama pull nomic-embed-text
-pip install npcsh
+pip install npcpy
 # if you want to install with the API libraries
 pip install npcpy[lite]
 # if you want the full local package set up (ollama, diffusers, transformers, cuda etc.)
