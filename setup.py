@@ -65,6 +65,7 @@ local_requirements = [
     "chromadb",
     "diffusers",
     "nltk",
+    "torch",
 ]
 
 # Voice/Audio requirements
@@ -81,7 +82,7 @@ extra_files = package_files("npcpy/npc_team/")
 
 setup(
     name="npcpy",
-    version="0.3.36",
+    version="0.3.37",
     packages=find_packages(exclude=["tests*"]),
     install_requires=base_requirements,  # Only install base requirements by default
     extras_require={
