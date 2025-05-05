@@ -46,3 +46,5 @@ nav:
   - API:
     - Image: api/image.md
     - LLM Functions: api/llm_funcs.md
+    - NPC, Team, Tool: api/npc.md
+    - NPC Sys Env Helpers: api/npc_sys_env_helpers.md

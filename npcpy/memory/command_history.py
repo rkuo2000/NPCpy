@@ -882,7 +882,8 @@ def get_available_tables(db_path: str) -> str:
     Returns:
         str: The available tables in the database.
     """
-
+    if '~' in db_path:
+        db_path = os.path.expanduser(db_path)
     try:
         with sqlite3.connect(db_path) as conn:
             cursor = conn.cursor()

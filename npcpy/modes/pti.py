@@ -157,7 +157,7 @@ def enter_reasoning_human_in_the_loop(
                                                          reasoning_model=reasoning_model, 
                                                          reasoning_provider=reasoning_provider, answer_only=False)
             else:
-                message= "Think first though and use <think> tags. Once finished, either answer plainly or write a request for input by beginning with the <request_for_input> tag. and close it with a </request_for_input>"
+                message= "Think first though and use <think> tags in your chain of thought. Once finished, either answer plainly or write a request for input by beginning with the <request_for_input> tag. and close it with a </request_for_input>"
                 if user_input is None:
                     user_input = input('user>')
                 
@@ -183,13 +183,31 @@ def enter_reasoning_human_in_the_loop(
                 assistant_reply, messages = response['response'], response['messages']
                 thoughts = []
                 response_chunks = []
-                in_think_block = False
-                for chunk in assistant_reply:            
+                in_think_block = False # the thinking chain generated after reasoning
+                
+                thinking = False # the reasoning content 
+                
+
+                for chunk in assistant_reply:       
+                    if thinking:
+                        if not in_think_block:
+                            in_think_block = True
                     try:
+                        
                         if reasoning_provider == "ollama":
                             chunk_content = chunk.get("message", {}).get("content", "")
                         else:
-                            chunk_content = "".join(
+                            chunk_content = ''
+                            reasoning_content = ''
+                            for c in chunk.choices:
+                                if hasattr(c.delta, "reasoning_content"):
+                                    
+                                    reasoning_content += c.delta.reasoning_content
+                                    
+                            if reasoning_content:
+                                thinking = True
+                                chunk_content = reasoning_content
+                            chunk_content += "".join(
                                 choice.delta.content
                                 for choice in chunk.choices
                                 if choice.delta.content is not None
@@ -198,14 +216,9 @@ def enter_reasoning_human_in_the_loop(
                         print(chunk_content, end='')
                         combined_text = "".join(response_chunks)
 
-                        # Check for LLM request block
-                        if (
-                            "<think>" in combined_text
-                            and "</think>" not in combined_text
-                        ):
-                            in_think_block = True
-
                         if in_think_block:
+                            if '</thinking>' in combined_text:
+                                in_think_block = False
                             thoughts.append(chunk_content)
                             
                         if "</request_for_input>" in combined_text:

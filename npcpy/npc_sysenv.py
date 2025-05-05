@@ -1335,11 +1335,15 @@ def print_and_process_stream_with_markdown(response,
         dot_count += 1
 
         if provider == "ollama":
+            
             chunk_content = chunk["message"]["content"]
         else:
-            chunk_content = "".join(
+            
+            chunk_content = "".join(c.delta.reasoning_content for c in chunk.choices if c.delta.reasoning_content)
+            
+            chunk_content += "".join(
                 c.delta.content for c in chunk.choices if c.delta.content
-            )
+            ) 
         if not chunk_content:
             continue
         str_output += chunk_content         

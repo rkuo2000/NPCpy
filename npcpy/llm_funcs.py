@@ -1025,28 +1025,3 @@ def check_llm_command(
     else:
         print("Error: Invalid action in LLM response")
         return "Error: Invalid action in LLM response"
-
-
-def rehash_last_message(
-    conversation_id: str,
-    model: str,
-    provider: str,
-    npc: Any = None,
-    stream: bool = False,
-) -> dict:
-    from npcpy.memory.command_history import CommandHistory    
-    command_history = CommandHistory()
-    last_message = command_history.get_last_conversation(conversation_id)
-    if last_message is None:
-        convo_id = command_history.get_most_recent_conversation_id()[0]
-        last_message = command_history.get_last_conversation(convo_id)
-
-    user_command = last_message[3]  # Assuming content is in the 4th column
-    return check_llm_command(
-        user_command,
-        model=model,
-        provider=provider,
-        npc=npc,
-        messages=None,
-        stream=stream,
-    )
