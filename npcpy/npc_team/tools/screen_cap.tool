@@ -1,30 +1,25 @@
 tool_name: "screen_capture_analysis_tool"
-description: Captures the whole screen and sends the image for analysis
+description: "Captures the whole screen and sends the image for analysis"
 inputs:
-  - "prompt"
+  - prompt
 steps:
   - engine: "python"
     code: |
-      # Capture the screen
-      import pyautogui
-      import datetime
       import os
-      from PIL import Image
-      import time
-      from npcpy.data.image import analyze_image_base, capture_screenshot
-
-      out = capture_screenshot(npc = npc, full = True)
-
-      # Fixed version - proper string formatting and parameter placement
-      llm_response = analyze_image_base(
-          "{{prompt}}" + "\n\nAttached is a screenshot of my screen currently. Please use this to evaluate the situation. If the user asked for you to explain what's on their screen or something similar, they are referring to the details contained within the attached image. You do not need to actually view their screen. You do not need to mention that you cannot view or interpret images directly. You only need to answer the user's request based on the attached screenshot!",
-          out['file_path'],
-          out['filename'],
+      from npcpy.data.image import capture_screenshot
+      out = capture_screenshot(full=True)
+      prompt = "{{prompt}}"
+      # Now properly use get_llm_response to analyze the image
+      # Create a prompt that includes the user's request and instructions
+      analysis_prompt = prompt + "\n\nAttached is a screenshot of my screen currently. Please use this to evaluate the situation. If the user asked for you to explain what's on their screen or something similar, they are referring to the details contained within the attached image."
+      llm_response = get_llm_response(
+          prompt=analysis_prompt,
+          model=npc.model if npc else None,
+          provider=npc.provider if npc else None,
+          api_url=npc.api_url if npc else None,
+          api_key=npc.api_key if npc else None,
           npc=npc,
-          **out['model_kwargs']
+          images=[out['file_path']],  
       )
-      
-      if isinstance(llm_response, dict):
-          llm_response = llm_response.get('response', 'No response from image analysis')
-      else:
-          llm_response = 'No response from image analysis'
+      output = llm_response['response']  
+    

@@ -343,7 +343,7 @@ class NPC:
             self._setup_db()
             
         # Load tools
-        self.tools = self._load_npc_tools(self.tools_spec or [])
+        self.tools = self._load_npc_tools(tools or "*")
         
         # Set up shared context for NPC
         self.shared_context = {

@@ -15,6 +15,7 @@ import yaml
 from PIL import Image
 from PIL import ImageFile
 
+from npcpy.npc_sysenv import get_locally_available_models
 from npcpy.memory.command_history import (
     CommandHistory,
     save_conversation_message,
