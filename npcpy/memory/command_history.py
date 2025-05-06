@@ -3,10 +3,22 @@ import sqlite3
 import json
 from datetime import datetime
 import uuid
-from typing import Optional, List, Dict, Any, Tuple
+from typing import Optional, List, Dict, Any, Tuple, Union
 import pandas as pd
 import numpy as np
 
+try:
+    import sqlalchemy
+    from sqlalchemy import create_engine, text
+    from sqlalchemy.engine import Engine, Connection as SQLAlchemyConnection
+    from sqlalchemy.exc import SQLAlchemyError
+    _HAS_SQLALCHEMY = True
+except ImportError:
+    _HAS_SQLALCHEMY = False
+    Engine = type(None) # Define dummy types if sqlalchemy not installed
+    SQLAlchemyConnection = type(None)
+    create_engine = None
+    text = None
 
 def flush_messages(n: int, messages: list) -> dict:
     if n <= 0:
@@ -105,445 +117,403 @@ def query_history_for_llm(command_history, query):
     return "\n\n".join(formatted_results)
 
 
+
+
 class CommandHistory:
-    def __init__(self, path="~/npcsh_history.db"):
-        self.db_path = os.path.expanduser(path)
-        self.conn = sqlite3.connect(self.db_path)
-        self.conn.execute("PRAGMA foreign_keys = ON")  # Enable foreign key support
-        self.cursor = self.conn.cursor()
+    def __init__(self, db: Union[str, sqlite3.Connection, Engine] = "~/npcsh_history.db"):
+
+        self._is_sqlalchemy = False
+        self.cursor = None
+        self.db_path = None # Store the determined path if available
+
+        if isinstance(db, str):
+            self.db_path = os.path.expanduser(db)
+            try:
+                self.conn = sqlite3.connect(self.db_path, check_same_thread=False) # Allow multithread access if needed
+                self.conn.row_factory = sqlite3.Row
+                self.cursor = self.conn.cursor()
+                self.cursor.execute("PRAGMA foreign_keys = ON")
+                self.conn.commit()
+
+            except sqlite3.Error as e:
+                print(f"FATAL: Error connecting to sqlite3 DB at {self.db_path}: {e}")
+                raise
+
+        elif isinstance(db, sqlite3.Connection):
+            self.conn = db
+            if not hasattr(self.conn, 'row_factory') or self.conn.row_factory is None:
+                 # Set row_factory if not already set on provided connection
+                 try: self.conn.row_factory = sqlite3.Row
+                 except Exception as e: print(f"Warning: Could not set row_factory on provided sqlite3 connection: {e}")
+
+            self.cursor = self.conn.cursor()
+            try:
+                self.cursor.execute("PRAGMA foreign_keys = ON")
+                self.conn.commit()
+            except sqlite3.Error as e:
+                print(f"Warning: Could not set PRAGMA foreign_keys on provided sqlite3 connection: {e}")
+
+
+        elif _HAS_SQLALCHEMY and isinstance(db, Engine):
+            self.db_path = str(db.url)
+            self.conn = db
+            self._is_sqlalchemy = True
+
+
+        else:
+            raise TypeError(f"Unsupported type for CommandHistory db parameter: {type(db)}")
+
+        self._initialize_schema()
+
+    def _initialize_schema(self):
+        """Creates all necessary tables."""
+        print("Initializing database schema...")
         self.create_command_table()
         self.create_conversation_table()
         self.create_attachment_table()
+        self.create_tool_call_table()
+        print("Database schema initialization complete.")
+
+    def _execute(self, sql: str, params: Optional[Union[tuple, Dict]] = None, script: bool = False, requires_fk: bool = False) -> Optional[int]:
+        """Executes SQL, handling transactions and FK pragma for SQLAlchemy. Returns lastrowid for INSERTs."""
+        last_row_id = None
+        try:
+            if self._is_sqlalchemy:
+                with self.conn.connect() as connection:
+                    with connection.begin():
+                        if requires_fk and self.conn.url.drivername == 'sqlite':
+                             try: connection.execute(text("PRAGMA foreign_keys=ON"))
+                             except SQLAlchemyError as e: print(f"Warning: SQLAlchemy PRAGMA foreign_keys=ON failed: {e}")
+
+                        if script:
+                             statements = [s.strip() for s in sql.split(';') if s.strip()]
+                             for statement in statements:
+                                  result_proxy = connection.execute(text(statement))
+                                  if result_proxy.lastrowid is not None: last_row_id = result_proxy.lastrowid
+                        else:
+                             result_proxy = connection.execute(text(sql), params or {})
+                             if result_proxy.lastrowid is not None: last_row_id = result_proxy.lastrowid
+            else:
+                 # Existing sqlite3 logic
+                 if script:
+                     self.cursor.executescript(sql)
+                 else:
+                     self.cursor.execute(sql, params or ())
+                 last_row_id = self.cursor.lastrowid # Get lastrowid for sqlite3
+                 self.conn.commit()
+
+            return last_row_id
+
+        except (sqlite3.Error, SQLAlchemyError) as e:
+             error_type = "SQLAlchemy" if self._is_sqlalchemy else "SQLite"
+             print(f"{error_type} Error executing: {sql[:100]}... Error: {e}")
+             if not self._is_sqlalchemy:
+                 try: self.conn.rollback()
+                 except Exception as rb_err: print(f"SQLite rollback failed: {rb_err}")
+             # Decide whether to raise the error or just return None/False
+             raise # Re-raise the error to indicate failure
+        except Exception as e:
+            print(f"Unexpected error in _execute: {e}")
+            raise # Re-raise unexpected errors
+
+
+    def _fetch_one(self, sql: str, params: Optional[Union[tuple, Dict]] = None) -> Optional[Dict]:
+        """Fetches a single row, adapting to connection type."""
+        try:
+            if self._is_sqlalchemy:
+                 with self.conn.connect() as connection:
+                      # No need for transaction for SELECT
+                      result = connection.execute(text(sql), params or {})
+                      row = result.fetchone()
+                      return dict(row._mapping) if row else None
+            else:
+                 self.cursor.execute(sql, params or ())
+                 row = self.cursor.fetchone()
+                 return dict(row) if row else None
+        except (sqlite3.Error, SQLAlchemyError) as e:
+             error_type = "SQLAlchemy" if self._is_sqlalchemy else "SQLite"
+             print(f"{error_type} Error fetching one: {sql[:100]}... Error: {e}")
+             return None # Return None on error
+        except Exception as e:
+            print(f"Unexpected error in _fetch_one: {e}")
+            return None
+
+    def _fetch_all(self, sql: str, params: Optional[Union[tuple, Dict]] = None) -> List[Dict]:
+        """Fetches all rows, adapting to connection type."""
+        try:
+            if self._is_sqlalchemy:
+                with self.conn.connect() as connection:
+                    # Convert tuple params to a dictionary format for SQLAlchemy
+                    if params and isinstance(params, tuple):
+                        # Extract parameter placeholders from SQL
+                        placeholders = []
+                        for i, char in enumerate(sql):
+                            if char == '?':
+                                placeholders.append(i)
+                        
+                        # Convert tuple params to dict format
+                        dict_params = {}
+                        for i, value in enumerate(params):
+                            param_name = f"param_{i}"
+                            # Replace ? with :param_name in SQL
+                            sql = sql.replace('?', f":{param_name}", 1)
+                            dict_params[param_name] = value
+                        
+                        params = dict_params
+                    
+                    result = connection.execute(text(sql), params or {})
+                    rows = result.fetchall()
+                    return [dict(row._mapping) for row in rows]
+            else:
+                self.cursor.execute(sql, params or ())
+                rows = self.cursor.fetchall()
+                return [dict(row) for row in rows]
+        except (sqlite3.Error, SQLAlchemyError) as e:
+            error_type = "SQLAlchemy" if self._is_sqlalchemy else "SQLite"
+            print(f"{error_type} Error fetching all: {sql[:100]}... Error: {e}")
+            return [] # Return empty list on error
+        except Exception as e:
+            print(f"Unexpected error in _fetch_all: {e}")
+            return []
 
     def create_command_table(self):
-        self.cursor.execute(
-            """
+        query = """
         CREATE TABLE IF NOT EXISTS command_history (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            timestamp TEXT,
-            command TEXT,
-            subcommands TEXT,
-            output TEXT,
-            location TEXT
-        )
-        """
-        )
-        self.conn.commit()
+            id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp TEXT, command TEXT,
+            subcommands TEXT, output TEXT, location TEXT
+        )"""
+        self._execute(query)
 
     def create_conversation_table(self):
-        self.cursor.execute(
-            """
+        query = """
         CREATE TABLE IF NOT EXISTS conversation_history (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            message_id TEXT UNIQUE,
-            timestamp TEXT,
-            role TEXT,
-            content TEXT,
-            conversation_id TEXT,
-            directory_path TEXT,
-            model TEXT,
-            provider TEXT,
-            npc TEXT
-        )
-        """
-        )
-        self.conn.commit()
+            id INTEGER PRIMARY KEY AUTOINCREMENT, message_id TEXT UNIQUE NOT NULL,
+            timestamp TEXT, role TEXT, content TEXT, conversation_id TEXT,
+            directory_path TEXT, model TEXT, provider TEXT, npc TEXT, team TEXT
+        )"""
+        self._execute(query)
 
     def create_attachment_table(self):
-        self.cursor.execute(
-            """
+        query = """
         CREATE TABLE IF NOT EXISTS message_attachments (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            message_id TEXT,
-            attachment_name TEXT,
-            attachment_type TEXT,
-            attachment_data BLOB,
-            attachment_size INTEGER,
-            upload_timestamp TEXT,
-            FOREIGN KEY (message_id) REFERENCES conversation_history(message_id)
-        )
-        """
-        )
-        self.conn.commit()
+            id INTEGER PRIMARY KEY AUTOINCREMENT, message_id TEXT NOT NULL,
+            attachment_name TEXT, attachment_type TEXT, attachment_data BLOB,
+            attachment_size INTEGER, upload_timestamp TEXT,
+            FOREIGN KEY (message_id) REFERENCES conversation_history(message_id) ON DELETE CASCADE
+        )"""
+        self._execute(query, requires_fk=True)
+
+    def create_tool_call_table(self):
+        table_query = '''
+        CREATE TABLE IF NOT EXISTS tool_execution_log (
+            execution_id INTEGER PRIMARY KEY AUTOINCREMENT, triggering_message_id TEXT NOT NULL,
+            response_message_id TEXT, conversation_id TEXT NOT NULL, timestamp TEXT NOT NULL,
+            npc_name TEXT, team_name TEXT, tool_name TEXT NOT NULL, tool_inputs TEXT,
+            tool_output TEXT, status TEXT NOT NULL, error_message TEXT, duration_ms INTEGER,
+            FOREIGN KEY (triggering_message_id) REFERENCES conversation_history(message_id) ON DELETE CASCADE,
+            FOREIGN KEY (response_message_id) REFERENCES conversation_history(message_id) ON DELETE SET NULL
+        );
+        '''
+        self._execute(table_query, requires_fk=True)
+
+        index_queries = [
+            "CREATE INDEX IF NOT EXISTS idx_tool_log_trigger_msg ON tool_execution_log (triggering_message_id);",
+            "CREATE INDEX IF NOT EXISTS idx_tool_log_convo_id ON tool_execution_log (conversation_id);",
+            "CREATE INDEX IF NOT EXISTS idx_tool_log_tool_name ON tool_execution_log (tool_name);",
+            "CREATE INDEX IF NOT EXISTS idx_tool_log_timestamp ON tool_execution_log (timestamp);"
+        ]
+        for idx_query in index_queries:
+             self._execute(idx_query)
 
     def add_command(self, command, subcommands, output, location):
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-        # Convert everything to strings to ensure it can be stored
         safe_subcommands = str(subcommands)
         safe_output = str(output)
-
-        self.cursor.execute(
-            """
+        sql = """
             INSERT INTO command_history (timestamp, command, subcommands, output, location)
             VALUES (?, ?, ?, ?, ?)
-        """,
-            (timestamp, command, safe_subcommands, safe_output, location),
-        )
-        self.conn.commit()
+            """
+        params = (timestamp, command, safe_subcommands, safe_output, location)
+        self._execute(sql, params)
 
     def generate_message_id(self) -> str:
-        """Generate a unique ID for a message."""
         return str(uuid.uuid4())
 
     def add_conversation(
-        self,
-        role,
-        content,
-        conversation_id,
-        directory_path,
-        model=None,
-        provider=None,
-        npc=None,
-        team=None,
-        attachments=None,
-        message_id=None,
+        self, role, content, conversation_id, directory_path,
+        model=None, provider=None, npc=None, team=None,
+        attachments=None, message_id=None,
     ):
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        if message_id is None: message_id = self.generate_message_id()
+        if isinstance(content, dict): content = json.dumps(content, cls=CustomJSONEncoder)
 
-        if message_id is None:
-            message_id = self.generate_message_id()
-
-        if isinstance(content, dict):
-            content = json.dumps(content, cls=CustomJSONEncoder)
-        # Check if message_id already exists
-        self.cursor.execute(
-            "SELECT content FROM conversation_history WHERE message_id = ?",
-            (message_id,),
+        existing_row = self._fetch_one(
+             "SELECT content FROM conversation_history WHERE message_id = ?", (message_id,)
         )
-        existing_row = self.cursor.fetchone()
 
         if existing_row:
-            # Append to existing content
-            new_content = existing_row[0] + content
-            self.cursor.execute(
-                "UPDATE conversation_history SET content = ?, timestamp = ? WHERE message_id = ?",
-                (new_content, timestamp, message_id),
-            )
+            new_content = existing_row['content'] + content
+            sql = "UPDATE conversation_history SET content = ?, timestamp = ? WHERE message_id = ?"
+            params = (new_content, timestamp, message_id)
+            self._execute(sql, params)
         else:
-            # Insert new message
-            self.cursor.execute(
-                """
-                INSERT INTO conversation_history
+            sql = """INSERT INTO conversation_history
                 (message_id, timestamp, role, content, conversation_id, directory_path, model, provider, npc, team)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-                (
-                    message_id,
-                    timestamp,
-                    role,
-                    content,
-                    conversation_id,
-                    directory_path,
-                    model,
-                    provider,
-                    npc,
-                    team,
-                ),
-            )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"""
+            params = (message_id, timestamp, role, content, conversation_id, directory_path, model, provider, npc, team,)
+            self._execute(sql, params)
 
-        self.conn.commit()
         if attachments:
             for attachment in attachments:
                 self.add_attachment(
-                    message_id,
-                    attachment["name"],
-                    attachment["type"],
-                    attachment["data"],
-                    attachment_size=attachment.get("size"),
+                    message_id, attachment["name"], attachment["type"],
+                    attachment["data"], attachment_size=attachment.get("size"),
                 )
-
         return message_id
 
     def add_attachment(
-        self,
-        message_id,
-        attachment_name,
-        attachment_type,
-        attachment_data,
-        attachment_size=None,
+        self, message_id, attachment_name, attachment_type, attachment_data, attachment_size=None,
     ):
-        """
-        Add an attachment to a message.
-
-        Args:
-            message_id: The ID of the message to attach to
-            attachment_name: The name of the attachment file
-            attachment_type: The MIME type or file extension
-            attachment_data: The binary data of the attachment
-            attachment_size: The size in bytes (calculated if None)
-        """
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-        # Calculate size if not provided
         if attachment_size is None and attachment_data is not None:
             attachment_size = len(attachment_data)
-
-        self.cursor.execute(
-            """
-            INSERT INTO message_attachments
+        sql = """INSERT INTO message_attachments
             (message_id, attachment_name, attachment_type, attachment_data, attachment_size, upload_timestamp)
-            VALUES (?, ?, ?, ?, ?, ?)
-            """,
-            (
-                message_id,
-                attachment_name,
-                attachment_type,
-                attachment_data,
-                attachment_size,
-                timestamp,
-            ),
-        )
-        self.conn.commit()
+            VALUES (?, ?, ?, ?, ?, ?)"""
+        params = (message_id, attachment_name, attachment_type, attachment_data, attachment_size, timestamp,)
+        self._execute(sql, params)
+
+    def save_tool_execution(
+        self, triggering_message_id: str, conversation_id: str, npc_name: Optional[str],
+        tool_name: str, tool_inputs: Dict, tool_output: Any, status: str,
+        team_name: Optional[str] = None, error_message: Optional[str] = None,
+        response_message_id: Optional[str] = None, duration_ms: Optional[int] = None
+    ):
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        try: inputs_json = json.dumps(tool_inputs, cls=CustomJSONEncoder)
+        except TypeError: inputs_json = json.dumps(str(tool_inputs))
+        try:
+            if isinstance(tool_output, (str, int, float, bool, list, dict, type(None))):
+                 outputs_json = json.dumps(tool_output, cls=CustomJSONEncoder)
+            else: outputs_json = json.dumps(str(tool_output))
+        except TypeError: outputs_json = json.dumps(f"Non-serializable output: {type(tool_output)}")
+
+        sql = """INSERT INTO tool_execution_log
+            (triggering_message_id, conversation_id, timestamp, npc_name, team_name,
+             tool_name, tool_inputs, tool_output, status, error_message, response_message_id, duration_ms)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"""
+        params = (triggering_message_id, conversation_id, timestamp, npc_name, team_name,
+                  tool_name, inputs_json, outputs_json, status, error_message, response_message_id, duration_ms)
+        try:
+             return self._execute(sql, params) # Return lastrowid if available
+        except Exception as e:
+             print(f"CRITICAL: Failed to save tool execution via _execute: {e}")
+             return None
 
     def get_full_message_content(self, message_id):
-        self.cursor.execute(
-            "SELECT content FROM conversation_history WHERE message_id = ? ORDER BY timestamp ASC",
-            (message_id,),
-        )
-        return "".join(row[0] for row in self.cursor.fetchall())  # Merge chunks
+        sql = "SELECT content FROM conversation_history WHERE message_id = ? ORDER BY timestamp ASC"
+        rows = self._fetch_all(sql, (message_id,))
+        return "".join(row['content'] for row in rows)
 
     def update_message_content(self, message_id, full_content):
-        self.cursor.execute(
-            "UPDATE conversation_history SET content = ? WHERE message_id = ?",
-            (full_content, message_id),
-        )
-        self.conn.commit()
+        sql = "UPDATE conversation_history SET content = ? WHERE message_id = ?"
+        params = (full_content, message_id)
+        self._execute(sql, params)
 
     def get_message_attachments(self, message_id) -> List[Dict]:
-        """
-        Retrieve all attachments for a specific message.
+        sql = """SELECT id, message_id, attachment_name, attachment_type, attachment_size, upload_timestamp
+                 FROM message_attachments WHERE message_id = ?"""
+        return self._fetch_all(sql, (message_id,))
 
-        Args:
-            message_id: The ID of the message
-
-        Returns:
-            List of dictionaries containing attachment metadata (without binary data)
-        """
-        self.cursor.execute(
-            """
-            SELECT id, message_id, attachment_name, attachment_type, attachment_size, upload_timestamp
-            FROM message_attachments
-            WHERE message_id = ?
-            """,
-            (message_id,),
-        )
-
-        attachments = []
-        for row in self.cursor.fetchall():
-            attachments.append(
-                {
-                    "id": row[0],
-                    "message_id": row[1],
-                    "name": row[2],
-                    "type": row[3],
-                    "size": row[4],
-                    "timestamp": row[5],
-                }
-            )
-        return attachments
-
-    def get_attachment_data(self, attachment_id) -> Tuple[bytes, str, str]:
-        """
-        Retrieve the binary data of a specific attachment.
-
-        Args:
-            attachment_id: The ID of the attachment
-
-        Returns:
-            Tuple of (binary_data, attachment_name, attachment_type)
-        """
-        self.cursor.execute(
-            """
-            SELECT attachment_data, attachment_name, attachment_type
-            FROM message_attachments
-            WHERE id = ?
-            """,
-            (attachment_id,),
-        )
-
-        result = self.cursor.fetchone()
-        if result:
-            return result[0], result[1], result[2]
+    def get_attachment_data(self, attachment_id) -> Optional[Tuple[bytes, str, str]]:
+        sql = "SELECT attachment_data, attachment_name, attachment_type FROM message_attachments WHERE id = ?"
+        row = self._fetch_one(sql, (attachment_id,))
+        if row:
+            return row['attachment_data'], row['attachment_name'], row['attachment_type']
         return None, None, None
 
     def delete_attachment(self, attachment_id) -> bool:
-        """
-        Delete a specific attachment.
-
-        Args:
-            attachment_id: The ID of the attachment to delete
-
-        Returns:
-            Boolean indicating success
-        """
+        sql = "DELETE FROM message_attachments WHERE id = ?"
         try:
-            self.cursor.execute(
-                """
-                DELETE FROM message_attachments
-                WHERE id = ?
-                """,
-                (attachment_id,),
-            )
-            self.conn.commit()
-            return self.cursor.rowcount > 0
-        except sqlite3.Error:
+            # _execute might not return rowcount reliably across drivers
+            self._execute(sql, (attachment_id,))
+            # We assume success if no exception was raised.
+            # A more robust check might involve trying to fetch the deleted row.
+            return True
+        except Exception as e:
+            print(f"Error deleting attachment {attachment_id}: {e}")
             return False
 
-    def get_last_command(self):
-        self.cursor.execute(
-            """
-        SELECT * FROM command_history ORDER BY id DESC LIMIT 1
-        """
-        )
-        return self.cursor.fetchone()
+    def get_last_command(self) -> Optional[Dict]:
+        sql = "SELECT * FROM command_history ORDER BY id DESC LIMIT 1"
+        return self._fetch_one(sql)
 
-    def close(self):
-        self.conn.close()
+    def get_most_recent_conversation_id(self) -> Optional[Dict]:
+        sql = "SELECT conversation_id FROM conversation_history ORDER BY id DESC LIMIT 1"
+        # Returns dict like {'conversation_id': '...'} or None
+        return self._fetch_one(sql)
 
-    def get_most_recent_conversation_id(self):
-        self.cursor.execute(
-            """
-        SELECT conversation_id FROM conversation_history
-        ORDER BY id DESC LIMIT 1
-        """
-        )
-        return self.cursor.fetchone()
+    def get_last_conversation(self, conversation_id) -> Optional[Dict]:
+        sql = """SELECT * FROM conversation_history WHERE conversation_id = ? and role = 'user'
+                 ORDER BY id DESC LIMIT 1"""
+        return self._fetch_one(sql, (conversation_id,))
 
-    def get_last_conversation(self, conversation_id):
-        self.cursor.execute(
-            """
-        SELECT * FROM conversation_history WHERE conversation_id = ? and role = 'user'
-        ORDER BY id DESC LIMIT 1
-        """,
-            (conversation_id,),
-        )
-        return self.cursor.fetchone()
+    def get_messages_by_npc(self, npc, n_last=20) -> List[Dict]:
+        sql = """SELECT * FROM conversation_history WHERE npc = ?
+                    ORDER BY timestamp DESC LIMIT ?"""
+        params = (npc, n_last)
 
-    def get_messages_by_npc(self, npc, n_last=None):
-        """
-        Retrieve messages for a specific NPC.
+        return self._fetch_all(sql, params)
+    def get_messages_by_team(self, team, n_last=20) -> List[Dict]:
+        sql = """SELECT * FROM conversation_history WHERE team = ?
+                    ORDER BY timestamp DESC LIMIT ?"""
+        params = (team, n_last)
 
-        Args:
-            npc: The NPC identifier
-            n_last: Number of last messages to retrieve (optional)
+        return self._fetch_all(sql, params)
+    def get_message_by_id(self, message_id) -> Optional[Dict]:
+        sql = "SELECT * FROM conversation_history WHERE message_id = ?"
+        return self._fetch_one(sql, (message_id,))
 
-        Returns:
-            List of messages for the specified NPC
-        """
-        if n_last:
-            self.cursor.execute(
-                """
-                SELECT * FROM conversation_history
-                WHERE npc = ? and role='assistant'
-                ORDER BY timestamp DESC LIMIT ?
-                """,
-                (npc, n_last),
-            )
-        else:
-            self.cursor.execute(
-                """
-                SELECT * FROM conversation_history
-                WHERE npc = ? and role='assistant'
-                """,
-                (npc,),
-            )
-        return self.cursor.fetchall()
-    def get_message_by_id(self, message_id):
-        """
-        Retrieve a message by its message_id.
+    def get_most_recent_conversation_id_by_path(self, path) -> Optional[Dict]:
+        sql = """SELECT conversation_id FROM conversation_history WHERE directory_path = ?
+                 ORDER BY timestamp DESC LIMIT 1"""
+        # Returns dict like {'conversation_id': '...'} or None
+        return self._fetch_one(sql, (path,))
 
-        Args:
-            message_id: The unique message ID
-
-        Returns:
-            The message row or None if not found
-        """
-        self.cursor.execute(
-            """
-            SELECT * FROM conversation_history
-            WHERE message_id = ?
-            """,
-            (message_id,),
-        )
-        return self.cursor.fetchone()
-
-    def get_last_conversation_by_path(self, directory_path):
-        most_recent_conversation_id = self.get_most_recent_conversation_id_by_path(
-            directory_path
-        )
-        if most_recent_conversation_id and most_recent_conversation_id[0]:
-            convo = self.get_conversations_by_id(most_recent_conversation_id[0])
-            return convo
+    def get_last_conversation_by_path(self, directory_path) -> Optional[List[Dict]]:
+        result_dict = self.get_most_recent_conversation_id_by_path(directory_path)
+        if result_dict and result_dict.get('conversation_id'):
+            convo_id = result_dict['conversation_id']
+            return self.get_conversations_by_id(convo_id)
         return None
 
-    def get_most_recent_conversation_id_by_path(self, path) -> Optional[str]:
-        """Retrieve the most recent conversation ID for the current path."""
-        self.cursor.execute(
-            """
-            SELECT conversation_id FROM conversation_history
-            WHERE directory_path = ?
-            ORDER BY timestamp DESC LIMIT 1
-            """,
-            (path,),
-        )
-        result = self.cursor.fetchone()
-        return result
-
     def get_conversations_by_id(self, conversation_id: str) -> List[Dict[str, Any]]:
-        """Retrieve all messages for a specific conversation ID."""
-        self.cursor.execute(
-            """
-            SELECT * FROM conversation_history
-            WHERE conversation_id = ?
-            ORDER BY timestamp ASC
-            """,
-            (conversation_id,),
-        )
-
-        results = []
-        for row in self.cursor.fetchall():
-            message_dict = {
-                "id": row[0],
-                "message_id": row[1],
-                "timestamp": row[2],
-                "role": row[3],
-                "content": row[4],
-                "conversation_id": row[5],
-                "directory_path": row[6],
-                "model": row[7],
-                "provider": row[8],
-                "npc": row[9],
-                "team": row[10],
-            }
-
-            # Get attachments for this message
-            attachments = self.get_message_attachments(row[1])
-            if attachments:
-                message_dict["attachments"] = attachments
-
-            results.append(message_dict)
-
+        sql = """SELECT id, message_id, timestamp, role, content, conversation_id,
+                 directory_path, model, provider, npc, team
+                 FROM conversation_history WHERE conversation_id = ? ORDER BY timestamp ASC"""
+        results = self._fetch_all(sql, (conversation_id,))
+        for message_dict in results:
+             attachments = self.get_message_attachments(message_dict["message_id"])
+             if attachments: message_dict["attachments"] = attachments
         return results
 
-    def get_npc_conversation_stats(self, start_date=None, end_date=None):
-        """
-        Get conversation statistics grouped by NPC.
-        Returns metrics like:
-        - Total messages per NPC
-        - Average message length 
-        - Most common conversation topics
-        - Response times
-        - Models/providers used
-        """
+    def get_npc_conversation_stats(self, start_date=None, end_date=None) -> pd.DataFrame:
         date_filter = ""
-        params = []
+        params = {} # Use dict for named parameters with SQLAlchemy/read_sql
         if start_date and end_date:
-            date_filter = "WHERE timestamp BETWEEN ? AND ?"
-            params = [start_date, end_date]
+            date_filter = "WHERE timestamp BETWEEN :start_date AND :end_date"
+            params = {"start_date": start_date, "end_date": end_date}
+        elif start_date:
+            date_filter = "WHERE timestamp >= :start_date"
+            params = {"start_date": start_date}
+        elif end_date:
+            date_filter = "WHERE timestamp <= :end_date"
+            params = {"end_date": end_date}
+
 
         query = f"""
-        SELECT 
+        SELECT
             npc,
             COUNT(*) as total_messages,
             AVG(LENGTH(content)) as avg_message_length,
@@ -559,54 +529,103 @@ class CommandHistory:
         GROUP BY npc
         ORDER BY total_messages DESC
         """
-        
-        self.cursor.execute(query, params)
-        return pd.DataFrame(self.cursor.fetchall(), columns=[
-            'npc', 'total_messages', 'avg_message_length', 'total_conversations',
-            'models_used', 'providers_used', 'model_list', 'provider_list',
-            'first_conversation', 'last_conversation'
-        ])
+        try:
+            # Use pd.read_sql with the appropriate connection object
+            if self._is_sqlalchemy:
+                # read_sql works directly with SQLAlchemy Engine
+                df = pd.read_sql(sql=text(query), con=self.conn, params=params)
+            else:
+                # read_sql works directly with sqlite3 Connection
+                df = pd.read_sql(sql=query, con=self.conn, params=params)
+            return df
+        except Exception as e:
+             print(f"Error fetching conversation stats with pandas: {e}")
+             # Fallback or return empty DataFrame
+             return pd.DataFrame(columns=[
+                 'npc', 'total_messages', 'avg_message_length', 'total_conversations',
+                 'models_used', 'providers_used', 'model_list', 'provider_list',
+                 'first_conversation', 'last_conversation'
+             ])
 
-  
 
-    def get_command_patterns(self, timeframe='day'):
-        """
-        Analyze command usage patterns over time.
-        Timeframe can be 'hour', 'day', 'week', or 'month'.
-        """
-        time_group = {
+    def get_command_patterns(self, timeframe='day') -> pd.DataFrame:
+        time_group_formats = {
             'hour': "strftime('%Y-%m-%d %H', timestamp)",
             'day': "strftime('%Y-%m-%d', timestamp)",
             'week': "strftime('%Y-%W', timestamp)",
             'month': "strftime('%Y-%m', timestamp)"
-        }[timeframe]
+        }
+        time_group = time_group_formats.get(timeframe, "strftime('%Y-%m-%d', timestamp)") # Default to day
 
         query = f"""
         WITH parsed_commands AS (
-            SELECT 
+            SELECT
                 {time_group} as time_bucket,
-                CASE 
-                    WHEN command LIKE '/%%' THEN substr(command, 2, instr(substr(command, 2), ' ') - 1)
-                    WHEN command LIKE 'npc %%' THEN substr(command, 5, instr(substr(command, 5), ' ') - 1)
+                CASE
+                    WHEN command LIKE '/%%' THEN SUBSTR(command, 2, INSTR(SUBSTR(command, 2), ' ') - 1)
+                    WHEN command LIKE 'npc %%' THEN SUBSTR(command, 5, INSTR(SUBSTR(command, 5), ' ') - 1)
                     ELSE command
                 END as base_command
             FROM command_history
+            WHERE timestamp IS NOT NULL -- Added check for null timestamps
         )
-        SELECT 
+        SELECT
             time_bucket,
             base_command,
             COUNT(*) as usage_count
         FROM parsed_commands
+        WHERE base_command IS NOT NULL AND base_command != '' -- Filter out potential null/empty commands
         GROUP BY time_bucket, base_command
         ORDER BY time_bucket DESC, usage_count DESC
         """
+        try:
+             # Use pd.read_sql
+             if self._is_sqlalchemy:
+                  df = pd.read_sql(sql=text(query), con=self.conn)
+             else:
+                  df = pd.read_sql(sql=query, con=self.conn)
+             return df
+        except Exception as e:
+             print(f"Error fetching command patterns with pandas: {e}")
+             return pd.DataFrame(columns=['time_period', 'command', 'count'])
 
-        self.cursor.execute(query)
-        return pd.DataFrame(self.cursor.fetchall(), columns=[
-            'time_period', 'command', 'count'
-        ])
+    # --- Implementation for search_commands and get_all_commands (used by show_history) ---
+    # These are examples; adjust based on your needs.
+    def search_commands(self, search_term: str) -> List[Dict]:
+        """Searches command history table for a term."""
+        # Use LOWER() for case-insensitive search
+        sql = """
+            SELECT id, timestamp, command, subcommands, output, location
+            FROM command_history
+            WHERE LOWER(command) LIKE LOWER(?) OR LOWER(output) LIKE LOWER(?)
+            ORDER BY timestamp DESC
+            LIMIT 50
+        """
+        like_term = f"%{search_term}%"
+        return self._fetch_all(sql, (like_term, like_term))
+
+    def get_all_commands(self, limit: int = 100) -> List[Dict]:
+        """Gets the most recent commands."""
+        sql = """
+            SELECT id, timestamp, command, subcommands, output, location
+            FROM command_history
+            ORDER BY id DESC
+            LIMIT ?
+        """
+        return self._fetch_all(sql, (limit,))
 
 
+    def close(self):
+        """Closes the connection if it's a direct sqlite3 connection."""
+        if not self._is_sqlalchemy and self.conn:
+            try:
+                self.conn.close()
+                print("Closed sqlite3 connection.")
+            except Exception as e:
+                print(f"Error closing sqlite3 connection: {e}")
+        elif self._is_sqlalchemy:
+             print("SQLAlchemy Engine pool managed automatically.")
+        self.conn = None
 def start_new_conversation(prepend = '') -> str:
     """
     Starts a new conversation and returns a unique conversation ID.

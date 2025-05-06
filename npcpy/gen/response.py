@@ -208,7 +208,7 @@ def get_litellm_response(
             model = "llava:7b"
         else:
             model = "llama3.2"
-    print(model, provider   )
+    #print(model, provider   )
     
     # Handle Ollama separately
     if provider == "ollama":

@@ -76,7 +76,7 @@ def make_async_wrapper(func: Callable) -> Callable:
             params = args[0]
             
             # Fix for search_web - add required kwargs parameter
-            if func.__name__ == "search_web" and "kwargs" not in params:
+            if "kwargs" not in params:
                 # Create a new dict with the kwargs parameter added
                 params = {**params, "kwargs": ""}
             

@@ -26,7 +26,7 @@ from npcpy.npc_sysenv import (
     get_npc_path,
     init_db_tables
     )
-
+from npcpy.memory.command_history import CommandHistory
 
 class SilentUndefined(Undefined):
     def _fail_with_undefined_error(self, *args, **kwargs):
@@ -176,7 +176,8 @@ class Tool:
                 "fnmatch": fnmatch,
                 "pathlib": pathlib,
                 "subprocess": subprocess,
-                "get_llm_response": npy.llm_funcs.get_llm_response}
+                "get_llm_response": npy.llm_funcs.get_llm_response
+                }
             
             
             # Execute the code
@@ -328,6 +329,9 @@ class NPC:
             self.api_url = api_url or NPCSH_API_URL
             self.api_key = api_key
         self.npc_directory = os.path.abspath('./npc_team/')
+        
+        self.memory_length = 20
+        self.memory_strategy = 'recent'
 
         self.jinja_env = Environment(
             loader=FileSystemLoader([
@@ -341,6 +345,12 @@ class NPC:
         self.db_conn = db_conn
         if self.db_conn:
             self._setup_db()
+            self.command_history = CommandHistory(db=self.db_conn)
+            self.memory = self._load_npc_memory()
+        else:   
+            self.command_history = None
+            self.memory = None
+            
             
         # Load tools
         self.tools = self._load_npc_tools(tools or "*")
@@ -359,7 +369,13 @@ class NPC:
             
         if db_conn is not None:
             init_db_tables()
+    def _load_npc_memory(self):
+        memory = self.command_history.get_messages_by_npc(self.name, n_last=self.memory_length)
+        #import pdb 
+        #pdb.set_trace()
+        memory = [{'role':mem['role'], 'content':mem['content']} for mem in memory]
         
+        return memory 
     def _load_from_file(self, file):
         """Load NPC configuration from file"""
         if "~" in file:
@@ -487,7 +503,11 @@ class NPC:
         self.tools_dict = {tool.tool_name: tool for tool in npc_tools}
         return npc_tools
     
-    def get_llm_response(self, request, **kwargs):
+    def get_llm_response(self, 
+                         request,
+                         tools= None,
+                         memory=False,
+                         **kwargs):
         """Get a response from the LLM"""
         
         # Call the LLM
@@ -496,16 +516,14 @@ class NPC:
             model=self.model, 
             provider=self.provider, 
             npc=self, 
+            tools=tools,
+            messages=self.memory if memory else None, 
             **kwargs
         )        
-        if self.db_conn is not None:
-            # fix so these are the same as the ones in command_history.
-            log_entry(self.name, "llm_request", {"prompt": request})
-            log_entry(self.name, "llm_response", {"response": response})
         
         return response
     
-    def execute_tool(self, tool_name, inputs):
+    def execute_tool(self, tool_name, inputs, conversation_id=None, message_id=None, team_name=None):
         """Execute a tool by name"""
         # Find the tool
         if tool_name in self.tools_dict:
@@ -523,9 +541,18 @@ class NPC:
             npc=self
         )
         if self.db_conn is not None:
-            log_entry(self.name, "tool_execution", {"tool": tool_name, "inputs": inputs})
-            log_entry(self.name, "tool_result", {"tool": tool_name, "result": result})
-        
+            self.db_conn.add_tool_call(
+                triggering_message_id=message_id,
+                conversation_id=conversation_id,
+                tool_name=tool_name,
+                tool_inputs=inputs,
+                tool_output=result,
+                status="success",
+                error_message=None,
+                duration_ms=None,
+                npc_name=self.name,
+                team_name=team_name,
+            )
         return result
     
     def check_llm_command(self, command, messages=None, context=None, shared_context=None):
@@ -573,13 +600,6 @@ class NPC:
             + "PLEASE CHOOSE ONE OF THE OTHER OPTIONS WHEN RESPONDING."
         )
         
-        # Log the pass
-        log_entry(
-            self.name, 
-            "agent_pass", 
-            {"to": target_npc.name, "command": command}
-        )
-        
         # Pass to the target NPC
         return target_npc.check_llm_command(
             updated_command,
@@ -612,7 +632,7 @@ class NPC:
     
     def __str__(self):
         """String representation of NPC"""
-        return f"NPC: {self.name}\nDirective: {self.primary_directive}\nModel: {self.model}"
+        return f"NPC: {self.name}\nDirective: {self.primary_directive}\nModel: {self.model}\nProvider: {self.provider}\nAPI URL: {self.api_url}\ntools: {', '.join([tool.tool_name for tool in self.tools])}"
 
 class Team:
     def __init__(self, 
@@ -636,25 +656,26 @@ class Team:
         self.team_path = os.path.expanduser(team_path) if team_path else None
         self.foreman = foreman
         if team_path:
-            self.team_name = os.path.basename(os.path.abspath(team_path))
+            self.name = os.path.basename(os.path.abspath(team_path))
         else:
-            self.team_name = "custom_team"
-        
-        if team_path:
-            print('loading npc team from directory')
-            self._load_from_directory()
-        elif npcs:
-            for npc in npcs:
-                self.npcs[npc.name] = npc
-            
+            self.name = "custom_team"
         self.shared_context = {
             "intermediate_results": {},
             "dataframes": {},
             "memories": {},          
-            
             "execution_history": [],   
             "npc_messages": {}                 
             }
+                
+        if team_path:
+            print('loading npc team from directory')
+            self._load_from_directory()
+            
+        elif npcs:
+            for npc in npcs:
+                self.npcs[npc.name] = npc
+            
+
         
         self.jinja_env = Environment(undefined=SilentUndefined)
         
@@ -670,7 +691,6 @@ class Team:
         
         # Load team context if available
         self.context = self._load_team_context()
-        
         # Load NPCs
         for filename in os.listdir(self.team_path):
             print('filename: ', filename)
@@ -694,19 +714,26 @@ class Team:
         
     def _load_team_context(self):
         """Load team context from .ctx file"""
-        ctx_path = os.path.join(self.team_path, "team.ctx")
-        if os.path.exists(ctx_path):
-            try:
-                ctx_data = load_yaml_file(ctx_path)
+
+                                
+        #check if any .ctx file exists 
+        for fname in os.listdir(self.team_path):
+            if fname.endswith('.ctx'):
+                # do stuff on the file
                 
-                # Add to Jinja environment
-                if ctx_data:
-                    self.jinja_env.globals['ctx'] = ctx_data
-                    
+                ctx_data = load_yaml_file(fname)
+                
+                if 'mcp_servers' in ctx_data:
+                    self.mcp_servers = ctx_data['mcp_servers']
+                if 'databases' in ctx_data:
+                    self.databases = ctx_data['databases']
+                if 'context' in ctx_data:
+                    self.context = ctx_data['context']
+                # check other potential keys
+                for key, item in ctx_data.items():
+                    if key not in ['name', 'mcp_servers', 'databases', 'context']:
+                        self.shared_context[key] = item
                 return ctx_data
-            except Exception as e:
-                print(f"Error loading team context: {e}")
-        
         return {}
         
     def _load_sub_teams(self):
@@ -747,8 +774,8 @@ class Team:
             elif foreman_ref in self.npcs:
                 return self.npcs[foreman_ref]
         else:
-            foreman_model=self.context.get('model', NPCSH_CHAT_MODEL),
-            foreman_provider=self.context.get('model', NPCSH_CHAT_PROVIDER),
+            foreman_model=self.context.get('model', 'llama3.2'),
+            foreman_provider=self.context.get('model', 'ollama'),
             foreman_api_key=self.context.get('api_key', None),
             foreman_api_url=self.context.get('api_url', None)
             
@@ -773,9 +800,9 @@ class Team:
         """
         if '.' in npc_ref:
             # Handle hierarchical reference
-            team_name, npc_name = npc_ref.split('.', 1)
-            if team_name in self.sub_teams:
-                return self.sub_teams[team_name].get_npc(npc_name)
+            name, npc_name = npc_ref.split('.', 1)
+            if name in self.sub_teams:
+                return self.sub_teams[name].get_npc(npc_name)
         elif npc_ref in self.npcs:
             return self.npcs[npc_ref]
         
@@ -789,7 +816,7 @@ class Team:
         
         # Log the orchestration start
         log_entry(
-            self.team_name,
+            self.name,
             "orchestration_start",
             {"request": request}
         )
@@ -867,15 +894,6 @@ class Team:
                     format="json"
                 )
                 
-                # Log the orchestration completion
-                log_entry(
-                    self.team_name,
-                    "orchestration_complete",
-                    {
-                        "request": request,
-                        "debrief": debrief.get("response")
-                    }
-                )
                 
                 return {
                     "debrief": debrief.get("response"),
@@ -900,7 +918,7 @@ class Team:
     def to_dict(self):
         """Convert team to dictionary representation"""
         return {
-            "team_name": self.team_name,
+            "name": self.name,
             "npcs": {name: npc.to_dict() for name, npc in self.npcs.items()},
             "sub_teams": {name: team.to_dict() for name, team in self.sub_teams.items()},
             "tools": {name: tool.to_dict() for name, tool in self.tools.items()},
@@ -1281,28 +1299,6 @@ def get_log_entries(entity_id, entry_type=None, limit=10, db_path="~/npcsh_histo
             for r in results
         ]
 
-def search_log(entity_id, search_term, limit=5, db_path="~/npcsh_history.db"):
-    """Search log for relevant information"""
-    db_path = os.path.expanduser(db_path)
-    with sqlite3.connect(db_path) as conn:
-        results = conn.execute(
-            """
-            SELECT entry_type, content, metadata, timestamp FROM npc_log
-            WHERE entity_id = ? AND content LIKE ?
-            ORDER BY timestamp DESC LIMIT ?
-            """,
-            (entity_id, f"%{search_term}%", limit)
-        ).fetchall()
-        
-        return [
-            {
-                "entry_type": r[0],
-                "content": json.loads(r[1]),
-                "metadata": json.loads(r[2]) if r[2] else None,
-                "timestamp": r[3]
-            }
-            for r in results
-        ]
 
 def load_yaml_file(file_path):
     """Load a YAML file with error handling"""

@@ -65,7 +65,7 @@ def enter_wander_mode(problem,
             if chunk_content:
                 conversation_result += chunk_content
                 print(chunk_content, end="")
-    print('beginning to wander')
+    #print('beginning to wander')
     high_temp_streams = []
     high_temp_samples = []
     for n in range(n_high_temp_streams):

@@ -927,6 +927,13 @@ def initialize_base_npcs_if_needed(db_path: str) -> None:
                 source_path, destination_path
             ):
                 shutil.copy2(source_path, destination_path)
+        if filename.endswith(".ctx"):
+            source_path = os.path.join(package_npc_team_dir, filename)
+            destination_path = os.path.join(user_npc_team_dir, filename)
+            if not os.path.exists(destination_path) or file_has_changed(
+                source_path, destination_path
+            ):
+                shutil.copy2(source_path, destination_path)
 
     # Copy tools from package to user directory
     package_tools_dir = os.path.join(package_npc_team_dir, "tools")

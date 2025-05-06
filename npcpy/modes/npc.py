@@ -7,17 +7,9 @@ from typing import Optional
 
 from npcpy.npc_sysenv import (
     NPCSH_CHAT_MODEL, NPCSH_CHAT_PROVIDER,
-    NPCSH_IMAGE_GEN_MODEL, NPCSH_IMAGE_GEN_PROVIDER,
-    NPCSH_VISION_MODEL, NPCSH_VISION_PROVIDER,
-    NPCSH_REASONING_MODEL, NPCSH_REASONING_PROVIDER,
-    NPCSH_EMBEDDING_MODEL, NPCSH_EMBEDDING_PROVIDER,
-    NPCSH_VIDEO_GEN_MODEL, NPCSH_VIDEO_GEN_PROVIDER,
     NPCSH_API_URL, NPCSH_DB_PATH, NPCSH_STREAM_OUTPUT,
-    NPCSH_SEARCH_PROVIDER,
-    print_and_process_stream,
     print_and_process_stream_with_markdown,
     render_markdown,
-    get_npc_path
 )
 from npcpy.npc_compiler import NPC, Team
 from npcpy.routes import router
@@ -136,8 +128,9 @@ def main():
             result = handler(command=full_command_str, **handler_kwargs)
 
             if isinstance(result, dict):
-                output = result.get("output", "Command executed, but no specific output returned.")
-                if NPCSH_STREAM_OUTPUT and hasattr(output, '__iter__') and not isinstance(output, (str, bytes, dict, list)):
+                output = result.get("output") or result.get("response")
+                
+                if NPCSH_STREAM_OUTPUT and not isinstance(output, str):
                      print_and_process_stream_with_markdown(output, effective_model, effective_provider)
                 elif output is not None:
                      render_markdown(str(output))

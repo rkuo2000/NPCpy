@@ -448,7 +448,7 @@ def execute_slash_command(command: str, stdin_input: Optional[str], state: Shell
     command_parts = command.split()
     command_name = command_parts[0].lstrip('/')
     handler = router.get_route(command_name)
-
+    #print(handler)
     if handler:
         # Prepare kwargs for the handler
         handler_kwargs = {
@@ -461,6 +461,7 @@ def execute_slash_command(command: str, stdin_input: Optional[str], state: Shell
             'api_url': state.api_url,
             'api_key': state.api_key,
         }
+        #print(handler_kwargs, command)
         if stdin_input is not None:
             handler_kwargs['stdin_input'] = stdin_input
 
@@ -468,7 +469,8 @@ def execute_slash_command(command: str, stdin_input: Optional[str], state: Shell
             result_dict = handler(command, **handler_kwargs)
 
             if isinstance(result_dict, dict):
-                output = result_dict.get("output")
+                #some respond with output, some with response, needs to be fixed upstream
+                output = result_dict.get("output") or result_dict.get("response")
                 state.messages = result_dict.get("messages", state.messages)
                 return state, output
             else:
@@ -537,6 +539,7 @@ def process_pipeline_command(
     exec_provider = provider_override or state.chat_provider 
 
     if cmd_to_process.startswith("/"):
+        #print(cmd_to_process)
         return execute_slash_command(cmd_to_process, stdin_input, state, stream_final)
     else:
         try:
@@ -845,7 +848,7 @@ def run_repl(command_history: CommandHistory, initial_state: ShellState):
             state.current_path = os.getcwd()
             
             state, output = execute_command(user_input, state)
-
+            #(state, output)
             process_result(user_input, state, output, command_history)
 
         except (KeyboardInterrupt):
