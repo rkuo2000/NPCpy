@@ -17,9 +17,7 @@ from npcpy.npc_sysenv import (
 )
 
 from npcpy.llm_funcs import (
-    check_llm_command,
     get_llm_response,
-    rehash_last_message,
     gen_image,
     generate_video,
 )
@@ -382,49 +380,7 @@ def rag_handler(command: str, **kwargs):
         return {"output": f"Error executing RAG command: {e}", "messages": messages}
 
 
-def rehash_last_message(
-    conversation_id: str,
-    model: str,
-    provider: str,
-    npc: Any = None,
-    stream: bool = False,
-) -> dict:
-    from npcpy.memory.command_history import CommandHistory    
-    command_history = CommandHistory()
-    last_message = command_history.get_last_conversation(conversation_id)
-    if last_message is None:
-        convo_id = command_history.get_most_recent_conversation_id()[0]
-        last_message = command_history.get_last_conversation(convo_id)
 
-    user_command = last_message[3]  # Assuming content is in the 4th column
-    return check_llm_command(
-        user_command,
-        model=model,
-        provider=provider,
-        npc=npc,
-        messages=None,
-        stream=stream,
-    )
-
-@router.route("rehash", "Re-execute the last LLM command with the same input", shell_only=True)
-def rehash_handler(command: str, **kwargs):
-    messages = safe_get(kwargs, "messages", [])
-    conversation_id = safe_get(kwargs, 'conversation_id')
-    if not conversation_id:
-        return {"output": "Cannot rehash: No active conversation ID.", "messages": messages}
-
-    try:
-        result = rehash_last_message(
-            conversation_id=conversation_id,
-            model=safe_get(kwargs, 'model', NPCSH_CHAT_MODEL),
-            provider=safe_get(kwargs, 'provider', NPCSH_CHAT_PROVIDER),
-            npc=safe_get(kwargs, 'npc'),
-            stream=safe_get(kwargs, 'stream', NPCSH_STREAM_OUTPUT)
-            )
-        return result
-    except Exception as e:
-        traceback.print_exc()
-        return {"output": f"Error rehashing: {e}", "messages": messages}
 @router.route("roll", "generate a video")
 def roll_handler(command: str, **kwargs):
     messages = safe_get(kwargs, "messages", [])

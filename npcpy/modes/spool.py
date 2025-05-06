@@ -14,7 +14,8 @@ from npcpy.npc_sysenv import (
     NPCSH_CHAT_MODEL, NPCSH_CHAT_PROVIDER,
     NPCSH_STREAM_OUTPUT
     )
-from npcpy.llm_funcs import (get_llm_response,  rehash_last_message)
+from npcpy.llm_funcs import (get_llm_response,)
+
 from npcpy.npc_compiler import NPC
 from typing import Any, List, Dict, Union
 from npcpy.modes.yap import enter_yap_mode
@@ -23,6 +24,7 @@ from npcpy.modes.yap import enter_yap_mode
 
 def enter_spool_mode(
     npc = None,    
+    team = None,
     model: str = NPCSH_CHAT_MODEL, 
     provider: str =  NPCSH_CHAT_PROVIDER,
     vision_model:str = NPCSH_VISION_MODEL,
@@ -103,18 +105,6 @@ def enter_spool_mode(
             if user_input.lower() == "/sq":
                 print("Exiting spool mode.")
                 break
-            if user_input.lower() == "/rehash":  # Check for rehash command
-                # send the most recent message
-                print("Rehashing last message...")
-                output = rehash_last_message(
-                    conversation_id,
-                    stream=stream,
-                    **kwargs_to_pass
-                )
-                print(output["output"])
-                messages = output.get("messages", [])
-                output = output.get("output", "")
-                continue
 
             if user_input.lower() == "/whisper":  # Check for whisper command
                 messages = enter_yap_mode(spool_context, npc)
@@ -164,6 +154,7 @@ def enter_spool_mode(
                     model=vision_model,
                     provider=vision_provider,
                     npc=npc.name if npc else None,
+                    team=team.name if team else None,
                     
                 )
                 
@@ -200,6 +191,7 @@ def enter_spool_mode(
                     model=vision_model,
                     provider=vision_provider,
                     npc=npc.name if npc else None,
+                    team=team.name if team else None,
                     
 
                 )
@@ -244,6 +236,8 @@ def enter_spool_mode(
                 model=model,
                 provider=provider,
                 npc=npc.name if npc else None,
+                team=team.name if team else None,
+                
             )
             
             response = get_llm_response(
@@ -269,6 +263,8 @@ def enter_spool_mode(
                 model=model,
                 provider=provider,
                 npc=npc.name if npc else None,
+                team=team.name if team else None,
+                
             )
 
             # Fix unfinished markdown notation

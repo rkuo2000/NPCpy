@@ -439,6 +439,8 @@ def stream():
         provider = available_models.get(model)
         
     npc = data.get("npc", None)
+    team = data.get("team", None)
+    
     attachments = data.get("attachments", [])
     current_path = data.get("currentPath")
 
@@ -501,8 +503,10 @@ def stream():
         model=model,
         provider=provider,
         npc=npc,
+        team=team,
         attachments=attachments_loaded,
         message_id=message_id,
+        
     )
     message_id = command_history.generate_message_id()
 
@@ -584,6 +588,7 @@ def stream():
                     model=model,
                     provider=provider,
                     npc=npc,
+                    team=team,
                     message_id=message_id,  # Save with the same message_id
                 )
 
@@ -816,6 +821,9 @@ def get_attachment_response():
     command_history = CommandHistory(db_path)
     model = data.get("model")
     npc = data.get("npc")
+    team = data.get("team")
+    provider = data.get("provider")
+    message_id = data.get("messageId")
     # load the npc properly
     # try global /porject
 
@@ -846,7 +854,9 @@ def get_attachment_response():
 
     # Save new messages
     save_conversation_message(
-        command_history, conversation_id, "user", message_to_send, wd=current_path
+        command_history, conversation_id, "user", message_to_send, wd=current_path, team=team, 
+        model=model, provider=provider, npc=npc, attachments=attachments
+        
     )
 
     save_conversation_message(
@@ -855,7 +865,12 @@ def get_attachment_response():
         "assistant",
         response,
         wd=current_path,
-    )
+        team=team,
+        model=model,
+        provider=provider,
+        npc=npc,
+        attachments=attachments,
+        message_id=message_id, ) # Save with the same message_id    )
     return jsonify(
         {
             "status": "success",
@@ -876,6 +891,7 @@ def execute():
         model = data.get("model")
         print("model", model)
         npc = data.get("npc")
+        team = data.get("team")
         print("npc", npc)
         # have to add something to actually load the npc, try project first then global , if  none proceed
         # with the command as is but notify.
@@ -942,7 +958,14 @@ def execute():
 
         # Save new messages
         save_conversation_message(
-            command_history, conversation_id, "user", command, wd=current_path
+            command_history, conversation_id, "user", command, wd=current_path,
+            model=model,
+            provider=available_models.get(model),
+            npc=npc,
+            attachments=[],
+            message_id=command_history.generate_message_id(),
+            team=team,
+            
         )
 
         save_conversation_message(
@@ -951,6 +974,13 @@ def execute():
             "assistant",
             result.get("output", ""),
             wd=current_path,
+            model=model,
+            provider=available_models.get(model),
+            npc=npc,
+            attachments=[],
+            team=team,
+            
+            
         )
 
         return jsonify(
@@ -1263,6 +1293,7 @@ def stream_raw():
                     model=model,
                     provider=provider,
                     npc=npc,
+                    team=team,
                     message_id=message_id,  # Save with the same message_id
                 )
 

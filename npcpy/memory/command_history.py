@@ -195,6 +195,7 @@ class CommandHistory:
         model=None,
         provider=None,
         npc=None,
+        team=None,
         attachments=None,
         message_id=None,
     ):
@@ -224,8 +225,8 @@ class CommandHistory:
             self.cursor.execute(
                 """
                 INSERT INTO conversation_history
-                (message_id, timestamp, role, content, conversation_id, directory_path, model, provider, npc)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (message_id, timestamp, role, content, conversation_id, directory_path, model, provider, npc, team)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     message_id,
@@ -237,6 +238,7 @@ class CommandHistory:
                     model,
                     provider,
                     npc,
+                    team,
                 ),
             )
 
@@ -418,6 +420,35 @@ class CommandHistory:
         )
         return self.cursor.fetchone()
 
+    def get_messages_by_npc(self, npc, n_last=None):
+        """
+        Retrieve messages for a specific NPC.
+
+        Args:
+            npc: The NPC identifier
+            n_last: Number of last messages to retrieve (optional)
+
+        Returns:
+            List of messages for the specified NPC
+        """
+        if n_last:
+            self.cursor.execute(
+                """
+                SELECT * FROM conversation_history
+                WHERE npc = ? and role='assistant'
+                ORDER BY timestamp DESC LIMIT ?
+                """,
+                (npc, n_last),
+            )
+        else:
+            self.cursor.execute(
+                """
+                SELECT * FROM conversation_history
+                WHERE npc = ? and role='assistant'
+                """,
+                (npc,),
+            )
+        return self.cursor.fetchall()
     def get_message_by_id(self, message_id):
         """
         Retrieve a message by its message_id.
@@ -483,6 +514,7 @@ class CommandHistory:
                 "model": row[7],
                 "provider": row[8],
                 "npc": row[9],
+                "team": row[10],
             }
 
             # Get attachments for this message
@@ -535,58 +567,7 @@ class CommandHistory:
             'first_conversation', 'last_conversation'
         ])
 
-    def get_conversation_topic_analysis(self, npc=None, limit=1000):
-        """
-        Analyze conversation content to extract common topics and patterns.
-        Optionally filter by specific NPC.
-        """
-        query = """
-        WITH message_pairs AS (
-            SELECT 
-                ch1.conversation_id,
-                ch1.content as user_message,
-                ch2.content as assistant_response,
-                ch1.timestamp as msg_time,
-                ch1.npc
-            FROM conversation_history ch1
-            JOIN conversation_history ch2 
-                ON ch1.conversation_id = ch2.conversation_id
-                AND ch1.id < ch2.id
-            WHERE ch1.role = 'user' 
-                AND ch2.role = 'assistant'
-                AND ch2.id = (
-                    SELECT MIN(id) 
-                    FROM conversation_history ch3
-                    WHERE ch3.conversation_id = ch1.conversation_id
-                    AND ch3.id > ch1.id
-                    AND ch3.role = 'assistant'
-                )
-        """
-        
-        if npc:
-            query += f" AND ch1.npc = ?" 
-            params = [npc, limit]
-        else:
-            params = [limit]
-
-        query += """
-            ORDER BY ch1.timestamp DESC
-            LIMIT ?
-        )
-        SELECT 
-            conversation_id,
-            user_message,
-            assistant_response,
-            msg_time,
-            npc
-        FROM message_pairs
-        """
-
-        self.cursor.execute(query, params)
-        return pd.DataFrame(self.cursor.fetchall(), columns=[
-            'conversation_id', 'user_message', 'assistant_response', 
-            'timestamp', 'npc'
-        ])
+  
 
     def get_command_patterns(self, timeframe='day'):
         """
@@ -625,140 +606,14 @@ class CommandHistory:
             'time_period', 'command', 'count'
         ])
 
-    def get_conversation_flows(self, conversation_id=None):
-        """
-        Analyze the flow and structure of conversations.
-        Shows message chains, response patterns, and interaction flows.
-        """
-        where_clause = "WHERE conversation_id = ?" if conversation_id else ""
-        params = [conversation_id] if conversation_id else []
 
-        query = f"""
-        WITH message_sequence AS (
-            SELECT 
-                conversation_id,
-                role,
-                content,
-                timestamp,
-                npc,
-                LAG(role) OVER (PARTITION BY conversation_id ORDER BY timestamp) as prev_role,
-                LAG(content) OVER (PARTITION BY conversation_id ORDER BY timestamp) as prev_content,
-                LEAD(role) OVER (PARTITION BY conversation_id ORDER BY timestamp) as next_role,
-                LEAD(content) OVER (PARTITION BY conversation_id ORDER BY timestamp) as next_content
-            FROM conversation_history
-            {where_clause}
-        )
-        SELECT 
-            conversation_id,
-            role,
-            content,
-            timestamp,
-            npc,
-            prev_role,
-            prev_content,
-            next_role,
-            next_content
-        FROM message_sequence
-        ORDER BY conversation_id, timestamp
-        """
-
-        self.cursor.execute(query, params)
-        return pd.DataFrame(self.cursor.fetchall(), columns=[
-            'conversation_id', 'role', 'content', 'timestamp', 'npc',
-            'prev_role', 'prev_content', 'next_role', 'next_content'
-        ])
-
-    def analyze_npc_performance(self, start_date=None, end_date=None):
-        """
-        Analyze NPC performance metrics including:
-        - Response times
-        - Message completion rates
-        - Error rates
-        - Model/provider effectiveness
-        """
-        date_filter = ""
-        params = []
-        if start_date and end_date:
-            date_filter = "WHERE ch1.timestamp BETWEEN ? AND ?"
-            params = [start_date, end_date]
-
-        query = f"""
-        WITH response_times AS (
-            SELECT 
-                ch1.conversation_id,
-                ch1.npc,
-                ch1.model,
-                ch1.provider,
-                ch1.timestamp as request_time,
-                MIN(ch2.timestamp) as response_time,
-                ch1.content as user_message,
-                ch2.content as assistant_response
-            FROM conversation_history ch1
-            LEFT JOIN conversation_history ch2 
-                ON ch1.conversation_id = ch2.conversation_id
-                AND ch1.id < ch2.id
-                AND ch2.role = 'assistant'
-            {date_filter}
-            WHERE ch1.role = 'user'
-            GROUP BY ch1.id
-        )
-        SELECT 
-            npc,
-            model,
-            provider,
-            COUNT(*) as total_interactions,
-            AVG(julianday(response_time) - julianday(request_time)) * 24 * 60 as avg_response_time_minutes,
-            COUNT(CASE WHEN response_time IS NULL THEN 1 END) as incomplete_responses,
-            COUNT(CASE WHEN lower(assistant_response) LIKE '%error%' 
-                   OR lower(assistant_response) LIKE '%failed%' 
-                   OR lower(assistant_response) LIKE '%invalid%' 
-                   OR lower(assistant_response) LIKE '%exception%' THEN 1 END) as error_count
-        FROM response_times
-        GROUP BY npc, model, provider
-        ORDER BY total_interactions DESC
-        """
-
-        self.cursor.execute(query, params)
-        return pd.DataFrame(self.cursor.fetchall(), columns=[
-            'npc', 'model', 'provider', 'total_interactions', 
-            'avg_response_time_mins', 'incomplete_responses', 'error_count'
-        ])
-
-    def get_conversation_sentiment_trends(self, window='day'):
-        """
-        Track sentiment trends in conversations over time.
-        This provides a base table for sentiment analysis.
-        """
-        time_group = {
-            'hour': "strftime('%Y-%m-%d %H', timestamp)",
-            'day': "strftime('%Y-%m-%d', timestamp)",
-            'week': "strftime('%Y-%W', timestamp)",
-            'month': "strftime('%Y-%m', timestamp)"
-        }[window]
-
-        query = f"""
-        SELECT 
-            {time_group} as time_period,
-            npc,
-            role,
-            GROUP_CONCAT(content, ' ') as messages,
-            COUNT(*) as message_count
-        FROM conversation_history
-        GROUP BY time_period, npc, role
-        ORDER BY time_period DESC, npc, role
-        """
-
-        self.cursor.execute(query)
-        return pd.DataFrame(self.cursor.fetchall(), columns=[
-            'time_period', 'npc', 'role', 'messages', 'message_count'
-        ])
-
-
-def start_new_conversation() -> str:
+def start_new_conversation(prepend = '') -> str:
     """
     Starts a new conversation and returns a unique conversation ID.
     """
-    return f"conversation_{datetime.now().strftime('%Y%m%d%H%M%S')}"
+    if prepend =='':
+        prepend = 'npcsh'
+    return f"{prepend}_{datetime.now().strftime('%Y%m%d%H%M%S')}"
 
 
 def save_conversation_message(
@@ -770,6 +625,7 @@ def save_conversation_message(
     model: str = None,
     provider: str = None,
     npc: str = None,
+    team: str = None,
     attachments: List[Dict] = None,
     message_id: str = None,
 ):
@@ -806,6 +662,7 @@ def save_conversation_message(
         model=model,
         provider=provider,
         npc=npc,
+        team=team,
         attachments=attachments,
         message_id=message_id,
     )

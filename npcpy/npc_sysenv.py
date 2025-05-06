@@ -1338,8 +1338,22 @@ def print_and_process_stream_with_markdown(response,
             
             chunk_content = chunk["message"]["content"]
         else:
-            
-            chunk_content = "".join(c.delta.reasoning_content for c in chunk.choices if c.delta.reasoning_content)
+            chunk_content = ''
+            reasoning_content = ''
+            for c in chunk.choices:
+                if hasattr(c.delta, "reasoning_content"):
+                    
+                    reasoning_content += c.delta.reasoning_content
+                    
+            if reasoning_content:
+                chunk_content = reasoning_content
+            chunk_content += "".join(
+                choice.delta.content
+                for choice in chunk.choices
+                if choice.delta.content is not None
+            )
+
+
             
             chunk_content += "".join(
                 c.delta.content for c in chunk.choices if c.delta.content

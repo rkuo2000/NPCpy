@@ -769,6 +769,7 @@ def process_result(
     command_history: CommandHistory):
 
     npc_name = result_state.npc.name if isinstance(result_state.npc, NPC) else result_state.npc
+    team_name = result_state.team.name if isinstance(result_state.team, Team) else result_state.team
     save_conversation_message(
         command_history,
         result_state.conversation_id,
@@ -778,6 +779,7 @@ def process_result(
         model=result_state.chat_model, # Log primary chat model? Or specific used one?
         provider=result_state.chat_provider,
         npc=npc_name,
+        team=team_name,
         attachments=result_state.attachments,
     )
     
@@ -809,6 +811,7 @@ def process_result(
             model=result_state.chat_model,
             provider=result_state.chat_provider,
             npc=npc_name,
+            team=team_name,
         )
 
 def run_repl(command_history: CommandHistory, initial_state: ShellState):
