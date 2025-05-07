@@ -329,6 +329,13 @@ If you pass a `-f` flag with a filename or list of filenames (e.g. *.py) then it
 ```npcsh
 npcsh> /rag -f *.py  what is the best way to implement a linked list in Python?
 ```
+```
+/rag -f test_data/yuan2004.pdf summarize this paper
+```
+
+```
+/rag -f test_data/books.csv analyze this dataset
+```
 
 Alternatively , if you want to perform rag on your past conversations, you can do so like this:
 ```npcsh
@@ -490,8 +497,9 @@ npcsh> /spool npc=foreman
 Start the spool mode with specific files in context that will be referenced through RAG searches when relevant.
 
 ```npcsh
-npcsh> /spool files=[*.py,*.md] # Load specific files for context
+npcsh> /spool --files=[*.py,*.md] 
 ```
+/spool --files test_data/yuan2004.pdf
 
 Have a conversation and switch between text and voice mode by invoking `/whisper` mode from within spool mode.
 ```npcsh

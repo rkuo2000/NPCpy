@@ -356,7 +356,7 @@ def get_litellm_response(
 
     # Handle streaming
     if stream:
-        print('streaming response')
+        #print('streaming response')
         if format == "json":
             print('streaming json output')
             result["response"] = handle_streaming_json(api_params)
