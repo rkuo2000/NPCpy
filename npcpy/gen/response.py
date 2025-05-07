@@ -1,7 +1,7 @@
 from typing import Any, Dict, List, Union
 from pydantic import BaseModel
 from npcpy.data.image import compress_image
-from npcpy.npc_sysenv import get_system_message, lookup_provider
+from npcpy.npc_sysenv import get_system_message, lookup_provider, render_markdown
 import base64
 import json
 import uuid
@@ -453,21 +453,38 @@ def process_tool_calls(response_dict, tool_map, model, provider, messages, strea
     Args:
         response_dict (dict): The response dictionary from get_litellm_response or get_ollama_response
         tool_map (dict): Mapping of tool names to their implementation functions
+        model (str): The model to use for follow-up responses
+        provider (str): The provider to use for follow-up responses
+        messages (list): The current message history
+        stream (bool): Whether to stream the response
         
     Returns:
         dict: Updated response dictionary with tool results and final response
     """
+    import uuid
+    
     result = response_dict.copy()
     result["tool_results"] = []
-    print(tool_map)
+    #print(tool_map)
+    
+    # Make sure messages is initialized
+    if "messages" not in result:
+        result["messages"] = messages if messages else []
+    
     # Extract tool calls from the response
-    tool_calls = result.get("response").get("tool_calls") or result.get('response').choices[0].message.tool_calls        
+    if "response" in result:
+        if hasattr(result["response"], "choices") and hasattr(result["response"].choices[0], "message"):
+            tool_calls = result["response"].choices[0].message.tool_calls
+        elif isinstance(result["response"], dict) and "tool_calls" in result["response"]:
+            tool_calls = result["response"]["tool_calls"]
+        else:
+            tool_calls = None
+    else:
+        tool_calls = None
+    
     if tool_calls is not None:
-            
         for tool_call in tool_calls:
-            print('tool_call', tool_call)
             
-            #try:
             # Extract tool details - handle both Ollama and LiteLLM formats
             if isinstance(tool_call, dict):  # Ollama format
                 tool_id = tool_call.get("id", str(uuid.uuid4()))
@@ -494,39 +511,101 @@ def process_tool_calls(response_dict, tool_map, model, provider, messages, strea
                     arguments = json.loads(arguments_str) if isinstance(arguments_str, str) else arguments_str
                 except json.JSONDecodeError:
                     arguments = {"raw_arguments": arguments_str}
-            print('tool_args', arguments)
+
+            render_markdown('# tool_call \n - '+ tool_name + '\n - ' + str(arguments))
+
+            
             # Execute the tool if it exists in the tool map
             if tool_name in tool_map:
                 try:
                     # Try calling with keyword arguments first
-                    tool_result = tool_map[tool_name](**arguments   )
+                    tool_result = tool_map[tool_name](**arguments)
                 except TypeError:
                     # If that fails, try calling with the arguments as a single parameter
                     tool_result = tool_map[tool_name](arguments)
-                print('tool_result', tool_result)
+                # Convert tool result to a serializable format
+                serializable_result = None
+                tool_result_str = ""
+                
+                try:
+                    # Check if it's TextContent or similar with .text attribute
+                    if hasattr(tool_result, 'content') and isinstance(tool_result.content, list):
+                        content_list = tool_result.content
+                        text_parts = []
+                        for item in content_list:
+                            if hasattr(item, 'text'):
+                                text_parts.append(item.text)
+                        tool_result_str = " ".join(text_parts)
+                        serializable_result = {"text": tool_result_str}
+                    # Handle other common types
+                    elif hasattr(tool_result, 'model_dump'):
+                        serializable_result = tool_result.model_dump()
+                        tool_result_str = str(serializable_result)
+                    elif hasattr(tool_result, 'to_dict'):
+                        serializable_result = tool_result.to_dict()
+                        tool_result_str = str(serializable_result)
+                    elif hasattr(tool_result, '__dict__'):
+                        serializable_result = tool_result.__dict__
+                        tool_result_str = str(serializable_result)
+                    elif isinstance(tool_result, (dict, list)):
+                        serializable_result = tool_result
+                        tool_result_str = json.dumps(tool_result)
+                    else:
+                        # Fall back to string representation
+                        tool_result_str = str(tool_result)
+                        serializable_result = {"text": tool_result_str}
+                except Exception as e:
+                    tool_result_str = f"Error serializing result: {str(e)}"
+                    serializable_result = {"error": tool_result_str}
+                
+                # Store the serializable result
                 result["tool_results"].append({
                     "tool_call_id": tool_id,
                     "tool_name": tool_name,
                     "arguments": arguments,
-                    "result": tool_result
+                    "result": serializable_result
                 })
-            
+                
+                # Add the tool call message
                 result["messages"].append({
                     "role": "assistant",
-                    "content": json.dumps(tool_result)
+                    "content": None,
+                    "tool_calls": [
+                        {
+                            "id": tool_id,
+                            "type": "function",
+                            "function": {
+                                "name": tool_name,
+                                "arguments": json.dumps(arguments)
+                            }
+                        }
+                    ]
                 })
-        # follow up call to get_llm_Response
-        prompt = 'here is the result of the tool call'
-        prompt += '\n' + json.dumps(result["tool_results"])
-        prompt += '\n' + 'Please provide a response based on the tool results.'
-    else:
-        prompt ='there was no tool call. '
-    output = get_litellm_response(
-        prompt,
-        model=model,
-        provider=provider,
-        messages= result['messages'],
-        stream=stream,
-    )
                 
-    return {'response': output['response'], 'messages': result['messages']}
+                # Add the tool response message with string content
+                result["messages"].append({
+                    "role": "tool",
+                    "tool_call_id": tool_id,
+                    "content": tool_result_str
+                })
+        
+        # Follow up with a request to the LLM
+        follow_up_prompt = "Based on the tool results, please provide a helpful response."
+        
+        # Get follow-up response
+        follow_up_response = get_litellm_response(
+            prompt=follow_up_prompt,
+            model=model,
+            provider=provider,
+            messages=result["messages"],
+            stream=stream,
+        )
+        
+        # Update the result
+        if isinstance(follow_up_response, dict):
+            if "response" in follow_up_response:
+                result["response"] = follow_up_response["response"]
+            if "messages" in follow_up_response:
+                result["messages"] = follow_up_response["messages"]
+    
+    return result
