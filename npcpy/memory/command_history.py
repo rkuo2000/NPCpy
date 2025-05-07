@@ -117,6 +117,41 @@ def query_history_for_llm(command_history, query):
     return "\n\n".join(formatted_results)
 
 
+try:
+    import chromadb
+except ModuleNotFoundError:
+    print("chromadb not installed")
+import numpy as np
+import os
+from typing import Optional, Dict, List, Union, Tuple
+
+
+def setup_chroma_db(collection, description='', db_path: str= ''):
+    """Initialize Chroma vector database without a default embedding function"""
+    if db_path == '':
+        db_path = os.path.expanduser('~/npcsh_chroma_db')
+        
+    try:
+        # Create or connect to Chroma client with persistent storage
+        client = chromadb.PersistentClient(path=db_path)
+
+        # Check if collection exists, create if not
+        try:
+            collection = client.get_collection(collection)
+            print("Connected to existing facts collection")
+        except ValueError:
+            # Create new collection without an embedding function
+            # We'll provide embeddings manually using get_embeddings
+            collection = client.create_collection(
+                name=collection,
+                metadata={"description": description},
+            )
+            print("Created new facts collection")
+
+        return client, collection
+    except Exception as e:
+        print(f"Error setting up Chroma DB: {e}")
+        raise
 
 
 class CommandHistory:
@@ -772,3 +807,5 @@ def get_available_tables(db_path: str) -> str:
     except Exception as e:
         print(f"Error getting available tables: {e}")
         return ""
+    
+    

@@ -6,6 +6,7 @@ from PIL import Image
 import numpy as np
 from typing import Optional
 
+import os
 
 def load_csv(file_path):
     df = pd.read_csv(file_path)
@@ -113,3 +114,82 @@ extension_map = {
     "ISO": "archives",
 }
 
+
+def load_file_contents(file_path, chunk_size=250):
+    """
+    Load and format the contents of a file based on its extension.
+    Returns a list of chunks from the file content.
+    """
+    file_ext = os.path.splitext(file_path)[1].upper().lstrip('.')
+    chunks = []
+    
+    try:
+        if file_ext == 'PDF':
+            # Load PDF content
+            pdf_document = fitz.open(file_path)
+            full_text = ""
+            
+            # Extract text from each page
+            for page in pdf_document:
+                full_text += page.get_text() + "\n\n"
+            
+            # Chunk the text
+            for i in range(0, len(full_text), chunk_size):
+                chunk = full_text[i:i+chunk_size].strip()
+                if chunk:  # Skip empty chunks
+                    chunks.append(chunk)
+                    
+        elif file_ext == 'CSV':
+            df = pd.read_csv(file_path)
+            # Add metadata as first chunk
+            meta = f"CSV Columns: {', '.join(df.columns)}\nRows: {len(df)}"
+            chunks.append(meta)
+            
+            # Convert sample data to string and chunk it
+            sample = df.head(20).to_string()
+            for i in range(0, len(sample), chunk_size):
+                chunk = sample[i:i+chunk_size].strip()
+                if chunk:
+                    chunks.append(chunk)
+                    
+        elif file_ext in ['XLS', 'XLSX']:
+            df = pd.read_excel(file_path)
+            # Add metadata as first chunk
+            meta = f"Excel Columns: {', '.join(df.columns)}\nRows: {len(df)}"
+            chunks.append(meta)
+            
+            # Convert sample data to string and chunk it
+            sample = df.head(20).to_string()
+            for i in range(0, len(sample), chunk_size):
+                chunk = sample[i:i+chunk_size].strip()
+                if chunk:
+                    chunks.append(chunk)
+                    
+        elif file_ext == 'TXT':
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            # Chunk the text
+            for i in range(0, len(content), chunk_size):
+                chunk = content[i:i+chunk_size].strip()
+                if chunk:
+                    chunks.append(chunk)
+                    
+        elif file_ext == 'JSON':
+            with open(file_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            content = json.dumps(data, indent=2)
+            
+            # Chunk the JSON
+            for i in range(0, len(content), chunk_size):
+                chunk = content[i:i+chunk_size].strip()
+                if chunk:
+                    chunks.append(chunk)
+                    
+        else:
+            chunks.append(f"Unsupported file format: {file_ext}")
+            
+        return chunks
+            
+    except Exception as e:
+        return [f"Error loading file {file_path}: {str(e)}"]

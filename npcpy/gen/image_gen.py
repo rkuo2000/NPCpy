@@ -7,10 +7,7 @@ import PIL
 from PIL import Image
 
 from litellm import image_generation
-from npcpy.npc_sysenv import (
-    NPCSH_IMAGE_GEN_MODEL,
-    NPCSH_IMAGE_GEN_PROVIDER,
-)
+
 
 
 def generate_image_diffusers(
@@ -35,7 +32,7 @@ def generate_image_diffusers(
 
 def openai_image_gen(
     prompt: str,
-    model: str = "gpt-image-1",
+    model: str = "dall-e-2",
     attachments: Union[List[Union[str, bytes, Image.Image]], None] = None,
     height: int = 1024,
     width: int = 1024,
@@ -65,8 +62,6 @@ def openai_image_gen(
                 attachment.save(img_byte_arr, format='PNG')
                 img_byte_arr.seek(0)
                 processed_images.append(img_byte_arr)
-        print(processed_images )
-        print(height, width, n_images, model, prompt)
         # Use images.edit for image editing
         result = client.images.edit(
             model=model,
@@ -82,14 +77,12 @@ def openai_image_gen(
             prompt=prompt,
             n=n_images,
             size=f"{height}x{width}",
-            response_format="b64_json"  # Request base64 encoded image
         )
 
-    # Process the result
     image_base64 = result.data[0].b64_json
     image_bytes = base64.b64decode(image_base64)
     image = Image.open(io.BytesIO(image_bytes))
-    
+    image.save('generated_image.png') 
     return image
 
 
@@ -161,8 +154,8 @@ def gemini_image_gen(
 
 def generate_image(
     prompt: str,
-    model: str = NPCSH_IMAGE_GEN_MODEL,
-    provider: str = NPCSH_IMAGE_GEN_PROVIDER,
+    model: str ,
+    provider: str ,
     height: int = 1024,
     width: int = 1024,
     n_images: int = 1,
@@ -192,7 +185,7 @@ def generate_image(
     # Set default model if none provided
     if model is None:
         if provider == "openai":
-            model = "gpt-image-1"
+            model = "dall-e-2"
         elif provider == "diffusers":
             model = "runwayml/stable-diffusion-v1-5"
         elif provider == "gemini":

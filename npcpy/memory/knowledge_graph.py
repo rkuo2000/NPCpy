@@ -746,39 +746,6 @@ def visualize_graph(conn):
     plt.show()
 
 
-try:
-    import chromadb
-except ModuleNotFoundError:
-    print("chromadb not installed")
-import numpy as np
-import os
-import datetime
-from typing import Optional, Dict, List, Union, Tuple
-
-
-def setup_chroma_db(db_path: str):
-    """Initialize Chroma vector database without a default embedding function"""
-    try:
-        # Create or connect to Chroma client with persistent storage
-        client = chromadb.PersistentClient(path=db_path)
-
-        # Check if collection exists, create if not
-        try:
-            collection = client.get_collection("facts_collection")
-            print("Connected to existing facts collection")
-        except ValueError:
-            # Create new collection without an embedding function
-            # We'll provide embeddings manually using get_embeddings
-            collection = client.create_collection(
-                name="facts_collection",
-                metadata={"description": "Facts extracted from various sources"},
-            )
-            print("Created new facts collection")
-
-        return client, collection
-    except Exception as e:
-        print(f"Error setting up Chroma DB: {e}")
-        raise
 
 
 def store_fact_with_embedding(
@@ -867,6 +834,10 @@ def process_text_with_chroma(
     chroma_db_path: str,
     text: str,
     path: str,
+    model: str ,
+    provider: str ,
+    embedding_model: str ,
+    embedding_provider: str ,
     npc: NPC = None,
     batch_size: int = 5,
 ):
@@ -888,7 +859,11 @@ def process_text_with_chroma(
     """
     # Initialize databases
     kuzu_conn = init_db(kuzu_db_path, drop=False)
-    chroma_client, chroma_collection = setup_chroma_db(chroma_db_path)
+    chroma_client, chroma_collection = setup_chroma_db( 
+        "knowledge_graph",
+        "Facts extracted from various sources",
+        chroma_db_path
+    )
 
     # Extract facts
     facts = extract_facts(text, model=model, provider=provider, npc=npc)
@@ -1086,7 +1061,11 @@ def get_facts_for_rag(
     """
     # Initialize connections
     kuzu_conn = init_db(kuzu_db_path)
-    chroma_client, chroma_collection = setup_chroma_db(chroma_db_path)
+    chroma_client, chroma_collection = setup_chroma_db( 
+        "knowledge_graph",
+        "Facts extracted from various sources",
+        chroma_db_path
+    )
 
     # Perform hybrid search
     results = hybrid_search_with_chroma(
@@ -1119,7 +1098,6 @@ def get_facts_for_rag(
     return context
 
 
-# Example usage in a RAG context
 def answer_with_rag(
     query: str,
     kuzu_db_path: str = os.path.expanduser("~/npcsh_graph.db"),

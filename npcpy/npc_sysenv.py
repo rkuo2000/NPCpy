@@ -524,6 +524,19 @@ interactive_commands = {
     "r": ["R", "--interactive"],
 }
 
+def request_user_input(input_request: Dict[str, str]) -> str:
+    """
+    Request and get input from user.
+
+    Args:
+        input_request: Dict with reason and prompt for input
+
+    Returns:
+        User's input text
+    """
+    print(f"\nAdditional input needed: {input_request['reason']}")
+    return input(f"{input_request['prompt']}: ")
+
 
 def render_markdown(text: str) -> None:
     """
@@ -927,6 +940,7 @@ def initialize_base_npcs_if_needed(db_path: str) -> None:
                 source_path, destination_path
             ):
                 shutil.copy2(source_path, destination_path)
+                print(f"Copied NPC {filename} to {destination_path}")
         if filename.endswith(".ctx"):
             source_path = os.path.join(package_npc_team_dir, filename)
             destination_path = os.path.join(user_npc_team_dir, filename)
@@ -934,6 +948,7 @@ def initialize_base_npcs_if_needed(db_path: str) -> None:
                 source_path, destination_path
             ):
                 shutil.copy2(source_path, destination_path)
+                print(f"Copied tool {filename} to {destination_tool_path}")
 
     # Copy tools from package to user directory
     package_tools_dir = os.path.join(package_npc_team_dir, "tools")
@@ -1354,13 +1369,6 @@ def print_and_process_stream_with_markdown(response,
                     
             if reasoning_content:
                 chunk_content = reasoning_content
-            chunk_content += "".join(
-                choice.delta.content
-                for choice in chunk.choices
-                if choice.delta.content is not None
-            )
-
-
             
             chunk_content += "".join(
                 c.delta.content for c in chunk.choices if c.delta.content

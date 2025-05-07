@@ -20,9 +20,7 @@ import npcpy as npy
 
 
 from npcpy.npc_sysenv import (
-    NPCSH_CHAT_MODEL,
-    NPCSH_CHAT_PROVIDER,
-    NPCSH_API_URL,
+
     get_npc_path,
     init_db_tables
     )
@@ -324,9 +322,9 @@ class NPC:
         else:
             self.name = name            
             self.primary_directive = primary_directive
-            self.model = model or NPCSH_CHAT_MODEL
-            self.provider = provider or NPCSH_CHAT_PROVIDER
-            self.api_url = api_url or NPCSH_API_URL
+            self.model = model 
+            self.provider = provider 
+            self.api_url = api_url 
             self.api_key = api_key
         self.npc_directory = os.path.abspath('./npc_team/')
         
@@ -404,9 +402,9 @@ class NPC:
         else:
             self.tools_spec = tools_spec
 
-        self.model = npc_data.get("model", NPCSH_CHAT_MODEL)
-        self.provider = npc_data.get("provider", NPCSH_CHAT_PROVIDER)
-        self.api_url = npc_data.get("api_url", NPCSH_API_URL)
+        self.model = npc_data.get("model")
+        self.provider = npc_data.get("provider")
+        self.api_url = npc_data.get("api_url")
         self.api_key = npc_data.get("api_key")
         self.name = npc_data.get("name", self.name)
 
@@ -721,18 +719,19 @@ class Team:
             if fname.endswith('.ctx'):
                 # do stuff on the file
                 
-                ctx_data = load_yaml_file(fname)
+                ctx_data = load_yaml_file(os.path.join(self.team_path, fname))
                 
-                if 'mcp_servers' in ctx_data:
-                    self.mcp_servers = ctx_data['mcp_servers']
-                if 'databases' in ctx_data:
-                    self.databases = ctx_data['databases']
-                if 'context' in ctx_data:
-                    self.context = ctx_data['context']
-                # check other potential keys
-                for key, item in ctx_data.items():
-                    if key not in ['name', 'mcp_servers', 'databases', 'context']:
-                        self.shared_context[key] = item
+                if ctx_data is not None:
+                    if 'mcp_servers' in ctx_data:
+                        self.mcp_servers = ctx_data['mcp_servers']
+                    if 'databases' in ctx_data:
+                        self.databases = ctx_data['databases']
+                    if 'context' in ctx_data:
+                        self.context = ctx_data['context']
+                    # check other potential keys
+                    for key, item in ctx_data.items():
+                        if key not in ['name', 'mcp_servers', 'databases', 'context']:
+                            self.shared_context[key] = item
                 return ctx_data
         return {}
         

@@ -10,68 +10,15 @@ from npcpy.npc_sysenv import (NPCSH_REASONING_MODEL,
                               NPCSH_CHAT_PROVIDER, 
                               NPCSH_API_URL, 
                               NPCSH_STREAM_OUTPUT,print_and_process_stream_with_markdown)
-from npcpy.llm_funcs import get_llm_response
+from npcpy.llm_funcs import get_llm_response, handle_request_input
 
 from npcpy.npc_compiler import NPC 
 from npcpy.data.load import load_csv, load_pdf
 from npcpy.data.text import rag_search
 
-def request_user_input(input_request: Dict[str, str]) -> str:
-    """
-    Request and get input from user.
-
-    Args:
-        input_request: Dict with reason and prompt for input
-
-    Returns:
-        User's input text
-    """
-    print(f"\nAdditional input needed: {input_request['reason']}")
-    return input(f"{input_request['prompt']}: ")
 
 
 
-
-
-def handle_request_input(
-    context: str,
-    model: str = NPCSH_CHAT_MODEL,
-    provider: str = NPCSH_CHAT_PROVIDER,
-):
-    """
-    Analyze text and decide what to request from the user
-    """
-    prompt = f"""
-    Analyze the text:
-    {context}
-    and determine what additional input is needed.
-    Return a JSON object with:
-    {{
-        "input_needed": boolean,
-        "request_reason": string explaining why input is needed,
-        "request_prompt": string to show user if input needed
-    }}
-
-    Do not include any additional markdown formatting or leading ```json tags. Your response
-    must be a valid JSON object.
-    """
-
-    response = get_llm_response(
-        prompt,
-        model=model,
-        provider=provider,
-        messages=[],
-        format="json",
-    )
-
-    result = response.get("response", {})
-    if isinstance(result, str):
-        result = json.loads(result)
-
-    user_input = request_user_input(
-        {"reason": result["request_reason"], "prompt": result["request_prompt"]},
-    )
-    return user_input
 
 
 def enter_reasoning_human_in_the_loop(

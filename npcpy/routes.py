@@ -6,15 +6,18 @@ import os
 import traceback
 import shlex
 import time
+from datetime import datetime
 from sqlalchemy import create_engine
 from npcpy.npc_sysenv import (
     render_code_block, render_markdown,
     NPCSH_VISION_MODEL, NPCSH_VISION_PROVIDER, NPCSH_API_URL,
     NPCSH_CHAT_MODEL, NPCSH_CHAT_PROVIDER, NPCSH_STREAM_OUTPUT,
     NPCSH_IMAGE_GEN_MODEL, NPCSH_IMAGE_GEN_PROVIDER,
+    NPCSH_EMBEDDING_MODEL, NPCSH_EMBEDDING_PROVIDER,
     NPCSH_REASONING_MODEL, NPCSH_REASONING_PROVIDER,
     NPCSH_SEARCH_PROVIDER,
 )
+from npcpy.data.load import load_file_contents
 
 from npcpy.llm_funcs import (
     get_llm_response,
@@ -30,7 +33,10 @@ from npcpy.work.trigger import execute_trigger_command
 from npcpy.work.desktop import perform_action
 
 
-from npcpy.memory.search import execute_rag_command, execute_search_command
+from npcpy.memory.search import execute_rag_command, execute_search_command, execute_brainblast_command
+from npcpy.memory.command_history import CommandHistory
+
+
 from npcpy.memory.knowledge_graph import breathe
 from npcpy.memory.sleep import run_breathe_cycle
 
@@ -330,6 +336,9 @@ def plan_handler(command: str, **kwargs):
         traceback.print_exc()
         return {"output": f"Error executing plan: {e}", "messages": messages}
 
+@router.route("pti", "Use pardon-the-interruption mode to interact with the LLM")
+def plonk_handler(command: str, **kwargs):
+    return
 
 @router.route("plonk", "Use vision model to interact with GUI")
 def plonk_handler(command: str, **kwargs):
@@ -363,24 +372,102 @@ def plonk_handler(command: str, **kwargs):
     except Exception as e:
         traceback.print_exc()
         return {"output": f"Error executing plonk command: {e}", "messages": messages}
-
-
-@router.route("rag", "Execute a RAG command using ChromaDB embeddings")
+@router.route("brainblast", "Execute an advanced chunked search on command history")
+def brainblast_handler(command: str, **kwargs):
+    messages = safe_get(kwargs, "messages", [])
+    
+    # Parse command to get the search query
+    parts = shlex.split(command)
+    search_query = " ".join(parts[1:]) if len(parts) > 1 else ""
+    
+    if not search_query:
+        return {"output": "Usage: /brainblast <search_terms>", "messages": messages}
+    
+    # Get the command history instance
+    command_history = kwargs.get('command_history')
+    if not command_history:
+        # Create a new one if not provided
+        db_path = safe_get(kwargs, "history_db_path", os.path.expanduser('~/npcsh_history.db'))
+        try:
+            command_history = CommandHistory(db_path)
+        except Exception as e:
+            return {"output": f"Error connecting to command history: {e}", "messages": messages}
+    
+    try:
+        # Remove messages from kwargs to avoid duplicate argument error
+        if 'messages' in kwargs:
+            del kwargs['messages']
+            
+        # Execute the brainblast command
+        return execute_brainblast_command(
+            command=search_query,
+            command_history=command_history,
+            messages=messages,
+            top_k=safe_get(kwargs, 'top_k', 5),
+            **kwargs
+        )
+    
+    except Exception as e:
+        traceback.print_exc()
+        return {"output": f"Error executing brainblast command: {e}", "messages": messages}
+    
+@router.route("rag", "Execute a RAG command using ChromaDB embeddings with optional file input (-f/--file)")
 def rag_handler(command: str, **kwargs):
     messages = safe_get(kwargs, "messages", [])
-    user_command = " ".join(command.split()[1:])
-    if not user_command:
-        return {"output": "Usage: /rag <query>", "messages": messages}
+    
+    # Parse command with shlex to properly handle quoted strings
+    parts = shlex.split(command)
+    user_command = []
+    file_paths = []
+    
+    # Process arguments
+    i = 1  # Skip the first element which is "rag"
+    while i < len(parts):
+        if parts[i] == "-f" or parts[i] == "--file":
+            # We found a file flag, get the file path
+            if i + 1 < len(parts):
+                file_paths.append(parts[i + 1])
+                i += 2  # Skip both the flag and the path
+            else:
+                return {"output": "Error: -f/--file flag needs a file path", "messages": messages}
+        else:
+            # This is part of the user query
+            user_command.append(parts[i])
+            i += 1
+    
+    user_command = " ".join(user_command)
+    
+    vector_db_path = safe_get(kwargs, "vector_db_path", os.path.expanduser('~/npcsh_chroma.db'))
+    embedding_model = safe_get(kwargs, "embedding_model", NPCSH_EMBEDDING_MODEL)
+    embedding_provider = safe_get(kwargs, "embedding_provider", NPCSH_EMBEDDING_PROVIDER)
+    
+    if not user_command and not file_paths:
+        return {"output": "Usage: /rag [-f file_path] <query>", "messages": messages}
+    
     try:
-        return execute_rag_command(command=user_command, **kwargs)
-    except NameError:
-        return {"output": "RAG function (execute_rag_command) not available.", "messages": messages}
+        # Process files if provided
+        file_contents = []
+        for file_path in file_paths:
+            try:
+                chunks = load_file_contents(file_path)
+                file_name = os.path.basename(file_path)
+                file_contents.extend([f"[{file_name}] {chunk}" for chunk in chunks])
+            except Exception as file_err:
+                file_contents.append(f"Error processing file {file_path}: {str(file_err)}")
+        
+        # Execute the RAG command
+        return execute_rag_command(
+            command=user_command,
+            vector_db_path=vector_db_path,
+            embedding_model=embedding_model,
+            embedding_provider=embedding_provider,
+            file_contents=file_contents if file_paths else None,
+            **kwargs
+        )
+    
     except Exception as e:
         traceback.print_exc()
         return {"output": f"Error executing RAG command: {e}", "messages": messages}
-
-
-
 @router.route("roll", "generate a video")
 def roll_handler(command: str, **kwargs):
     messages = safe_get(kwargs, "messages", [])
@@ -438,8 +525,18 @@ def sample_handler(command: str, **kwargs):
 
 @router.route("search", "Execute a web search command")
 def search_handler(command: str, **kwargs):
+    """    
+    Executes a search command.
+    # search commands will bel ike :
+    # '/search -p default = google "search term" '
+    # '/search -p perplexity ..
+    # '/search -p google ..
+    # extract provider if its there
+    # check for either -p or --p        
+    """
     messages = safe_get(kwargs, "messages", [])
     query = " ".join(command.split()[1:])
+    
     if not query:
         return {"output": "Usage: /search <query>", "messages": messages}
     search_provider = safe_get(kwargs, 'search_provider', NPCSH_SEARCH_PROVIDER)
@@ -577,14 +674,12 @@ def trigger_handler(command: str, **kwargs):
         return {"output": f"Error executing trigger: {e}", "messages": messages}
 @router.route("vixynt", "Generate images from text descriptions")
 def vixynt_handler(command: str, **kwargs):
-    print(kwargs)
-    print(command)
     npc = safe_get(kwargs, 'npc')
     model = safe_get(kwargs, 'model', NPCSH_IMAGE_GEN_MODEL)
     provider = safe_get(kwargs, 'provider', NPCSH_IMAGE_GEN_PROVIDER)
     height = safe_get(kwargs, 'height', 1024)
     width = safe_get(kwargs, 'width', 1024)
-    
+    filename = safe_get(kwargs, 'output_filename', None)
     if model == NPCSH_CHAT_MODEL: model = NPCSH_IMAGE_GEN_MODEL
     if provider == NPCSH_CHAT_PROVIDER: provider = NPCSH_IMAGE_GEN_PROVIDER
 
@@ -621,7 +716,7 @@ def vixynt_handler(command: str, **kwargs):
         return {"output": "Usage: /vixynt <prompt> [filename=...] [height=...] [width=...] [input=...for editing]", "messages": messages}
 
     try:
-        image_filename = gen_image(
+        image = gen_image(
             prompt=user_prompt,
             model=model,
             provider=provider,
@@ -631,11 +726,20 @@ def vixynt_handler(command: str, **kwargs):
             width=width,
             input_images=attachments  # Pass the input image as a list
         )
-        
+        if filename is None:
+            # Generate a filename based on the prompt and the date time
+            os.makedirs(os.path.expanduser("~/.npcsh/images/"), exist_ok=True)
+            filename = (
+                os.path.expanduser("~/.npcsh/images/")
+                + f"image_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+            )    
+        image.save(filename)
+        image.show()
+
         if attachments:
-            output = f"Image edited and saved to: {image_filename}"
+            output = f"Image edited and saved to: {filename}"
         else:
-            output = f"Image generated and saved to: {image_filename}"
+            output = f"Image generated and saved to: {filename}"
     except Exception as e:
         traceback.print_exc()
         output = f"Error {'editing' if attachments else 'generating'} image: {e}"

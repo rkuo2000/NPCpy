@@ -18,6 +18,7 @@ from sqlalchemy import create_engine
 from npcpy.npc_sysenv import (
     render_markdown,
     lookup_provider,
+    request_user_input
 )
 from npcpy.gen.response import get_litellm_response
 from npcpy.gen.image_gen import generate_image, edit_image
@@ -27,7 +28,6 @@ def gen_image(
     prompt: str,
     model: str = None,
     provider: str = None,
-    filename: str = None,
     npc: Any = None,
     height: int = 1024,
     width: int = 1024,
@@ -44,7 +44,6 @@ def gen_image(
     Returns:
         str: The filename of the saved image.
     """
-    print(height)
     if model is not None and provider is not None:
         pass
     elif model is not None and provider is None:
@@ -56,13 +55,7 @@ def gen_image(
             model = npc.model
         if npc.api_url is not None:
             api_url = npc.api_url
-    if filename is None:
-        # Generate a filename based on the prompt and the date time
-        os.makedirs(os.path.expanduser("~/.npcsh/images/"), exist_ok=True)
-        filename = (
-            os.path.expanduser("~/.npcsh/images/")
-            + f"image_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
-        )
+
     image = generate_image(
         prompt=prompt,
         model=model,
@@ -72,26 +65,8 @@ def gen_image(
         attachments=input_images,
         
     )
-    if isinstance(image, PIL.Image.Image):
-        image.save(filename)
-        return filename
+    return image
 
-    else:
-        try:
-            # image is at a private url (for dall-e?)
-            response = requests.get(image.data[0].url)
-            with open(filename, "wb") as file:
-                file.write(response.content)
-            from PIL import Image
-
-            img = Image.open(filename)
-            img.show()
-            # console = Console()
-            # console.print(Image.from_path(filename))
-            return filename
-
-        except AttributeError as e:
-            print(f"Error saving image: {e}")
 
 
 def generate_video(
@@ -508,6 +483,7 @@ def handle_tool_call(
             api_url=api_url,
             api_key=api_key,
             npc=npc,
+            context=context
         )
         try:
             # Clean the response of markdown formatting
@@ -553,6 +529,7 @@ def handle_tool_call(
                     stream=stream,
                     attempt=attempt + 1,
                     n_attempts=n_attempts,
+                    context=context
                 )
             return {
                 "response": f"Missing inputs for tool '{tool_name}': {missing_inputs}",
@@ -610,9 +587,10 @@ def handle_tool_call(
                     stream=stream,
                     attempt=attempt + 1,
                     n_attempts=n_attempts,
+                    context=context,
                 )
         # process the tool call
-        render_markdown(f""" ## TOOL OUTPUT FROM CALLING {tool_name} \n \n {tool_output}""" )
+        render_markdown(f""" ## TOOL OUTPUT FROM CALLING {tool_name} \n \n output:{tool_output['output']}""" )
         response = get_llm_response(f"""
             The user had the following request: {command}. 
             Here were the tool outputs from calling {tool_name}: {tool_output}
@@ -626,6 +604,7 @@ def handle_tool_call(
             api_key=api_key,
             npc=npc,
             messages=messages,
+            context=context, 
             stream=stream,
         )
         messages = response['messages']
@@ -633,6 +612,46 @@ def handle_tool_call(
         
         return {'messages': messages, 'response': response}
 
+
+def handle_request_input(
+    context: str,
+    model: str ,
+    provider: str 
+):
+    """
+    Analyze text and decide what to request from the user
+    """
+    prompt = f"""
+    Analyze the text:
+    {context}
+    and determine what additional input is needed.
+    Return a JSON object with:
+    {{
+        "input_needed": boolean,
+        "request_reason": string explaining why input is needed,
+        "request_prompt": string to show user if input needed
+    }}
+
+    Do not include any additional markdown formatting or leading ```json tags. Your response
+    must be a valid JSON object.
+    """
+
+    response = get_llm_response(
+        prompt,
+        model=model,
+        provider=provider,
+        messages=[],
+        format="json",
+    )
+
+    result = response.get("response", {})
+    if isinstance(result, str):
+        result = json.loads(result)
+
+    user_input = request_user_input(
+        {"reason": result["request_reason"], "prompt": result["request_prompt"]},
+    )
+    return user_input
 
 
 def check_llm_command(
@@ -900,7 +919,7 @@ def check_llm_command(
         print(npc_to_pass)
         agent_passes = []
         if team is not None:
-            print(f"team npcs: {team.npcs}")
+            #print(f"team npcs: {team.npcs}")
             match = team.npcs.get(npc_to_pass)
             if match is not None:
                 npc_to_pass_obj = match
