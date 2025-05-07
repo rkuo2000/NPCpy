@@ -42,6 +42,7 @@ from npcpy.memory.command_history import (
     CommandHistory,
     save_conversation_message,
 )
+from npcpy.memory.knowledge_graph import breathe
 from npcpy.npc_compiler import NPC, Team
 from npcpy.llm_funcs import check_llm_command, get_llm_response, execute_llm_command
 from npcpy.gen.embeddings import get_embeddings
@@ -843,18 +844,27 @@ def run_repl(command_history: CommandHistory, initial_state: ShellState):
                     continue
                 else:
                     print("Goodbye!")
+                    print('beginning knowledge consolidation')
+                    
+                    breathe_result = breathe(state.messages, state.chat_model, state.chat_provider, state.npc)
+                    
                     break
 
             state.current_path = os.getcwd()
             
             state, output = execute_command(user_input, state)
-            #(state, output)
+            #print(state, output)
             process_result(user_input, state, output, command_history)
 
         except (KeyboardInterrupt):
             print("\nUse 'exit' or 'quit' to leave.")
         except EOFError:
             print("\nGoodbye!")
+            print('beginning knowledge consolidation')
+            
+            breathe_result = breathe(state.messages, state.chat_model, state.chat_provider, state.npc)
+            
+            print(breathe_result)
             break
 
 def run_non_interactive(command_history: CommandHistory, initial_state: ShellState):

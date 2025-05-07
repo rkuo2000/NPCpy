@@ -532,7 +532,7 @@ def handle_tool_call(
                     context=context
                 )
             return {
-                "response": f"Missing inputs for tool '{tool_name}': {missing_inputs}",
+                "output": f"Missing inputs for tool '{tool_name}': {missing_inputs}",
                 "messages": messages,
             }
 
@@ -610,7 +610,7 @@ def handle_tool_call(
         messages = response['messages']
         response = response.get("response", {})
         
-        return {'messages': messages, 'response': response}
+        return {'messages': messages, 'output': response}
 
 
 def handle_request_input(
@@ -917,7 +917,7 @@ def check_llm_command(
                 npc=npc,
                 stream=stream,
             )
-        # Check if it's an MCP tool - pass ALL tools, not just the one
+            return result
         else:
             return {"messages": messages, "output": f"Tool '{tool_name}' not found"}
     elif action == "answer_question":

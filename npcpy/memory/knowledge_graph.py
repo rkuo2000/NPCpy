@@ -243,6 +243,104 @@ def extract_lessons_learned(
     print(response)
     return response["fact_list"]
 
+def identify_individuals(
+    text: str, model: str = "llama3.2", provider: str = "ollama", npc: NPC = None, context: str = ""
+) -> List:
+    """Identify individuals from text using LLM"""
+    prompt = """Extract individuals from this text.
+        An individual is a person or entity that is mentioned in the text.
+        Individuals may be simple or complex. They can also be conflicting with each other, usually
+        because there is some hidden context that is not mentioned in the text.
+        In any case, it is simply your job to extract a list of individuals that could pertain to
+        an individual's  personality.
+        For example, if a messages says :
+            "since my coworker is a hardass i have to do this thing very carefully.
+            "
+        You might extract the following individuals:
+            - There is a coworker
+        
+
+        Another example:
+            "I am a software engineer who loves to play video games. I am also a huge fan of the
+            Star Wars franchise and I am a member of the 501st Legion."
+        You might extract the following individuals:
+            - The individual is a software engineer
+            - The individual loves to play video games
+            - The individual is a huge fan of the Star Wars franchise
+            - The individual is a member of the 501st Legion
+
+        Thus, it is your mission to reliably extract lists of personas.
+
+
+    Return a JSON object with the following structure:
+
+        {
+            "persona_list": "a list containing the personas where each persona is a string",
+        }
+
+
+    """ + f""" Here is some relevant user context: {context}
+    
+    
+    Return only the JSON object.
+    Do not include any additional markdown formatting.
+
+    """
+
+    response = get_llm_response(
+        prompt + f"\n\nText: {text}",
+        model=model,
+        provider=provider,
+        format="json",
+    )
+    response = response["response"]
+    print(response)
+    return response["fact_list"]
+def check_existing_individuals( 
+    new_individuals, 
+    existing_individuals,
+    model: str = "llama3.2",
+    provider: str = "ollama",
+    npc: NPC = None,
+) -> List[str]:
+    prompt =f'''
+    
+    please compare the set of new individuals with the set of existing individuals.
+    
+    New individuals: {new_individuals}
+    
+    Existing individuals: {existing_individuals}
+    
+    
+    Return a JSON object with the following structure:
+        {
+            "new_individuals": "a list containing the new individuals that are not in the existing individuals",
+            "existing_mapping": "a dictionary mapping the new individuals to the existing individuals they are idempotent to"
+        }
+    If an individual's functional relationship is essentially idempotent to an existing individual, 
+    then it is not a new individual. For example, if a new individual is a coworker and there is an existing "coworker" identifier,
+    then the new individual is not a new individual and their information should be associated with the existing individual.
+     Another example is if a new individual is "one of my best friends" and there is an existing "best friend" identifier,
+     then without an associated name it is best to associate that individual with the generalized class of "best friend" rather than
+     trying to keep track of multiple individual best friends.
+     
+     An example which would not be idempotent is if a new individual is "my best friend John" and there is an existing "best friend" identifier.
+        
+        this name is able to break a degeneracy and so it can be separated into a new specific individual. 
+        At a later time, usersr will review the data labels and can update them for some of our more generic classes, 
+        so don't feel like you have be too scrutinous against new groups but simply try to keep the set of known individual entities
+        as small as possible
+        '''
+    response = get_llm_response(
+        prompt,
+        model=model,
+        provider=provider,
+        format="json",
+        npc=npc,
+    )
+    response = response["response"]
+    print(response)
+    return response["new_individuals"], response["existing_mapping"]
 
 def extract_facts(
     text: str, model: str = "llama3.2", provider: str = "ollama", npc: NPC = None, context: str = ""
@@ -300,8 +398,8 @@ def extract_facts(
     return response["fact_list"]
 def breathe(
             messages: Optional[List[Dict[str, str]]],
-            model: str = None, 
-            provider: str = None, 
+            model: str,
+            provider: str,
             npc: Any = None, 
             context:str = None,             
             ) -> Dict[str, Any]:
@@ -321,25 +419,21 @@ def breathe(
         npc=npc,
         model=model,
         provider=provider,
-        messages=messages,
         )
     mistakes = extract_mistakes(
         str(messages),
         npc=npc,
         model=model,
         provider=provider,
-        messages=messages,
         )
     lessons = extract_lessons_learned(
         str(messages),
         npc=npc,
         model=model,
         provider=provider,
-        messages=messages,
         )
-    text_combined = f"{facts} {mistakes} {lessons}"
-    
-    return {"output": text_combined, "messages": []}
+    # execute slash command will handle updating database     
+    return {"output": {'facts': facts, 'mistakes': mistakes, 'lessons': lessons}, "messages": []}
     
 
 def find_similar_groups(

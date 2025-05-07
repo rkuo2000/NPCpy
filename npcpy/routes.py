@@ -38,7 +38,7 @@ from npcpy.memory.command_history import CommandHistory
 
 
 from npcpy.memory.knowledge_graph import breathe
-from npcpy.memory.sleep import run_breathe_cycle
+from npcpy.memory.sleep import sleep, forget
 
 from npcpy.modes.guac import enter_guac_mode
 from npcpy.modes.plonk import execute_plonk_command

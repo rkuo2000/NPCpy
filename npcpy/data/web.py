@@ -58,7 +58,7 @@ def search_perplexity(
     # Make the POST request to the API
     response = requests.post(url, json=payload, headers=headers)
     response = json.loads(response.text)
-    print(response)
+    #print(response)
     return [response["choices"][0]["message"]["content"], response["citations"]]
 
 
