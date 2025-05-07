@@ -1343,45 +1343,81 @@ def render_code_block(code: str, language: str = None) -> None:
         code, language or "python", theme="monokai", line_numbers=False, padding=0
     )
     console.print(syntax)
-
-    
-def print_and_process_stream_with_markdown(response, 
-                                           model, 
-                                           provider):
+def print_and_process_stream_with_markdown(response, model, provider):
     str_output = ""
     dot_count = 0  # Keep track of how many dots we've printed
-    
+    tool_call_data = {"id": None, "function_name": None, "arguments": ""}
+
     for chunk in response:
         # Get chunk content based on provider
         print('.', end="", flush=True)
         dot_count += 1
-
+        
+        # Extract tool call info based on provider
         if provider == "ollama":
+            # Ollama tool call extraction
+            if "message" in chunk and "tool_calls" in chunk["message"]:
+                for tool_call in chunk["message"]["tool_calls"]:
+                    if "id" in tool_call:
+                        tool_call_data["id"] = tool_call["id"]
+                    if "function" in tool_call:
+                        if "name" in tool_call["function"]:
+                            tool_call_data["function_name"] = tool_call["function"]["name"]
+                        if "arguments" in tool_call["function"]:
+                            tool_call_data["arguments"] += tool_call["function"]["arguments"]
             
-            chunk_content = chunk["message"]["content"]
+            chunk_content = chunk["message"]["content"] if "message" in chunk and "content" in chunk["message"] else ""
         else:
+            # LiteLLM tool call extraction
+            for c in chunk.choices:
+                if hasattr(c.delta, "tool_calls") and c.delta.tool_calls:
+                    for tool_call in c.delta.tool_calls:
+                        if tool_call.id:
+                            tool_call_data["id"] = tool_call.id
+                        if tool_call.function:
+                            if hasattr(tool_call.function, "name") and tool_call.function.name:
+                                tool_call_data["function_name"] = tool_call.function.name
+                            if hasattr(tool_call.function, "arguments") and tool_call.function.arguments:
+                                tool_call_data["arguments"] += tool_call.function.arguments
+            
             chunk_content = ''
             reasoning_content = ''
             for c in chunk.choices:
-                if hasattr(c.delta, "reasoning_content"):
-                    
+                if hasattr(c.delta, "reasoning_content"):        
                     reasoning_content += c.delta.reasoning_content
-                    
+            
             if reasoning_content:
                 chunk_content = reasoning_content
-            
+                    
             chunk_content += "".join(
                 c.delta.content for c in chunk.choices if c.delta.content
-            ) 
+            )
+        
         if not chunk_content:
             continue
-        str_output += chunk_content         
+        str_output += chunk_content
     
     # Clear the dots by returning to the start of line and printing spaces
     print('\r' + ' ' * dot_count*2 + '\r', end="", flush=True)
     
+    # Add tool call information to str_output if any was found
+    if tool_call_data["id"] or tool_call_data["function_name"] or tool_call_data["arguments"]:
+        str_output += "\n\n### Tool Call Data\n"
+        if tool_call_data["id"]:
+            str_output += f"**ID:** {tool_call_data['id']}\n\n"
+        if tool_call_data["function_name"]:
+            str_output += f"**Function:** {tool_call_data['function_name']}\n\n"
+        if tool_call_data["arguments"]:
+            try:
+                import json
+                args_parsed = json.loads(tool_call_data["arguments"])
+                str_output += f"**Arguments:**\n```json\n{json.dumps(args_parsed, indent=2)}\n```"
+            except:
+                str_output += f"**Arguments:** `{tool_call_data['arguments']}`"
+    
     print('\n')
-    render_markdown('\n' + str_output)       
+    render_markdown('\n' + str_output)
+    
     return str_output
 def print_and_process_stream(response, model, provider):
     conversation_result = ""

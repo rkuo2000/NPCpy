@@ -8,6 +8,7 @@ import os
 import subprocess
 import json
 import asyncio
+
 from typing import Optional, Dict, Any, List, Union, Callable
 # MCP imports
 from mcp.server.fastmcp import FastMCP
@@ -168,14 +169,18 @@ except ImportError:
 # Load npc_sysenv functions
 #print("Loading functions from npcpy.npc_sysenv...")
 #register_module_tools("npcpy.npc_sysenv")
+register_module_tools("npcpy.memory.search")
+
+register_module_tools("npcpy.work.plan")
+register_module_tools("npcpy.work.trigger")
+register_module_tools("npcpy.work.desktop")
+
+#print("Loading functions from npcpy.command_history...")
+#register_module_tools("npcpy.memory.command_history")
 
 
-print("Loading functions from npcpy.command_history...")
-register_module_tools("npcpy.memory.command_history")
-
-
-print("Loading functions from npcpy.npc_sysenv...")
-register_module_tools("npcpy.llm_funcs")
+#print("Loading functions from npcpy.npc_sysenv...")
+#register_module_tools("npcpy.llm_funcs")
 
 
 # ==================== MAIN ENTRY POINT ====================

@@ -410,7 +410,7 @@ def brainblast_handler(command: str, **kwargs):
     except Exception as e:
         traceback.print_exc()
         return {"output": f"Error executing brainblast command: {e}", "messages": messages}
-    
+
 @router.route("rag", "Execute a RAG command using ChromaDB embeddings with optional file input (-f/--file)")
 def rag_handler(command: str, **kwargs):
     messages = safe_get(kwargs, "messages", [])
@@ -472,7 +472,7 @@ def rag_handler(command: str, **kwargs):
 def roll_handler(command: str, **kwargs):
     messages = safe_get(kwargs, "messages", [])
     prompt = " ".join(command.split()[1:])
-    num_frames = safe_get(kwargs, 'num_frames', 10)
+    num_frames = safe_get(kwargs, 'num_frames', 125)
     width = safe_get(kwargs, 'width', 256)
     height = safe_get(kwargs, 'height', 256)
     output_path = safe_get(kwargs, 'output_path', "output.mp4")    
@@ -619,7 +619,6 @@ def spool_handler(command: str, **kwargs):
             conversation_id=safe_get(kwargs, 'conversation_id'),
             stream=safe_get(kwargs, 'stream', NPCSH_STREAM_OUTPUT),
             files=safe_get(kwargs, 'files'),
-            inherit_last=safe_get(kwargs, 'inherit_last', 0),
         )
     except Exception as e:
         traceback.print_exc()

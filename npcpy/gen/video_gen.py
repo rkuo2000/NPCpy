@@ -2,10 +2,10 @@ def generate_video_diffusers(
     prompt,
     model,
     npc=None,
-    device="cpu",
+    device="gpu",
     output_path="",
-    num_inference_steps=10,
-    num_frames=125,
+    num_inference_steps=5,
+    num_frames=25,
     height=256,
     width=256,
 ):
@@ -62,7 +62,7 @@ def generate_video_diffusers(
         video_writer.release()
         print(f"Successfully saved {frames.shape[0]} frames to {output_path}")
 
-    os.makedirs("~/.npcsh/videos/")
+    os.makedirs("~/.npcsh/videos/", exist_ok=True)  
     if output_path == "":
 
         output_path = "~/.npcsh/videos/" + prompt[0:8] + ".mp4"

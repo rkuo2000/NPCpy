@@ -77,7 +77,7 @@ def generate_video(
     device: str = "cpu",
     output_path="",
     num_inference_steps=10,
-    num_frames=10,
+    num_frames=25,
     height=256,
     width=256,
     messages: list = None,
@@ -663,6 +663,8 @@ def check_llm_command(
     npc: Any = None,
     team: Any = None,
     messages: List[Dict[str, str]] = None,
+    tools = None,
+    tool_map: Dict[str, str] = None,
     images: list = None,
     stream=False,
     context=None,
@@ -686,6 +688,26 @@ def check_llm_command(
     prompt = f"""
     A user submitted this query: {command}
 
+
+    """
+    
+    if tools:
+        #assume the user just wants a tool choice response from LLM 
+        return {'messages': messages, 'output': get_llm_response(
+            prompt,
+            model=model,
+            provider=provider,
+            api_url=api_url,
+            api_key=api_key,
+            npc=npc,
+            messages=[],
+            tools=tools,
+            tool_map=tool_map,
+            context=None,
+            stream=stream,
+        ).get("response")}
+    prompt += f"""
+    
     Determine the nature of the user's request:
 
     1. Should a tool be invoked to fulfill the request?
@@ -839,6 +861,7 @@ def check_llm_command(
         messages=[],
         context=None,
     )
+    
     if "Error" in action_response:
         print(f"LLM Error: {action_response['error']}")
         return action_response["error"]
@@ -880,23 +903,23 @@ def check_llm_command(
 
     elif action == "invoke_tool":
         tool_name = response_content_parsed.get("tool_name")
-        # print(npc)
-        result = handle_tool_call(
-            command,
-            tool_name,
-            model=model,
-            provider=provider,
-            api_url=api_url,
-            api_key=api_key,
-            messages=messages,
-            npc=npc,
-            stream=stream,
-        )
-
-        messages = result.get("messages", messages)
-        output = result.get("response", "")
-        return {"messages": messages, "output": output}
-
+        
+        # Check if it's an NPC tool
+        if npc and npc.tools_dict and tool_name in npc.tools_dict:
+            result = handle_tool_call(
+                command,
+                tool_name,
+                model=model,
+                provider=provider,
+                api_url=api_url,
+                api_key=api_key,
+                messages=messages,
+                npc=npc,
+                stream=stream,
+            )
+        # Check if it's an MCP tool - pass ALL tools, not just the one
+        else:
+            return {"messages": messages, "output": f"Tool '{tool_name}' not found"}
     elif action == "answer_question":
 
         result = get_llm_response(

@@ -634,7 +634,7 @@ class CommandHistory:
             FROM command_history
             WHERE LOWER(command) LIKE LOWER(?) OR LOWER(output) LIKE LOWER(?)
             ORDER BY timestamp DESC
-            LIMIT 50
+            LIMIT 5
         """
         like_term = f"%{search_term}%"
         return self._fetch_all(sql, (like_term, like_term))

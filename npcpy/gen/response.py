@@ -180,6 +180,7 @@ def get_litellm_response(
     team: Any = None, 
     tools: list = None,
     tool_choice: Dict = None,
+    tool_map: Dict = None,
     format: Union[str, BaseModel] = None,
     messages: List[Dict[str, str]] = None,
     api_key: str = None,
@@ -304,7 +305,6 @@ def get_litellm_response(
     # Prepare API parameters
     api_params = {
         "messages": result["messages"],
-        "stream": stream,
     }
     
     # Handle provider, model, and API settings
@@ -356,10 +356,18 @@ def get_litellm_response(
 
     # Handle streaming
     if stream:
+        print('streaming response')
         if format == "json":
+            print('streaming json output')
             result["response"] = handle_streaming_json(api_params)
+        elif tools:
+            # do a call to get tool choice
+            result["response"] = completion(**api_params, stream=False)
+            result = process_tool_calls(result, tool_map, model, provider, messages, stream=True)
+            
         else:
-            result["response"] = completion(**api_params)
+            result["response"] = completion(**api_params, stream=True)
+            
         return result
     
     # Non-streaming case
@@ -438,7 +446,7 @@ def handle_streaming_json(api_params):
 import uuid
 import json
 
-def process_tool_calls(response_dict, tool_map):
+def process_tool_calls(response_dict, tool_map, model, provider, messages, stream=False):
     """
     Process tool calls from a response and execute corresponding tools.
     
@@ -451,124 +459,74 @@ def process_tool_calls(response_dict, tool_map):
     """
     result = response_dict.copy()
     result["tool_results"] = []
-    
+    print(tool_map)
     # Extract tool calls from the response
-    tool_calls = result.get("tool_calls", [])
-    if not tool_calls:
-        return result
-    
-    # Process each tool call
-    for tool_call in tool_calls:
-        #try:
-        # Extract tool details - handle both Ollama and LiteLLM formats
-        if isinstance(tool_call, dict):  # Ollama format
-            tool_id = tool_call.get("id", str(uuid.uuid4()))
-            tool_name = tool_call.get("function", {}).get("name")
-            arguments_str = tool_call.get("function", {}).get("arguments", "{}")
-        else:  # LiteLLM format - expect object with attributes
-            tool_id = getattr(tool_call, "id", str(uuid.uuid4()))
-            # Handle function as either attribute or dict
-            if hasattr(tool_call, "function"):
-                if isinstance(tool_call.function, dict):
-                    tool_name = tool_call.function.get("name")
-                    arguments_str = tool_call.function.get("arguments", "{}")
+    tool_calls = result.get("response").get("tool_calls") or result.get('response').choices[0].message.tool_calls        
+    if tool_calls is not None:
+            
+        for tool_call in tool_calls:
+            print('tool_call', tool_call)
+            
+            #try:
+            # Extract tool details - handle both Ollama and LiteLLM formats
+            if isinstance(tool_call, dict):  # Ollama format
+                tool_id = tool_call.get("id", str(uuid.uuid4()))
+                tool_name = tool_call.get("function", {}).get("name")
+                arguments_str = tool_call.get("function", {}).get("arguments", "{}")
+            else:  # LiteLLM format - expect object with attributes
+                tool_id = getattr(tool_call, "id", str(uuid.uuid4()))
+                # Handle function as either attribute or dict
+                if hasattr(tool_call, "function"):
+                    if isinstance(tool_call.function, dict):
+                        tool_name = tool_call.function.get("name")
+                        arguments_str = tool_call.function.get("arguments", "{}")
+                    else:
+                        tool_name = getattr(tool_call.function, "name", None)
+                        arguments_str = getattr(tool_call.function, "arguments", "{}")
                 else:
-                    tool_name = getattr(tool_call.function, "name", None)
-                    arguments_str = getattr(tool_call.function, "arguments", "{}")
+                    raise ValueError("Tool call missing function attribute or property")
+            
+            # Parse arguments
+            if not arguments_str:
+                arguments = {}
             else:
-                raise ValueError("Tool call missing function attribute or property")
-        
-        # Parse arguments
-        if not arguments_str:
-            arguments = {}
-        else:
-            try:
-                arguments = json.loads(arguments_str) if isinstance(arguments_str, str) else arguments_str
-            except json.JSONDecodeError:
-                arguments = {"raw_arguments": arguments_str}
-        
-        # Execute the tool if it exists in the tool map
-        if tool_name and tool_name in tool_map:
-            tool_result = tool_map[tool_name](arguments)
-            result["tool_results"].append({
-                "tool_call_id": tool_id,
-                "tool_name": tool_name,
-                "arguments": arguments,
-                "result": tool_result
-            })
+                try:
+                    arguments = json.loads(arguments_str) if isinstance(arguments_str, str) else arguments_str
+                except json.JSONDecodeError:
+                    arguments = {"raw_arguments": arguments_str}
+            print('tool_args', arguments)
+            # Execute the tool if it exists in the tool map
+            if tool_name in tool_map:
+                try:
+                    # Try calling with keyword arguments first
+                    tool_result = tool_map[tool_name](**arguments   )
+                except TypeError:
+                    # If that fails, try calling with the arguments as a single parameter
+                    tool_result = tool_map[tool_name](arguments)
+                print('tool_result', tool_result)
+                result["tool_results"].append({
+                    "tool_call_id": tool_id,
+                    "tool_name": tool_name,
+                    "arguments": arguments,
+                    "result": tool_result
+                })
             
-            # Add tool result to messages
-            result["messages"].append({
-                "role": "tool",
-                "tool_call_id": tool_id,
-                "content": json.dumps(tool_result)
-            })
-        else:
-            tool_name = tool_name or "unknown"
-            raise ValueError(f"Tool {tool_name} not found in tool map")
-            
-        #except Exception as e:
-        #error_msg = f"Error executing tool: {str(e)}"
-        #print(error_msg)
-        
-        """ # Set defaults for variables that might not be defined in case of early errors
-        if 'tool_id' not in locals():
-            tool_id = str(uuid.uuid4())
-        if 'tool_name' not in locals():
-            tool_name = "unknown"
-        if 'arguments' not in locals():
-            arguments = {}
-            
-        result["tool_results"].append({
-            "tool_call_id": tool_id,
-            "tool_name": tool_name,
-            "arguments": arguments,
-            "error": str(e)
-        })
-        
-        # Add error to messages
-        result["messages"].append({
-            "role": "tool",
-            "tool_call_id": tool_id,
-            "content": json.dumps({"error": str(e)})
-        }) """
-    
-    # Get a follow-up response with the tool results if there were any successful tool calls
-    successful_tools = [t for t in result["tool_results"] if "result" in t]
-    if successful_tools:
-        # Determine which function to use for the follow-up
-        if result.get("raw_response") and hasattr(result["raw_response"], "model"):
-            # This was a LiteLLM response
-            model_str = result["raw_response"].model
-            
-            # Extract provider
-            if "/" in model_str:
-                provider, model = model_str.split("/", 1)
-            else:
-                provider = None
-                model = model_str
+                result["messages"].append({
+                    "role": "assistant",
+                    "content": json.dumps(tool_result)
+                })
+        # follow up call to get_llm_Response
+        prompt = 'here is the result of the tool call'
+        prompt += '\n' + json.dumps(result["tool_results"])
+        prompt += '\n' + 'Please provide a response based on the tool results.'
+    else:
+        prompt ='there was no tool call. '
+    output = get_litellm_response(
+        prompt,
+        model=model,
+        provider=provider,
+        messages= result['messages'],
+        stream=stream,
+    )
                 
-            # Check if it's an Ollama model
-            if provider == "ollama" or (provider is None and "ollama" in result):
-                from npcpy.gen.response import get_ollama_response
-                follow_up = get_ollama_response(
-                    model=model,
-                    messages=result["messages"]
-                )
-            else:
-                follow_up = get_litellm_response(
-                    model=model,
-                    provider=provider,
-                    messages=result["messages"]
-                )
-        else:
-            follow_up = get_ollama_response(
-                model=result.get("model", "llama3.2"),
-                messages=result["messages"]
-            )
-        
-        # Update the response with the follow-up
-        result["response"] = follow_up["response"]
-        result["messages"] = follow_up["messages"]
-    
-    return result
+    return {'response': output['response'], 'messages': result['messages']}
