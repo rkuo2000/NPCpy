@@ -433,7 +433,7 @@ The user has entered the following in the guac {self.lang} shell:
 Generate {self.lang} code that addresses their query.
 Return ONLY executable {self.lang} code without any additional text or markdown.
 """
-                     response = get_llm_response(prompt, npc=self.npc)
+                     response = get_llm_response(prompt, model = initial_state.chat_model, provider = initial_state.chat_provider, npc=self.npc)
                      generated_code = response.get("response", "").strip()
                      generated_code = re.sub(r'^```(?:python|r|javascript)?\s*|```$', '', generated_code, flags=re.MULTILINE).strip()
 
