@@ -15,13 +15,6 @@ steps:
       else:
           results = search_web(query, num_results=5, provider = NPCSH_SEARCH_PROVIDER)
 
-      print('QUERY in tool', query)
-      results = search_web(query, num_results=5, provider = NPCSH_SEARCH_PROVIDER)
-      print('RESULTS in tool', results)
-  - engine: "natural"
-    code: |
-      Using the following information extracted from the web:
-
-      {{ results }}
-
-      Answer the users question: {{ query }}
+      #print('QUERY in tool', query)
+      output = search_web(query, num_results=5, provider = NPCSH_SEARCH_PROVIDER)
+      #print('RESULTS in tool', results)

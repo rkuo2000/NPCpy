@@ -179,7 +179,7 @@ def extract_mistakes(
 
 
 def extract_lessons_learned(
-    text: str, model: str = "llama3.2", provider: str = "ollama", npc: NPC = None, context: str = ""
+    text: str, model: str  = "llama3.2", provider: str = "ollama", npc: NPC = None, context: str = ""
 ) -> List:
     """Extract lessons_learned from text using LLM"""
     prompt = """Extract lessons learned from this text.

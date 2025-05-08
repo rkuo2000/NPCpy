@@ -428,7 +428,7 @@ def api_command(command):
         return jsonify({"error": str(e)})
 @app.route("/api/stream", methods=["POST"])
 def stream():
-    """SSE stream that takes messages, models, providers, and attachments from frontend."""
+
     data = request.json
     print(data)
     commandstr = data.get("commandstr")
@@ -523,16 +523,35 @@ def stream():
     final_response = ""  # To accumulate the assistant's response
 
     complete_response = []  # List to store all chunks
-    
     def event_stream():
+        complete_response = []
+        dot_count = 0
+        tool_call_data = {"id": None, "function_name": None, "arguments": ""}
+
         for response_chunk in stream_response['response']:
-        
-            if "hf.co" in model or provider=='ollama':
+            # Print progress dots for terminal feedback
+            print('.', end="", flush=True)
+            dot_count += 1
+            
+            if "hf.co" in model or provider == 'ollama':
                 print("streaming from hf model through ollama")
-                chunk_content = response_chunk["message"]["content"]
-                print(chunk_content)
+                chunk_content = response_chunk["message"]["content"] if "message" in response_chunk and "content" in response_chunk["message"] else ""
+                
+                # Extract tool call info for Ollama
+                if "message" in response_chunk and "tool_calls" in response_chunk["message"]:
+                    for tool_call in response_chunk["message"]["tool_calls"]:
+                        if "id" in tool_call:
+                            tool_call_data["id"] = tool_call["id"]
+                        if "function" in tool_call:
+                            if "name" in tool_call["function"]:
+                                tool_call_data["function_name"] = tool_call["function"]["name"]
+                            if "arguments" in tool_call["function"]:
+                                tool_call_data["arguments"] += tool_call["function"]["arguments"]
+                
                 if chunk_content:
                     complete_response.append(chunk_content)
+                    
+                # Keep original structure but add tool calls data
                 chunk_data = {
                     "id": None,
                     "object": None,
@@ -552,15 +571,38 @@ def stream():
                 yield f"data: {json.dumps(chunk_data)}\n\n"
 
             else:
-
+                # For LiteLLM format
                 chunk_content = ""
+                reasoning_content = ""
+                
+                # Extract tool call info for LiteLLM
+                for choice in response_chunk.choices:
+                    if hasattr(choice.delta, "tool_calls") and choice.delta.tool_calls:
+                        for tool_call in choice.delta.tool_calls:
+                            if tool_call.id:
+                                tool_call_data["id"] = tool_call.id
+                            if tool_call.function:
+                                if hasattr(tool_call.function, "name") and tool_call.function.name:
+                                    tool_call_data["function_name"] = tool_call.function.name
+                                if hasattr(tool_call.function, "arguments") and tool_call.function.arguments:
+                                    tool_call_data["arguments"] += tool_call.function.arguments
+                
+                # Check for reasoning content (thoughts)
+                for choice in response_chunk.choices:
+                    if hasattr(choice.delta, "reasoning_content"):
+                        reasoning_content += choice.delta.reasoning_content
+                
+                # Get regular content
                 chunk_content = "".join(
                     choice.delta.content
                     for choice in response_chunk.choices
                     if choice.delta.content is not None
                 )
+                
                 if chunk_content:
                     complete_response.append(chunk_content)
+                    
+                # Keep original structure but add reasoning content
                 chunk_data = {
                     "id": response_chunk.id,
                     "object": response_chunk.object,
@@ -572,6 +614,7 @@ def stream():
                             "delta": {
                                 "content": choice.delta.content,
                                 "role": choice.delta.role,
+                                "reasoning_content": reasoning_content if hasattr(choice.delta, "reasoning_content") else None,
                             },
                             "finish_reason": choice.finish_reason,
                         }
@@ -592,11 +635,15 @@ def stream():
                     message_id=message_id,  # Save with the same message_id
                 )
 
+        # Clear the dots by returning to the start of line and printing spaces
+        print('\r' + ' ' * dot_count*2 + '\r', end="", flush=True)
+        print('\n')
+
         # Send completion message
         yield f"data: {json.dumps({'type': 'message_stop'})}\n\n"
         full_content = command_history.get_full_message_content(message_id)
         command_history.update_message_content(message_id, full_content)
-
+        
     response = Response(event_stream(), mimetype="text/event-stream")
 
     return response
@@ -1151,7 +1198,7 @@ def get_conversation_messages(conversation_id):
         conn.close()
 
 
-@app.route("/api/stream", methods=["POST"])
+@app.route("/api/stream_raw", methods=["POST"])
 def stream_raw():
     """SSE stream that takes messages, models, providers, and attachments from frontend."""
     data = request.json
@@ -1251,65 +1298,89 @@ def stream_raw():
     """
     final_response = ""  # To accumulate the assistant's response
     complete_response = []  # List to store all chunks
-
     def event_stream():
-        for response_chunk in stream_response:
-            chunk_content = ""
+        str_output = ""
+        tool_call_data = {"id": None, "function_name": None, "arguments": ""}
 
-            chunk_content = "".join(
-                choice.delta.content
-                for choice in response_chunk.choices
-                if choice.delta.content is not None
-            )
+        for response_chunk in stream_response['response']:
+            chunk_content = ""
+            
+            if "hf.co" in model or provider == 'ollama':
+                print("streaming from hf model through ollama")
+                chunk_content = response_chunk["message"]["content"]
+                
+                # Extract tool call info
+                if "tool_calls" in response_chunk["message"]:
+                    for tool_call in response_chunk["message"]["tool_calls"]:
+                        if "id" in tool_call:
+                            tool_call_data["id"] = tool_call["id"]
+                        if "function" in tool_call:
+                            if "name" in tool_call["function"]:
+                                tool_call_data["function_name"] = tool_call["function"]["name"]
+                            if "arguments" in tool_call["function"]:
+                                tool_call_data["arguments"] += tool_call["function"]["arguments"]
+                    
+            else:
+                # Non-Ollama provider processing
+                for choice in response_chunk.choices:
+                    if hasattr(choice.delta, "tool_calls") and choice.delta.tool_calls:
+                        for tool_call in choice.delta.tool_calls:
+                            if tool_call.id:
+                                tool_call_data["id"] = tool_call.id
+                            if tool_call.function:
+                                if hasattr(tool_call.function, "name") and tool_call.function.name:
+                                    tool_call_data["function_name"] = tool_call.function.name
+                                if hasattr(tool_call.function, "arguments") and tool_call.function.arguments:
+                                    tool_call_data["arguments"] += tool_call.function.arguments
+                
+                    if hasattr(choice.delta, "content") and choice.delta.content:
+                        chunk_content += choice.delta.content
+
             if chunk_content:
                 complete_response.append(chunk_content)
-            chunk_data = {
-                "type": "content",  # Added type
-                "id": response_chunk.id,
-                "object": response_chunk.object,
-                "created": response_chunk.created,
-                "model": response_chunk.model,
-                "choices": [
-                    {
-                        "index": choice.index,
-                        "delta": {
-                            "content": choice.delta.content,
-                            "role": choice.delta.role,
-                        },
-                        "finish_reason": choice.finish_reason,
-                    }
-                    for choice in response_chunk.choices
-                ],
-            }
-            yield f"{json.dumps(chunk_data)}\n\n"
+                str_output += chunk_content
 
-            if save_to_sqlite3:
-                save_conversation_message(
-                    command_history,
-                    conversation_id,
-                    "assistant",
-                    chunk_content,
-                    wd=current_path,
-                    model=model,
-                    provider=provider,
-                    npc=npc,
-                    team=team,
-                    message_id=message_id,  # Save with the same message_id
-                )
+                chunk_data = {
+                    "id": response_chunk.get("id"),
+                    "object": response_chunk.get("object"),
+                    "created": response_chunk.get("created") or response_chunk["created_at"],
+                    "model": response_chunk.get("model"),
+                    "choices": [
+                        {
+                            "index": choice.index if provider != 'ollama' else 0,
+                            "delta": {
+                                "content": choice.delta.content if provider != 'ollama' else chunk_content,
+                                "role": response_chunk["message"]["role"] if provider == 'ollama' else choice.delta.role,
+                            },
+                            "finish_reason": choice.finish_reason if provider != 'ollama' else response_chunk.get("done_reason"),
+                        }
+                        for choice in response_chunk.choices if provider != 'ollama'
+                    ]
+                }
+                yield f"data: {json.dumps(chunk_data)}\n\n"
 
-            # Send completion message
-            yield f"{json.dumps({'type': 'message_stop'})}\n\n"
-            if save_to_sqlite3:
-                full_content = command_history.get_full_message_content(message_id)
-                command_history.update_message_content(message_id, full_content)
-
-        response = Response(event_stream(), mimetype="text/event-stream")
-
-        return response
+        # Clear and render markdown
+        if tool_call_data["id"] or tool_call_data["function_name"] or tool_call_data["arguments"]:
+            str_output += "\n\n### Tool Call Data\n"
+            if tool_call_data["id"]:
+                str_output += f"**ID:** {tool_call_data['id']}\n\n"
+            if tool_call_data["function_name"]:
+                str_output += f"**Function:** {tool_call_data['function_name']}\n\n"
+            if tool_call_data["arguments"]:
+                try:
+                    import json
+                    args_parsed = json.loads(tool_call_data["arguments"])
+                    str_output += f"**Arguments:**\n```json\n{json.dumps(args_parsed, indent=2)}\n```"
+                except:
+                    str_output += f"**Arguments:** `{tool_call_data['arguments']}`"
+        
+        yield f"data: {json.dumps({'type': 'message_stop'})}\n\n"
+        full_content = command_history.get_full_message_content(message_id)
+        command_history.update_message_content(message_id, full_content)
 
     response = Response(event_stream(), mimetype="text/event-stream")
-
     return response
+
 
 
 @app.after_request
