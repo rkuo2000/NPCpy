@@ -85,7 +85,8 @@ def get_locally_available_models(project_directory):
                     if "=" in line:
                         key, value = line.split("=", 1)
                         env_vars[key.strip()] = value.strip().strip("\"'")
-    if "ANTHROPIC_API_KEY" in env_vars:
+
+    if "ANTHROPIC_API_KEY" in env_vars or os.environ.get("ANTHROPIC_API_KEY"):
         try:
             import anthropic
 
@@ -96,7 +97,7 @@ def get_locally_available_models(project_directory):
                     
         except:
             print("anthropic models not indexed")
-    if "OPENAI_API_KEY" in env_vars:
+    if "OPENAI_API_KEY" in env_vars or os.environ.get("OPENAI_API_KEY"):
         try:
             import openai
 
@@ -118,7 +119,7 @@ def get_locally_available_models(project_directory):
         except:
             print("openai models not indexed")
 
-    if "GEMINI_API_KEY" in env_vars:
+    if "GEMINI_API_KEY" in env_vars or os.environ.get("GEMINI_API_KEY"):
         try:
             import google.generativeai as gemini
 
@@ -138,7 +139,7 @@ def get_locally_available_models(project_directory):
             
         except:
             print("gemini models not indexed.")
-    if "DEEPSEEK_API_KEY" in env_vars:
+    if "DEEPSEEK_API_KEY" in env_vars or os.environ.get("DEEPSEEK_API_KEY"):
         available_models['deepseek-chat'] = 'deepseek'
         available_models['deepseek-reasoner'] = 'deepseek'        
     try:
