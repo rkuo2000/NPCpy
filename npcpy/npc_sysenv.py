@@ -90,7 +90,7 @@ def get_locally_available_models(project_directory):
         try:
             import anthropic
 
-            client = anthropic.Anthropic(api_key=env_vars.get("ANTHROPIC_API_KEY"))
+            client = anthropic.Anthropic(api_key=env_vars.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_API_KEY"))
             models = client.models.list()
             for model in models.data:
                 available_models[model.id] = 'anthropic'
@@ -101,7 +101,7 @@ def get_locally_available_models(project_directory):
         try:
             import openai
 
-            openai.api_key = env_vars["OPENAI_API_KEY"]
+            openai.api_key = env_vars.get("OPENAI_API_KEY", None) or os.environ.get("OPENAI_API_KEY", None)
             models = openai.models.list()
 
             for model in models.data:
@@ -123,7 +123,7 @@ def get_locally_available_models(project_directory):
         try:
             import google.generativeai as gemini
 
-            gemini.configure(api_key=env_vars["GEMINI_API_KEY"])
+            gemini.configure(api_key=env_vars.get("GEMINI_API_KEY", None) or os.environ.get("GEMINI_API_KEY"))
             models = gemini.list_models()
             # available_models_providers.append(
             #    {
@@ -137,8 +137,8 @@ def get_locally_available_models(project_directory):
             available_models["gemini-2.0-flash-lite-preview"] = "gemini"
             available_models["gemini-2.5-pro"] = "gemini"
             
-        except:
-            print("gemini models not indexed.")
+        except Exception as e:
+            print(f"gemini models not indexed: {e}")
     if "DEEPSEEK_API_KEY" in env_vars or os.environ.get("DEEPSEEK_API_KEY"):
         available_models['deepseek-chat'] = 'deepseek'
         available_models['deepseek-reasoner'] = 'deepseek'        
@@ -152,6 +152,8 @@ def get_locally_available_models(project_directory):
                 available_models[mod] = "ollama"
     except Exception as e:
         print(f"Error loading ollama models: {e}")
+    print("locally available models", available_models)
+        
     return available_models
 
 
