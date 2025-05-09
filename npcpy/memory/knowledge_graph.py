@@ -437,7 +437,7 @@ def breathe(
     
 
 def find_similar_groups(
-    conn: kuzu.Connection,
+    conn,
     fact: str,  # Ensure fact is passed as a string
     model: str = "llama3.2",
     provider: str = "ollama",
@@ -556,7 +556,7 @@ def assign_to_groups(
     return response["response"]
 
 
-def insert_fact(conn: kuzu.Connection, fact: str, path: str) -> bool:
+def insert_fact(conn, fact: str, path: str) -> bool:
     """Insert a fact into the database with robust error handling"""
     if conn is None:
         print("Cannot insert fact: database connection is None")
@@ -613,7 +613,7 @@ def insert_fact(conn: kuzu.Connection, fact: str, path: str) -> bool:
         return False
 
 
-def assign_fact_to_group(conn: kuzu.Connection, fact: str, group: str) -> bool:
+def assign_fact_to_group(conn, fact: str, group: str) -> bool:
     """Create a relationship between a fact and a group with robust error handling"""
     if conn is None:
         print("Cannot assign fact to group: database connection is None")
@@ -671,7 +671,7 @@ def assign_fact_to_group(conn: kuzu.Connection, fact: str, group: str) -> bool:
 
 
 def save_facts_to_db(
-    conn: kuzu.Connection, facts: List[str], path: str, batch_size: int
+    conn, facts: List[str], path: str, batch_size: int
 ):
     """Save a list of facts to the database in batches"""
     for i in range(0, len(facts), batch_size):
