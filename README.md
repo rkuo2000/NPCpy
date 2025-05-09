@@ -274,8 +274,12 @@ The following are the current programs in the NPC shell:
  </details>
 
 ## `npc`
-- a command line interface offering the capabilities of the npc shell from a regular bash shell.
+- a command line interface offering the capabilities of the npc shell from a regular bash shell. Our mascot agent sibiji the spider will help you weave your agent web with the `npc` cli. 
 
+    <p align="center">
+    <img src="https://raw.githubusercontent.com/cagostino/npcsh/main/npcpy/npc_team/sibiji.png" alt="npcsh logo with sibiji the spider">
+    </p>
+    
 ### Cheat Sheet for NPC shell and cli
  <details>  <summary> Toggle Cheat Sheet </summary>
 
@@ -296,11 +300,7 @@ The following are the current programs in the NPC shell:
     
 
 
-    When beginning, `npcsh` initializes a set of agents that you can use and tweak as you go. Our mascot agent sibiji the spider will help you weave your agent web! 
 
-    <p align="center">
-    <img src="https://raw.githubusercontent.com/cagostino/npcsh/main/npcpy/npc_team/sibiji.png" alt="npcsh logo with sibiji the spider">
-    </p>
 </details> 
 
 
