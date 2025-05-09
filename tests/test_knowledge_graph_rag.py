@@ -7,7 +7,7 @@ chroma_db_path = os.path.expanduser("~/npcsh_chroma.db")
 
 # Process text and store facts with embeddings from your function
 text = """
-npcsh is a python-based command-line tool designed to integrate Large Language Models (LLMs)
+npcsh is a python-based command-line jinx designed to integrate Large Language Models (LLMs)
 into one's daily workflow by making them available through the command line shell.
 """
 

@@ -23,6 +23,7 @@ class ShellState:
     npc: Optional[Union[NPC, str]] = None
     team: Optional[Team] = None
     messages: List[Dict[str, Any]] = field(default_factory=list)
+    mcp_client: Optional[Any] = None
     conversation_id: Optional[int] = None
     chat_model: str = NPCSH_CHAT_MODEL
     chat_provider: str = NPCSH_CHAT_PROVIDER

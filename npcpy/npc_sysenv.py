@@ -85,22 +85,23 @@ def get_locally_available_models(project_directory):
                     if "=" in line:
                         key, value = line.split("=", 1)
                         env_vars[key.strip()] = value.strip().strip("\"'")
-    if "ANTHROPIC_API_KEY" in env_vars:
+
+    if "ANTHROPIC_API_KEY" in env_vars or os.environ.get("ANTHROPIC_API_KEY"):
         try:
             import anthropic
 
-            client = anthropic.Anthropic(api_key=env_vars.get("ANTHROPIC_API_KEY"))
+            client = anthropic.Anthropic(api_key=env_vars.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_API_KEY"))
             models = client.models.list()
             for model in models.data:
                 available_models[model.id] = 'anthropic'
                     
         except:
             print("anthropic models not indexed")
-    if "OPENAI_API_KEY" in env_vars:
+    if "OPENAI_API_KEY" in env_vars or os.environ.get("OPENAI_API_KEY"):
         try:
             import openai
 
-            openai.api_key = env_vars["OPENAI_API_KEY"]
+            openai.api_key = env_vars.get("OPENAI_API_KEY", None) or os.environ.get("OPENAI_API_KEY", None)
             models = openai.models.list()
 
             for model in models.data:
@@ -118,11 +119,11 @@ def get_locally_available_models(project_directory):
         except:
             print("openai models not indexed")
 
-    if "GEMINI_API_KEY" in env_vars:
+    if "GEMINI_API_KEY" in env_vars or os.environ.get("GEMINI_API_KEY"):
         try:
             import google.generativeai as gemini
 
-            gemini.configure(api_key=env_vars["GEMINI_API_KEY"])
+            gemini.configure(api_key=env_vars.get("GEMINI_API_KEY", None) or os.environ.get("GEMINI_API_KEY"))
             models = gemini.list_models()
             # available_models_providers.append(
             #    {
@@ -136,9 +137,9 @@ def get_locally_available_models(project_directory):
             available_models["gemini-2.0-flash-lite-preview"] = "gemini"
             available_models["gemini-2.5-pro"] = "gemini"
             
-        except:
-            print("gemini models not indexed.")
-    if "DEEPSEEK_API_KEY" in env_vars:
+        except Exception as e:
+            print(f"gemini models not indexed: {e}")
+    if "DEEPSEEK_API_KEY" in env_vars or os.environ.get("DEEPSEEK_API_KEY"):
         available_models['deepseek-chat'] = 'deepseek'
         available_models['deepseek-reasoner'] = 'deepseek'        
     try:
@@ -151,6 +152,8 @@ def get_locally_available_models(project_directory):
                 available_models[mod] = "ollama"
     except Exception as e:
         print(f"Error loading ollama models: {e}")
+    #print("locally available models", available_models)
+        
     return available_models
 
 
@@ -923,13 +926,15 @@ def initialize_base_npcs_if_needed(db_path: str) -> None:
     package_dir = os.path.dirname(__file__)
     package_npc_team_dir = os.path.join(package_dir, "npc_team")
 
+    
+
     # User's global npc_team directory
     user_npc_team_dir = os.path.expanduser("~/.npcsh/npc_team")
 
-    user_tools_dir = os.path.join(user_npc_team_dir, "tools")
+    user_jinxs_dir = os.path.join(user_npc_team_dir, "jinxs")
     user_templates_dir = os.path.join(user_npc_team_dir, "templates")
     os.makedirs(user_npc_team_dir, exist_ok=True)
-    os.makedirs(user_tools_dir, exist_ok=True)
+    os.makedirs(user_jinxs_dir, exist_ok=True)
     os.makedirs(user_templates_dir, exist_ok=True)
     # Copy NPCs from package to user directory
     for filename in os.listdir(package_npc_team_dir):
@@ -948,20 +953,20 @@ def initialize_base_npcs_if_needed(db_path: str) -> None:
                 source_path, destination_path
             ):
                 shutil.copy2(source_path, destination_path)
-                print(f"Copied tool {filename} to {destination_tool_path}")
+                print(f"Copied ctx {filename} to {destination_path}")
 
-    # Copy tools from package to user directory
-    package_tools_dir = os.path.join(package_npc_team_dir, "tools")
-    if os.path.exists(package_tools_dir):
-        for filename in os.listdir(package_tools_dir):
-            if filename.endswith(".tool"):
-                source_tool_path = os.path.join(package_tools_dir, filename)
-                destination_tool_path = os.path.join(user_tools_dir, filename)
-                if (not os.path.exists(destination_tool_path)) or file_has_changed(
-                    source_tool_path, destination_tool_path
+    # Copy jinxs from package to user directory
+    package_jinxs_dir = os.path.join(package_npc_team_dir, "jinxs")
+    if os.path.exists(package_jinxs_dir):
+        for filename in os.listdir(package_jinxs_dir):
+            if filename.endswith(".jinx"):
+                source_jinx_path = os.path.join(package_jinxs_dir, filename)
+                destination_jinx_path = os.path.join(user_jinxs_dir, filename)
+                if (not os.path.exists(destination_jinx_path)) or file_has_changed(
+                    source_jinx_path, destination_jinx_path
                 ):
-                    shutil.copy2(source_tool_path, destination_tool_path)
-                    print(f"Copied tool {filename} to {destination_tool_path}")
+                    shutil.copy2(source_jinx_path, destination_jinx_path)
+                    print(f"Copied jinx {filename} to {destination_jinx_path}")
 
     templates = os.path.join(package_npc_team_dir, "templates")
     if os.path.exists(templates):
@@ -1343,45 +1348,81 @@ def render_code_block(code: str, language: str = None) -> None:
         code, language or "python", theme="monokai", line_numbers=False, padding=0
     )
     console.print(syntax)
-
-    
-def print_and_process_stream_with_markdown(response, 
-                                           model, 
-                                           provider):
+def print_and_process_stream_with_markdown(response, model, provider):
     str_output = ""
     dot_count = 0  # Keep track of how many dots we've printed
-    
+    tool_call_data = {"id": None, "function_name": None, "arguments": ""}
+
     for chunk in response:
         # Get chunk content based on provider
         print('.', end="", flush=True)
         dot_count += 1
-
+        
+        # Extract tool call info based on provider
         if provider == "ollama":
+            # Ollama tool call extraction
+            if "message" in chunk and "tool_calls" in chunk["message"]:
+                for tool_call in chunk["message"]["tool_calls"]:
+                    if "id" in tool_call:
+                        tool_call_data["id"] = tool_call["id"]
+                    if "function" in tool_call:
+                        if "name" in tool_call["function"]:
+                            tool_call_data["function_name"] = tool_call["function"]["name"]
+                        if "arguments" in tool_call["function"]:
+                            tool_call_data["arguments"] += tool_call["function"]["arguments"]
             
-            chunk_content = chunk["message"]["content"]
+            chunk_content = chunk["message"]["content"] if "message" in chunk and "content" in chunk["message"] else ""
         else:
+            # LiteLLM tool call extraction
+            for c in chunk.choices:
+                if hasattr(c.delta, "tool_calls") and c.delta.tool_calls:
+                    for tool_call in c.delta.tool_calls:
+                        if tool_call.id:
+                            tool_call_data["id"] = tool_call.id
+                        if tool_call.function:
+                            if hasattr(tool_call.function, "name") and tool_call.function.name:
+                                tool_call_data["function_name"] = tool_call.function.name
+                            if hasattr(tool_call.function, "arguments") and tool_call.function.arguments:
+                                tool_call_data["arguments"] += tool_call.function.arguments
+            
             chunk_content = ''
             reasoning_content = ''
             for c in chunk.choices:
-                if hasattr(c.delta, "reasoning_content"):
-                    
+                if hasattr(c.delta, "reasoning_content"):        
                     reasoning_content += c.delta.reasoning_content
-                    
+            
             if reasoning_content:
                 chunk_content = reasoning_content
-            
+                    
             chunk_content += "".join(
                 c.delta.content for c in chunk.choices if c.delta.content
-            ) 
+            )
+        
         if not chunk_content:
             continue
-        str_output += chunk_content         
+        str_output += chunk_content
     
     # Clear the dots by returning to the start of line and printing spaces
     print('\r' + ' ' * dot_count*2 + '\r', end="", flush=True)
     
+    # Add tool call information to str_output if any was found
+    if tool_call_data["id"] or tool_call_data["function_name"] or tool_call_data["arguments"]:
+        str_output += "\n\n### Jinx Call Data\n"
+        if tool_call_data["id"]:
+            str_output += f"**ID:** {tool_call_data['id']}\n\n"
+        if tool_call_data["function_name"]:
+            str_output += f"**Function:** {tool_call_data['function_name']}\n\n"
+        if tool_call_data["arguments"]:
+            try:
+                import json
+                args_parsed = json.loads(tool_call_data["arguments"])
+                str_output += f"**Arguments:**\n```json\n{json.dumps(args_parsed, indent=2)}\n```"
+            except:
+                str_output += f"**Arguments:** `{tool_call_data['arguments']}`"
+    
     print('\n')
-    render_markdown('\n' + str_output)       
+    render_markdown('\n' + str_output)
+    
     return str_output
 def print_and_process_stream(response, model, provider):
     conversation_result = ""

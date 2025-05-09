@@ -7,7 +7,7 @@ path = "~/npcww/npcsh/tests/"
 conn = init_db(db_path, drop=True)  # Start fresh
 
 # Create test groups
-groups = ["Programming Tools", "AI Features", "Shell Integration", "Development"]
+groups = ["Programming Jinxs", "AI Features", "Shell Integration", "Development"]
 
 for group in groups:
     create_group(conn, group)
@@ -27,7 +27,7 @@ for fact in facts:
 
 # Create relationships
 relationships = [
-    ("Programming Tools", "npcsh is a Python-based command-line tool"),
+    ("Programming Jinxs", "npcsh is a Python-based command-line tool"),
     ("Programming Tools", "Can be extended with custom Python tools"),
     ("AI Features", "It integrates LLMs into daily workflow"),
     ("AI Features", "Supports multiple AI models including GPT-4"),

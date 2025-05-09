@@ -84,7 +84,7 @@ class MCPClient:
         
         # Display tool details for debugging
         for tool in self.tools:
-            print(f"\nTool: {tool.name}")
+            print(f"\nJinx: {tool.name}")
             print(f"Description: {tool.description}")
             
             # Print all attributes
@@ -128,7 +128,7 @@ class MCPClient:
             self.available_tools.append(tool_info)
             
             # Print the schema for debugging
-            print(f"\nTool schema for {tool.name}:")
+            print(f"\nJinx schema for {tool.name}:")
             print(json.dumps(schema, indent=2))
         
         tool_names = [tool.name for tool in self.tools]
@@ -184,7 +184,7 @@ class MCPClient:
         tool_calls = response.get("tool_calls", [])
         
         # Print tool calls for debugging
-        print("\nTool Calls:")
+        print("\nJinx Calls:")
         print(json.dumps(tool_calls, indent=2, default=str))
         
         # Create final text buffer
@@ -226,7 +226,7 @@ class MCPClient:
                 
                 # Parse arguments if it's a string
                 if isinstance(tool_args, str):
-                    print(f"\nTool args is string: {tool_args}")
+                    print(f"\nJinx args is string: {tool_args}")
                     tool_args = json.loads(tool_args)
                     print(f"Parsed to: {tool_args}")
                 
@@ -243,9 +243,9 @@ class MCPClient:
                 # Execute tool call
                 self._log(f"Executing tool: {tool_name} with args: {tool_args}")
                 print(f"\nExecuting tool call:")
-                print(f"  Tool name: {tool_name}")
-                print(f"  Tool args: {tool_args}")
-                print(f"  Tool args type: {type(tool_args)}")
+                print(f"  Jinx name: {tool_name}")
+                print(f"  Jinx args: {tool_args}")
+                print(f"  Jinx args type: {type(tool_args)}")
                 
                 final_text.append(f"[Calling tool {tool_name} with args {tool_args}]")
                 
@@ -253,7 +253,7 @@ class MCPClient:
                 result = await self.session.call_tool(tool_name, tool_args)
                 
                 # Print full result for debugging
-                print("\nTool Result:")
+                print("\nJinx Result:")
                 print(f"  Result: {result}")
                 print(f"  Content: {result.content}")
                 print(f"  Content type: {type(result.content)}")

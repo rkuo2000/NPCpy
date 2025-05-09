@@ -42,6 +42,7 @@ from npcpy.memory.command_history import (
     CommandHistory,
     save_conversation_message,
 )
+from npcpy.memory.knowledge_graph import breathe
 from npcpy.npc_compiler import NPC, Team
 from npcpy.llm_funcs import check_llm_command, get_llm_response, execute_llm_command
 from npcpy.gen.embeddings import get_embeddings
@@ -80,12 +81,12 @@ def readline_safe_prompt(prompt: str) -> str:
     ansi_escape = re.compile(r"(\033\[[0-9;]*[a-zA-Z])")
     return ansi_escape.sub(r"\001\1\002", prompt)
 
-def print_tools(tools):
-    output = "Available tools:\n"
-    for tool in tools:
-        output += f"  {tool.tool_name}\n"
-        output += f"   Description: {tool.description}\n"
-        output += f"   Inputs: {tool.inputs}\n"
+def print_jinxs(jinxs):
+    output = "Available jinxs:\n"
+    for jinx in jinxs:
+        output += f"  {jinx.jinx_name}\n"
+        output += f"   Description: {jinx.description}\n"
+        output += f"   Inputs: {jinx.inputs}\n"
     return output
 
 def open_terminal_editor(command: str) -> str:
@@ -444,7 +445,7 @@ def handle_bash_command(
 
 
 def execute_slash_command(command: str, stdin_input: Optional[str], state: ShellState, stream: bool) -> Tuple[ShellState, Any]:
-    """Executes slash commands using the router or checking NPC/Team tools."""
+    """Executes slash commands using the router or checking NPC/Team jinxs."""
     command_parts = command.split()
     command_name = command_parts[0].lstrip('/')
     handler = router.get_route(command_name)
@@ -483,37 +484,37 @@ def execute_slash_command(command: str, stdin_input: Optional[str], state: Shell
             return state, colored(f"Error executing slash command '{command_name}': {e}", "red")
 
     active_npc = state.npc if isinstance(state.npc, NPC) else None
-    tool_to_execute = None
+    jinx_to_execute = None
     executor = None
-    if active_npc and command_name in active_npc.tools_dict:
-        tool_to_execute = active_npc.tools_dict[command_name]
+    if active_npc and command_name in active_npc.jinxs_dict:
+        jinx_to_execute = active_npc.jinxs_dict[command_name]
         executor = active_npc
-    elif state.team and command_name in state.team.tools_dict:
-        tool_to_execute = state.team.tools_dict[command_name]
+    elif state.team and command_name in state.team.jinxs_dict:
+        jinx_to_execute = state.team.jinxs_dict[command_name]
         executor = state.team
 
-    if tool_to_execute:
+    if jinx_to_execute:
         args = command_parts[1:]
         try:
-            tool_output = tool_to_execute.run(
+            jinx_output = jinx_to_execute.run(
                 *args,
                 state=state,
                 stdin_input=stdin_input,
                 messages=state.messages # Pass messages explicitly if needed
             )
-            return state, tool_output
+            return state, jinx_output
         except Exception as e:
             import traceback
-            print(f"Error executing tool '{command_name}':", file=sys.stderr)
+            print(f"Error executing jinx '{command_name}':", file=sys.stderr)
             traceback.print_exc()
-            return state, colored(f"Error executing tool '{command_name}': {e}", "red")
+            return state, colored(f"Error executing jinx '{command_name}': {e}", "red")
 
     if state.team and command_name in state.team.npcs:
         new_npc = state.team.npcs[command_name]
         state.npc = new_npc # Update state directly
         return state, f"Switched to NPC: {new_npc.name}"
 
-    return state, colored(f"Unknown slash command or tool: {command_name}", "red")
+    return state, colored(f"Unknown slash command or jinx: {command_name}", "red")
 
 
 def process_pipeline_command(
@@ -789,11 +790,15 @@ def process_result(
     result_state.attachments = None # Clear attachments after logging user message
 
     final_output_str = None
-    if result_state.stream_output and not isinstance(output, str):
-        final_output_str = print_and_process_stream_with_markdown(
-             output, result_state.chat_model, result_state.chat_provider # Pass appropriate model?
-        )
-    
+    if result_state.stream_output:
+        try:
+            final_output_str = print_and_process_stream_with_markdown(output, result_state.chat_model, result_state.chat_provider)
+        except AttributeError as e:
+            if isinstance(output, str):
+                if len(output) > 0:
+                    final_output_str = output
+                    render_markdown(final_output_str) 
+                        
     elif output is not None:
         final_output_str = str(output)
         render_markdown(final_output_str)
@@ -843,18 +848,27 @@ def run_repl(command_history: CommandHistory, initial_state: ShellState):
                     continue
                 else:
                     print("Goodbye!")
+                    print('beginning knowledge consolidation')
+                    
+                    breathe_result = breathe(state.messages, state.chat_model, state.chat_provider, state.npc)
+                    
                     break
 
             state.current_path = os.getcwd()
             
             state, output = execute_command(user_input, state)
-            #(state, output)
+            #print(state, output)
             process_result(user_input, state, output, command_history)
 
         except (KeyboardInterrupt):
             print("\nUse 'exit' or 'quit' to leave.")
         except EOFError:
             print("\nGoodbye!")
+            print('beginning knowledge consolidation')
+            
+            breathe_result = breathe(state.messages, state.chat_model, state.chat_provider, state.npc)
+            
+            print(breathe_result)
             break
 
 def run_non_interactive(command_history: CommandHistory, initial_state: ShellState):

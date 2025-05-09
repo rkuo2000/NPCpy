@@ -1,14 +1,14 @@
-from npcpy.npc_compiler import NPC, Tool
+from npcpy.npc_compiler import NPC, Jinx
 
-# Load the tool
-automator = Tool(tool_path="~/npcww/npcsh/npcpy/npc_team/tools/automator.tool")
+# Load the jinx
+automator = Jinx(jinx_path="~/npcww/npcsh/npcpy/npc_team/jinxs/automator.jinx")
 
 # Create an NPC instance
 npc = NPC(name="sibiji", 
           primary_directive="You're an assistant focused on helping users understand their documents.", 
-          tools=[automator])
+          jinxs=[automator])
 
-result = npc.execute_tool(
+result = npc.execute_jinx(
     "automator", 
     {
         "request": "any time a new download appears, open the downloads folder",

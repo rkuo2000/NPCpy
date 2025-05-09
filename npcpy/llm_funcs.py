@@ -77,7 +77,7 @@ def generate_video(
     device: str = "cpu",
     output_path="",
     num_inference_steps=10,
-    num_frames=10,
+    num_frames=25,
     height=256,
     width=256,
     messages: list = None,
@@ -208,13 +208,13 @@ def decide_plan(
     prompt += """
 # Instructions:
 1. Select the single most appropriate action from 'Possible Actions'.
-2. Determine parameters identifying the action's target (e.g., 'tool_name', 'target_entity'). DO NOT determine tool arguments.
+2. Determine parameters identifying the action's target (e.g., 'jinx_name', 'target_entity'). DO NOT determine jinx arguments.
 3. Explain reasoning.
 
 # Required Output Format (JSON Only, NO MARKDOWN):
 {
   "chosen_action": "action_name",
-  "parameters": { /* "tool_name": "...", "target_entity": "..." */ },
+  "parameters": { /* "jinx_name": "...", "target_entity": "..." */ },
   "explanation": "Your reasoning."
 }
 """
@@ -410,9 +410,9 @@ def execute_llm_command(
         "output": "Max attempts reached. Unable to execute the command successfully.",
     }
 
-def handle_tool_call(
+def handle_jinx_call(
     command: str,
-    tool_name: str,
+    jinx_name: str,
     model: str = None,
     provider: str = None,
     api_url: str = None,
@@ -424,45 +424,45 @@ def handle_tool_call(
     attempt=0,
     context=None,
 ) -> Union[str, Dict[str, Any]]:
-    """This function handles a tool call.
+    """This function handles a jinx call.
     Args:
         command (str): The command.
-        tool_name (str): The tool name.
+        jinx_name (str): The jinx name.
     Keyword Args:
-        model (str): The model to use for handling the tool call.
-        provider (str): The provider to use for handling the tool call.
+        model (str): The model to use for handling the jinx call.
+        provider (str): The provider to use for handling the jinx call.
         messages (List[Dict[str, str]]): The list of messages.
         npc (Any): The NPC object.
     Returns:
         Union[str, Dict[str, Any]]: The result of handling
-        the tool call.
+        the jinx call.
 
     """
     if npc is None:
-        return f"No tools are available. "
+        return f"No jinxs are available. "
     else:
-        if tool_name not in npc.tools_dict:
+        if jinx_name not in npc.jinxs_dict:
             print("not available")
-            print(f"Tool '{tool_name}' not found in NPC's tools_dict.")
-            return f"Tool '{tool_name}' not found."
-        elif tool_name in npc.tools_dict:
-            tool = npc.tools_dict[tool_name]
-        print(f"Tool found: {tool.tool_name}")
+            print(f"jinx '{jinx_name}' not found in NPC's jinxs_dict.")
+            return f"jinx '{jinx_name}' not found."
+        elif jinx_name in npc.jinxs_dict:
+            jinx = npc.jinxs_dict[jinx_name]
+        render_markdown(f"jinx found: {jinx.jinx_name}")
         jinja_env = Environment(loader=FileSystemLoader("."), undefined=Undefined)
 
         prompt = f"""
-        The user wants to use the tool '{tool_name}' with the following request:
+        The user wants to use the jinx '{jinx_name}' with the following request:
         '{command}'
-        Here is the tool file:
+        Here is the jinx file:
         ```
-        {tool.to_dict()}
+        {jinx.to_dict()}
         ```
 
-        Please determine the required inputs for the tool as a JSON object.
+        Please determine the required inputs for the jinx as a JSON object.
         
         
-        They must be exactly as they are named in the tool.
-        For example, if the tool has three inputs, you should respond with a list of three values that will pass for those args.
+        They must be exactly as they are named in the jinx.
+        For example, if the jinx has three inputs, you should respond with a list of three values that will pass for those args.
         
         Return only the JSON object without any markdown formatting.
 
@@ -501,9 +501,9 @@ def handle_tool_call(
             # print(f"Extracted inputs: {input_values}")
         except json.JSONDecodeError as e:
             print(f"Error decoding input values: {e}. Raw response: {response}")
-            return f"Error extracting inputs for tool '{tool_name}'"
+            return f"Error extracting inputs for jinx '{jinx_name}'"
         # Input validation (example):
-        required_inputs = tool.inputs
+        required_inputs = jinx.inputs
         missing_inputs = []
         for inp in required_inputs:
             if not isinstance(inp, dict):
@@ -511,15 +511,15 @@ def handle_tool_call(
                 if inp not in input_values or input_values[inp] == "":
                     missing_inputs.append(inp)
         if len(missing_inputs) > 0:
-            # print(f"Missing required inputs for tool '{tool_name}': {missing_inputs}")
+            # print(f"Missing required inputs for jinx '{jinx_name}': {missing_inputs}")
             if attempt < n_attempts:
                 print(f"attempt {attempt+1} to generate inputs failed, trying again")
                 print("missing inputs", missing_inputs)
                 print("llm response", response)
                 print("input values", input_values)
-                return handle_tool_call(
+                return handle_jinx_call(
                     command +' . In the previous attempt, the inputs were: ' + str(input_values) + ' and the missing inputs were: ' + str(missing_inputs) +' . Please ensure to not make this mistake again.',
-                    tool_name,
+                    jinx_name,
                     model=model,
                     provider=provider,
                     messages=messages,
@@ -532,34 +532,32 @@ def handle_tool_call(
                     context=context
                 )
             return {
-                "response": f"Missing inputs for tool '{tool_name}': {missing_inputs}",
+                "output": f"Missing inputs for jinx '{jinx_name}': {missing_inputs}",
                 "messages": messages,
             }
 
         # try:
-        print(npc.name+'>', end='')
+        print(npc.name+'>',end='')
 
-        print("Executing tool with input values:", input_values)
+        print("Executing jinx with input values:", end='')
+        
+        render_markdown( "\n".join(['\n - ' + key + ': ' + val for key, val in input_values.items()]))
 
         try:
-            tool_output = tool.execute(
+            jinx_output = jinx.execute(
                 input_values,
-                npc.tools_dict,
                 jinja_env,
-                command,
-                model=model,
-                provider=provider,
                 npc=npc,
-                stream=stream,
+
                 messages=messages,
             )
         except Exception as e:
-            print(f"An error occurred while executing the tool: {e}")
+            print(f"An error occurred while executing the jinx: {e}")
             print(f"trying again, attempt {attempt+1}")
             if attempt < n_attempts:
-                tool_output = handle_tool_call(
+                jinx_output = handle_jinx_call(
                     command,
-                    tool_name,
+                    jinx_name,
                     model=model,
                     provider=provider,
                     messages=messages,
@@ -569,15 +567,15 @@ def handle_tool_call(
                     stream=stream,
                     attempt=attempt + 1,
                     n_attempts=n_attempts,
-                    context=f""" \n \n \n "tool failed: {e}  \n \n \n here was the previous attempt: {input_values}""",
+                    context=f""" \n \n \n "jinx failed: {e}  \n \n \n here was the previous attempt: {input_values}""",
                 )
             else:
                 user_input = input(
-                    "the tool execution has failed after three tries, can you add more context to help or would you like to run again?"
+                    "the jinx execution has failed after three tries, can you add more context to help or would you like to run again?"
                 )
-                return handle_tool_call(
+                return handle_jinx_call(
                     command + " " + user_input,
-                    tool_name,
+                    jinx_name,
                     model=model,
                     provider=provider,
                     messages=messages,
@@ -589,28 +587,30 @@ def handle_tool_call(
                     n_attempts=n_attempts,
                     context=context,
                 )
-        # process the tool call
-        render_markdown(f""" ## TOOL OUTPUT FROM CALLING {tool_name} \n \n output:{tool_output['output']}""" )
-        response = get_llm_response(f"""
-            The user had the following request: {command}. 
-            Here were the tool outputs from calling {tool_name}: {tool_output}
-            
-            Given the tool outputs and the user request, please format a simple answer that 
-            provides the answer without requiring the user to carry out any further steps.
-            """,
-            model=model,
-            provider=provider,
-            api_url=api_url,
-            api_key=api_key,
-            npc=npc,
-            messages=messages,
-            context=context, 
-            stream=stream,
-        )
-        messages = response['messages']
-        response = response.get("response", {})
+        # process the jinx call
+        if not stream:
+            render_markdown(f""" ## jinx OUTPUT FROM CALLING {jinx_name} \n \n output:{jinx_output['output']}""" )
         
-        return {'messages': messages, 'response': response}
+            response = get_llm_response(f"""
+                The user had the following request: {command}. 
+                Here were the jinx outputs from calling {jinx_name}: {jinx_output}
+                
+                Given the jinx outputs and the user request, please format a simple answer that 
+                provides the answer without requiring the user to carry out any further steps.
+                """,
+                model=model,
+                provider=provider,
+                api_url=api_url,
+                api_key=api_key,
+                npc=npc,
+                messages=messages,
+                context=context, 
+                stream=stream,
+            )
+            messages = response['messages']
+            response = response.get("response", {})
+        
+        return {'messages': messages, 'output': jinx_output}
 
 
 def handle_request_input(
@@ -663,6 +663,9 @@ def check_llm_command(
     npc: Any = None,
     team: Any = None,
     messages: List[Dict[str, str]] = None,
+    jinxs: List[Dict[str, str]] = None,
+    tools = None,
+    tool_map: Dict[str, str] = None,
     images: list = None,
     stream=False,
     context=None,
@@ -686,9 +689,29 @@ def check_llm_command(
     prompt = f"""
     A user submitted this query: {command}
 
+
+    """
+    
+    if tools:
+        #assume the user just wants a tool choice response from LLM 
+        return {'messages': messages, 'output': get_llm_response(
+            prompt,
+            model=model,
+            provider=provider,
+            api_url=api_url,
+            api_key=api_key,
+            npc=npc,
+            messages=[],
+            tools=tools,
+            tool_map=tool_map,
+            context=None,
+            stream=stream,
+        ).get("response")}
+    prompt += f"""
+    
     Determine the nature of the user's request:
 
-    1. Should a tool be invoked to fulfill the request?
+    1. Should a jinx be invoked to fulfill the request? A jinx is a jinja-template execution script .
 
     2. Is it a general question that requires an informative answer or a highly specific question that
         requires inforrmation on the web?
@@ -696,8 +719,8 @@ def check_llm_command(
     3. Would this question be best answered by an alternative NPC?
 
     4. Is it a complex request that actually requires more than one
-        tool to be called, perhaps in a sequence?
-        Sequences should only be used for more than one consecutive tool call. Do not invoke sequences for single tool calls.
+        jinx to be called, perhaps in a sequence?
+        Sequences should only be used for more than one consecutive jinx call. Do not invoke sequences for single jinx calls.
 
 
     """
@@ -738,21 +761,29 @@ def check_llm_command(
             {npc.shared_context}
             """
 
-        if npc.tools_dict is None :
-            prompt += "No tools available. Do not invoke tools."
+        if npc.jinxs_dict is None :
+            prompt += "No NPC jinxs available. Do not invoke jinxs."
         else:
-            prompt += "Available tools: \n"
-            tools_set = {}
-            if npc.tools_dict is not None:
-                for tool_name, tool in npc.tools_dict.items():
-                    if tool_name not in tools_set:
-                        tools_set[tool_name] = tool.description
-            for tool_name, tool_description in tools_set.items():
+            prompt += "Available jinxs: \n"
+            jinxs_set = {}
+            if npc.jinxs_dict is not None:
+                for jinx_name, jinx in npc.jinxs_dict.items():
+                    if jinx_name not in jinxs_set:
+                        jinxs_set[jinx_name] = jinx.description
+            for jinx_name, jinx_description in jinxs_set.items():
                 prompt += f"""
-                            {tool_name} : {tool_description} \n
+                            {jinx_name} : {jinx_description} \n
 
                             """
-
+        #import pdb 
+        #pdb.set_trace()
+    if jinxs is not None:
+        for jinx in jinxs:
+            prompt += f"""
+            Here is a jinx that may be relevant to the user's request:
+            {jinx}
+            """
+        
     if team is None:
         prompt += "No NPCs available for alternative answers."
     else:
@@ -768,34 +799,34 @@ def check_llm_command(
             """
 
 
-    action_space = ["invoke_tool", "answer_question", "pass_to_npc", "execute_sequence", ]
+    action_space = ["invoke_jinx", "answer_question", "pass_to_npc", "execute_sequence", ]
     if human_in_the_loop:
         action_space.append("request_input")
     prompt += f"""
     In considering how to answer this, consider:
 
-    - Whether a tool should be used.
+    - Whether a jinx should be used.
 
 
     Excluding time-sensitive phenomena or ones that require external data inputs /information,
-    most general questions can be answered without any extra tools or agent passes.
+    most general questions can be answered without any extra jinxs or agent passes.
 
 
-    Only use tools or pass to other NPCs when it is obvious that the answer needs to be as up-to-date as possible. For example,
-        a question about where mount everest is does not necessarily need to be answered by a tool call or an agent pass.
-    Similarly, if a user asks to explain the plot of the aeneid, this can be answered without a tool call or agent pass.
+    Only use jinxs or pass to other NPCs when it is obvious that the answer needs to be as up-to-date as possible. For example,
+        a question about where mount everest is does not necessarily need to be answered by a jinx call or an agent pass.
+    Similarly, if a user asks to explain the plot of the aeneid, this can be answered without a jinx call or agent pass.
 
     If a user were to ask for the current weather in tokyo or the current price of bitcoin or who the mayor of a city is,
-        then a tool call or agent pass may be appropriate.
+        then a jinx call or agent pass may be appropriate.
 
-    Tools are valuable but their use should be limited and purposeful to
+    jinxs are valuable but their use should be limited and purposeful to
         ensure the best user experience.
         If a user asks you to search or to take a screenshot or to open a program or to write a program most likely it is
-        appropriate to use a tool.
+        appropriate to use a jinx.
     Respond with a JSON object containing:
     - "action": one of {action_space}
-    - "tool_name": : if action is "invoke_tool": the name of the tool to use.
-                     else if action is "execute_sequence", a list of tool names to use.
+    - "jinx_name": : if action is "invoke_jinx": the name of the jinx to use.
+                     else if action is "execute_sequence", a list of jinx names to use.
     - "explanation": a brief explanation of why you chose this action.
     - "npc_name": (if action is "pass_to_npc") the name of the NPC to pass the question , else if action is "execute_sequence", a list of
                     npcs to pass the question to in order.
@@ -806,15 +837,15 @@ def check_llm_command(
 
     The format of the JSON object is:
     {{
-        "action": "invoke_tool" | "answer_question" | "pass_to_npc" | "execute_sequence" | "request_input",
-        "tool_name": "<tool_name(s)_if_applicable>",
+        "action": "invoke_jinx" | "answer_question" | "pass_to_npc" | "execute_sequence" | "request_input",
+        "jinx_name": "<jinx_name(s)_if_applicable>",
         "explanation": "<your_explanation>",
         "npc_name": "<npc_name(s)_if_applicable>"
     }}
 
-    If you execute a sequence, ensure that you have a specified NPC for each tool use.
-        question answering is not a tool use.
-        "invoke_tool" should never be used in the list of tools when executing a sequence.
+    If you execute a sequence, ensure that you have a specified NPC for each jinx use.
+        question answering is not a jinx use.
+        "invoke_jinx" should never be used in the list of jinxs when executing a sequence.
     Remember, do not include ANY ADDITIONAL MARKDOWN FORMATTING.
     There should be no leading ```json.
     
@@ -839,6 +870,7 @@ def check_llm_command(
         messages=[],
         context=None,
     )
+    
     if "Error" in action_response:
         print(f"LLM Error: {action_response['error']}")
         return action_response["error"]
@@ -856,10 +888,12 @@ def check_llm_command(
     else:
         response_content_parsed = response_content
 
+    #print(prompt)
     action = response_content_parsed.get("action")
     explanation = response_content_parsed.get("explanation")
 
     render_markdown(f"- Action chosen: {action}\n")
+    render_markdown(f"- Explanation given: {explanation}\n")
 
     if action == "execute_command":
 
@@ -878,25 +912,25 @@ def check_llm_command(
         messages = result.get("messages", messages)
         return {"messages": messages, "output": output}
 
-    elif action == "invoke_tool":
-        tool_name = response_content_parsed.get("tool_name")
-        # print(npc)
-        result = handle_tool_call(
-            command,
-            tool_name,
-            model=model,
-            provider=provider,
-            api_url=api_url,
-            api_key=api_key,
-            messages=messages,
-            npc=npc,
-            stream=stream,
-        )
-
-        messages = result.get("messages", messages)
-        output = result.get("response", "")
-        return {"messages": messages, "output": output}
-
+    elif action == "invoke_jinx":
+        jinx_name = response_content_parsed.get("jinx_name")
+        
+        # Check if it's an NPC jinx
+        if npc and npc.jinxs_dict and jinx_name in npc.jinxs_dict:
+            result = handle_jinx_call(
+                command,
+                jinx_name,
+                model=model,
+                provider=provider,
+                api_url=api_url,
+                api_key=api_key,
+                messages=messages,
+                npc=npc,
+                stream=stream,
+            )
+            return result
+        else:
+            return {"messages": messages, "output": f"jinx '{jinx_name}' not found"}
     elif action == "answer_question":
 
         result = get_llm_response(
@@ -916,25 +950,45 @@ def check_llm_command(
     elif action == "pass_to_npc":
         npc_to_pass = response_content_parsed.get("npc_name")
         npc_to_pass_obj = None
-        print(npc_to_pass)
+
         agent_passes = []
         if team is not None:
             #print(f"team npcs: {team.npcs}")
-            match = team.npcs.get(npc_to_pass)
-            if match is not None:
-                npc_to_pass_obj = match
-                print(type(npc_to_pass_obj))
-                agent_passes.append(
-                    npc.handle_agent_pass(
-                        npc_to_pass_obj,
-                        command,
-                        messages=messages,
+            if isinstance(npc_to_pass, str):
+                
+                match = team.npcs.get(npc_to_pass)
+    
+                if match is not None:
+                    npc_to_pass_obj = match
+                    #print(type(npc_to_pass_obj))
+                    agent_passes.append(
+                        npc.handle_agent_pass(
+                            npc_to_pass_obj,
+                            command,
+                            messages=messages,
+                        )
                     )
-                )
+            elif isinstance(npc_to_pass, list):
+                for npc_name in npc_to_pass:
+                    match = team.npcs.get(npc_name)
+                    if match is not None:
+                        npc_to_pass_obj = match
+                        agent_passes.append(
+                            npc.handle_agent_pass(
+                                npc_to_pass_obj,
+                                command,
+                                messages=messages,
+                            )
+                        )
+        else:
+            print(f"NPC to pass not found: {npc_to_pass}")
+            
         output = ""
-        print(agent_passes)
+        #print(agent_passes)
         for agent_pass in agent_passes:
-            output += str(agent_pass.get("response"))
+            output += str(agent_pass.get("output"))
+        #import pdb
+        #pdb.set_trace()
         return {"messages": messages, "output": output}
     elif action == "request_input":
         explanation = response_content_parsed.get("explanation")
@@ -977,39 +1031,39 @@ def check_llm_command(
         )
 
     elif action == "execute_sequence":
-        tool_names = response_content_parsed.get("tool_name")
+        jinx_names = response_content_parsed.get("jinx_name")
         npc_names = response_content_parsed.get("npc_name")
 
         # print(npc_names)
         npcs = []
-        # print(tool_names, npc_names)
-        if isinstance(npc_names, list):
+        #print(jinx_names, npc_names)
+        if isinstance(npc_names, list): 
             if len(npc_names) == 0:
                 # if no npcs are specified, just have the npc take care of it itself instead of trying to force it to generate npc names for sequences all the time
 
-                npcs = [npc] * len(tool_names)
+                npcs = [npc] * len(jinx_names)
             if team is None:
                 # try again and append that there are no agents to pass to
                 print('')
             for npc_name in npc_names:
-                for npc_obj in team.npcs:
-                    if npc_name in npc_obj:
-                        npcs.append(npc_obj[npc_name])
+                for npc_obj_name, npc_obj in team.npcs.items():
+                    if npc_name in npc_obj_name:
+                        npcs.append(npc_obj)
                         break
-                if len(npcs) < len(tool_names):
+                if len(npcs) < len(jinx_names):
                     npcs.append(npc)
 
         output = ""
-        results_tool_calls = []
+        results_jinx_calls = []
         if synthesize:
             # carry out fact extraction
             print("synthesize not yet implemented")
 
-        if len(tool_names) > 0:
-            for npc_obj, tool_name in zip(npcs, tool_names):
-                result = handle_tool_call(
+        if len(jinx_names) > 0:
+            for npc_obj, jinx_name in zip(npcs, jinx_names):
+                result = handle_jinx_call(
                     command,
-                    tool_name,
+                    jinx_name,
                     model=model,
                     provider=provider,
                     api_url=api_url,
@@ -1019,12 +1073,12 @@ def check_llm_command(
                     stream=stream,
                 )
                 # print(result)
-                results_tool_calls.append(result)
+                results_jinx_calls.append(result)
                 messages = result.get("messages", messages)
                 output += result.get("response", "")
-                # print(results_tool_calls)
+                # print(results_jinx_calls)
         else:
-            print('agent pass')
+            #print('agent pass')
             for npc_obj in npcs:
                 result = npc.handle_agent_pass(
                     npc_obj,
@@ -1034,7 +1088,8 @@ def check_llm_command(
                 )
 
                 messages = result.get("messages", messages)
-                results_tool_calls.append(result.get("response"))
+                results_jinx_calls.append(result.get("response"))
+                output += f"<{npc_obj.name}>" + result.get("output") + f"</{npc_obj.name}>"
                 # print(messages[-1])
         # import pdb
 

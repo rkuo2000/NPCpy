@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 import os
-from npcsh.npc_compiler import NPC, Team, Tool
+from npcsh.npc_compiler import NPC, Team, Jinx
 
 
 # Create test data and save to CSV
@@ -30,9 +30,9 @@ def create_test_data(filepath="sales_data.csv"):
     return filepath, sales_data
 
 
-code_execution_tool = Tool(
+code_execution_jinx = Jinx(
     {
-        "tool_name": "execute_code",
+        "jinx_name": "execute_code",
         "description": """Executes a Python code block with access to pandas,
                           numpy, and matplotlib.
                           Results should be stored in the 'results' dict to be returned.
@@ -65,27 +65,27 @@ analytics_team = [
         "primary_directive": "You analyze sales performance data, focusing on revenue trends, customer behavior metrics, and market indicators. Your expertise is in extracting actionable insights from complex datasets.",
         "model": "gpt-4o-mini",
         "provider": "openai",
-        "tools": [code_execution_tool],  # Only the code execution tool
+        "jinxs": [code_execution_jinx],  # Only the code execution jinx
     },
     {
         "name": "researcher",
         "primary_directive": "You specialize in causal analysis and experimental design. Given data insights, you determine what factors drive observed patterns and design tests to validate hypotheses.",
         "model": "gpt-4o-mini",
         "provider": "openai",
-        "tools": [code_execution_tool],  # Only the code execution tool
+        "jinxs": [code_execution_jinx],  # Only the code execution jinx
     },
     {
         "name": "engineer",
         "primary_directive": "You implement data pipelines and optimize data processing. When given analysis requirements, you create efficient workflows to automate insights generation.",
         "model": "gpt-4o-mini",
         "provider": "openai",
-        "tools": [code_execution_tool],  # Only the code execution tool
+        "jinxs": [code_execution_jinx],  # Only the code execution jinx
     },
 ]
 
 
 def create_analytics_team():
-    # Initialize NPCs with just the code execution tool
+    # Initialize NPCs with just the code execution jinx
     npcs = []
     for npc_data in analytics_team:
         npc = NPC(
@@ -93,17 +93,17 @@ def create_analytics_team():
             primary_directive=npc_data["primary_directive"],
             model=npc_data["model"],
             provider=npc_data["provider"],
-            tools=[code_execution_tool],  # Only code execution tool
+            jinxs=[code_execution_jinx],  # Only code execution jinx
         )
         npcs.append(npc)
 
-    # Create coordinator with just code execution tool
+    # Create coordinator with just code execution jinx
     coordinator = NPC(
         name="coordinator",
         primary_directive="You coordinate the analytics team, ensuring each specialist contributes their expertise effectively. You synthesize insights and manage the workflow.",
         model="gpt-4o-mini",
         provider="openai",
-        tools=[code_execution_tool],  # Only code execution tool
+        jinxs=[code_execution_jinx],  # Only code execution jinx
     )
 
     # Create team

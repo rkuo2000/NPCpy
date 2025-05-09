@@ -1,5 +1,5 @@
 # npcsh usage
-In the `npcsh` shell, users can ask LLMs questions, have LLMLs execute commands or use tools, or utilize macros that provide additional functionality. When a user does not invoke a specific macro, the shell will automatically decide which tool to use based on the user's input. Here are some examples of things one might ask the npcsh shell.
+In the `npcsh` shell, users can ask LLMs questions, have LLMLs execute commands or use jinxs, or utilize macros that provide additional functionality. When a user does not invoke a specific macro, the shell will automatically decide which jinx to use based on the user's input. Here are some examples of things one might ask the npcsh shell.
 
 Here are some examples of how you can use npcsh
 ```npcsh
@@ -37,7 +37,7 @@ Because good luck hiding when everyone yells, "Wicked awesome, ya gotta be here!
 ```npcsh
 npcsh> What's the weather in Tokyo?
 
-handle_tool_call invoked with tool_name: generic_search_tool
+handle_jinx_call invoked with jinx_name: generic_search_jinx
 
 The weather in Tokyo, Japan, is expected to be mixed with sun and clouds. Here are some details from the recent forecasts:
 
@@ -52,11 +52,11 @@ For more detailed information, you can refer to sources like The Weather Channel
 /home/caug/npcww/npcsh:npcsh>
 
 ```
-In the below example, the code that was open was the screen capture analysis tool itself.
+In the below example, the code that was open was the screen capture analysis jinx itself.
 ```npcsh
 npcsh>  Can you explain what the code does in the currently open VS code window?
 
-handle_tool_call invoked with tool_name: screen_capture_analysis_tool
+handle_jinx_call invoked with jinx_name: screen_capture_analysis_jinx
 
 Screenshot saved as screenshot_20241223_225815.png
 
@@ -173,21 +173,21 @@ The output shows the processes currently consuming the most memory. In the resul
 ```npcsh
 npcsh> can you generate an image of a calico cat and an orange tabby cat in the style of a japanese woodblock print where the two cats are engaged in a samurai battle but instead of samurai swords they are holding cat toys that are like wands with felt birds on the ends of them on strings
 
-handle_tool_call invoked with tool_name: image_generation_tool
+handle_jinx_call invoked with jinx_name: image_generation_jinx
 ```
 ![catfight](test_data/catfight.PNG)
 
 
-In addition to its ability to execute one-off tasks or tool calls, npcsh also has
-the ability to generate tool call sequences when asked:
+In addition to its ability to execute one-off tasks or jinx calls, npcsh also has
+the ability to generate jinx call sequences when asked:
 ```npcsh
 
-npcsh> can you use a tool sequence to find the gdp of russia in 2024 and then to use that information to generate an image?
+npcsh> can you use a jinx sequence to find the gdp of russia in 2024 and then to use that information to generate an image?
 
-handle_tool_call invoked with tool_name: generic_search_tool
-Tool found: generic_search_tool
-handle_tool_call invoked with tool_name: image_generation_tool
-Tool found: image_generation_tool
+handle_jinx_call invoked with jinx_name: generic_search_jinx
+Jinx found: generic_search_jinx
+handle_jinx_call invoked with jinx_name: image_generation_jinx
+Jinx found: image_generation_jinx
 
 The Gross Domestic Product (GDP) of Russia is estimated to be $8.311 trillion by the end of 2024, according to World Economics.
 This figure is significantly larger than the official estimate of $5.804 trillion published by the World Bank for the end of 2023.
@@ -204,7 +204,7 @@ and then the associated image :
 
 
 ## Piping outputs
-An important facet that makes `npcsh` so powerful is the ability to pipe outputs from one tool call to another. This allows for the chaining of commands and the creation of complex workflows. For example, you can use the output of a search to generate an image, or you can use the output of an image analysis to generate a report. Here is an example of how this might look in practice:
+An important facet that makes `npcsh` so powerful is the ability to pipe outputs from one jinx call to another. This allows for the chaining of commands and the creation of complex workflows. For example, you can use the output of a search to generate an image, or you can use the output of an image analysis to generate a report. Here is an example of how this might look in practice:
 ```npcsh
 npcsh> what is the gdp of russia in 2024? | /vixynt 'generate an image that contains {0}'
 ```
@@ -230,7 +230,7 @@ npcsh> /exit
 
 Otherwise, here are some more detailed examples of macros that can be used in npcsh:
 ## Conjure (under construction)
-Use the `/conjure` macro to generate an NPC, a NPC tool, an assembly line, a job, or an SQL model
+Use the `/conjure` macro to generate an NPC, a NPC jinx, an assembly line, a job, or an SQL model
 
 ```bash
 npc conjure -n name -t 'templates'
@@ -305,7 +305,7 @@ npcsh> /plan record the apps that are using the most ram every 5 minutes
 npc plan -f 30m -t 'task'
 ```
 
-Plan will use platform-specific scheduling tools. In particular, it uses crontab on Linux and launchd on macOS and Schedule Tasks on Windows.
+Plan will use platform-specific scheduling jinxs. In particular, it uses crontab on Linux and launchd on macOS and Schedule Tasks on Windows.
 
 Implementations have been provided for Mac and Windows but only has been tested as of 3/23/2025 on Linux.
 
@@ -328,6 +328,13 @@ If you pass a `-f` flag with a filename or list of filenames (e.g. *.py) then it
 
 ```npcsh
 npcsh> /rag -f *.py  what is the best way to implement a linked list in Python?
+```
+```
+/rag -f test_data/yuan2004.pdf summarize this paper
+```
+
+```
+/rag -f test_data/books.csv analyze this dataset
 ```
 
 Alternatively , if you want to perform rag on your past conversations, you can do so like this:
@@ -490,8 +497,9 @@ npcsh> /spool npc=foreman
 Start the spool mode with specific files in context that will be referenced through RAG searches when relevant.
 
 ```npcsh
-npcsh> /spool files=[*.py,*.md] # Load specific files for context
+npcsh> /spool --files=[*.py,*.md] 
 ```
+/spool --files test_data/yuan2004.pdf
 
 Have a conversation and switch between text and voice mode by invoking `/whisper` mode from within spool mode.
 ```npcsh
@@ -607,7 +615,7 @@ npcsh> /trigger watch for new PDF downloads in the ~/Downloads directory and mov
 to the ~/Documents/PDFs directory . Ensure that the directory exists or create it if it does not.
 ```
 
-On Linux, trigger makes use of inotify-tools to watch for file system events. On macOS, it uses fswatch, and on Windows, it uses Watch-Command.
+On Linux, trigger makes use of inotify-jinxs to watch for file system events. On macOS, it uses fswatch, and on Windows, it uses Watch-Command.
 
 
 
@@ -638,7 +646,7 @@ $ npc --model 'dall-e-2' --provider 'openai' vixynt 'whats a french man to do in
 
 
 ## Whisper: Voice Control
-Enter into a voice-controlled mode to interact with the LLM. This mode can executet commands and use tools just like the basic npcsh shell.
+Enter into a voice-controlled mode to interact with the LLM. This mode can executet commands and use jinxs just like the basic npcsh shell.
 ```npcsh
 npcsh> /whisper
 ```

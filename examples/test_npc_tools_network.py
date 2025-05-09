@@ -54,7 +54,7 @@ class TestNPCFunctionality(unittest.TestCase):
         # Assert that default tools are loaded correctly
         for npc in self.npcs:
             self.assertGreater(
-                len(npc.tools), 0, f"{npc.name} should have tools loaded."
+                len(npc.jinxs), 0, f"{npc.name} should have tools loaded."
             )
 
     def test_npc_responses(self):

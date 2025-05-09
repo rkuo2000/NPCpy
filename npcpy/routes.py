@@ -24,7 +24,7 @@ from npcpy.llm_funcs import (
     gen_image,
     generate_video,
 )
-from npcpy.npc_compiler import NPC, Team, Tool
+from npcpy.npc_compiler import NPC, Team, Jinx
 from npcpy.npc_compiler import initialize_npc_project
 
 
@@ -38,7 +38,7 @@ from npcpy.memory.command_history import CommandHistory
 
 
 from npcpy.memory.knowledge_graph import breathe
-from npcpy.memory.sleep import run_breathe_cycle
+from npcpy.memory.sleep import sleep, forget
 
 from npcpy.modes.guac import enter_guac_mode
 from npcpy.modes.plonk import execute_plonk_command
@@ -52,7 +52,7 @@ from npcpy.modes.yap import enter_yap_mode
 
 from npcpy.mix.debate import run_debate
 from npcpy.data.image import capture_screenshot
-from npcpy.npc_compiler import NPC, Team, Tool
+from npcpy.npc_compiler import NPC, Team, Jinx
 from npcpy.npc_compiler import initialize_npc_project
 from npcpy.data.web import search_web
 
@@ -111,7 +111,7 @@ def get_help_text():
 # Note
 - Bash commands and programs can be executed directly (try bash first, then LLM).
 - Use '/exit' or '/quit' to exit the current NPC mode or the npcsh shell.
-- Tools defined for the current NPC or Team can also be used like commands (e.g., /screenshot).
+- Jinxs defined for the current NPC or Team can also be used like commands (e.g., /screenshot).
 """
     return output
 
@@ -410,7 +410,7 @@ def brainblast_handler(command: str, **kwargs):
     except Exception as e:
         traceback.print_exc()
         return {"output": f"Error executing brainblast command: {e}", "messages": messages}
-    
+
 @router.route("rag", "Execute a RAG command using ChromaDB embeddings with optional file input (-f/--file)")
 def rag_handler(command: str, **kwargs):
     messages = safe_get(kwargs, "messages", [])
@@ -472,7 +472,7 @@ def rag_handler(command: str, **kwargs):
 def roll_handler(command: str, **kwargs):
     messages = safe_get(kwargs, "messages", [])
     prompt = " ".join(command.split()[1:])
-    num_frames = safe_get(kwargs, 'num_frames', 10)
+    num_frames = safe_get(kwargs, 'num_frames', 125)
     width = safe_get(kwargs, 'width', 256)
     height = safe_get(kwargs, 'height', 256)
     output_path = safe_get(kwargs, 'output_path', "output.mp4")    
@@ -619,43 +619,42 @@ def spool_handler(command: str, **kwargs):
             conversation_id=safe_get(kwargs, 'conversation_id'),
             stream=safe_get(kwargs, 'stream', NPCSH_STREAM_OUTPUT),
             files=safe_get(kwargs, 'files'),
-            inherit_last=safe_get(kwargs, 'inherit_last', 0),
         )
     except Exception as e:
         traceback.print_exc()
         return {"output": f"Error entering spool mode: {e}", "messages": safe_get(kwargs, "messages", [])}
 
 
-@router.route("tools", "Show available tools for the current NPC/Team")
-def tools_handler(command: str, **kwargs):
+@router.route("jinxs", "Show available jinxs for the current NPC/Team")
+def jinxs_handler(command: str, **kwargs):
     npc = safe_get(kwargs, 'npc')
     team = safe_get(kwargs, 'team')
-    output = "Available Tools:\n"
-    tools_listed = set()
+    output = "Available Jinxs:\n"
+    jinxs_listed = set()
 
-    def format_tool(name, tool_obj):
-        desc = getattr(tool_obj, 'description', 'No description available.')
+    def format_jinx(name, jinx_obj):
+        desc = getattr(jinx_obj, 'description', 'No description available.')
         return f"- /{name}: {desc}\n"
 
-    if npc and isinstance(npc, NPC) and hasattr(npc, 'tools_dict') and npc.tools_dict:
-        output += f"\n--- Tools for NPC: {npc.name} ---\n"
-        for name, tool in sorted(npc.tools_dict.items()):
-            output += format_tool(name, tool)
-            tools_listed.add(name)
+    if npc and isinstance(npc, NPC) and hasattr(npc, 'jinxs_dict') and npc.jinxs_dict:
+        output += f"\n--- Jinxs for NPC: {npc.name} ---\n"
+        for name, jinx in sorted(npc.jinxs_dict.items()):
+            output += format_jinx(name, jinx)
+            jinxs_listed.add(name)
 
-    if team and hasattr(team, 'tools_dict') and team.tools_dict:
-         team_has_tools = False
+    if team and hasattr(team, 'jinxs_dict') and team.jinxs_dict:
+         team_has_jinxs = False
          team_output = ""
-         for name, tool in sorted(team.tools_dict.items()):
-             if name not in tools_listed:
-                 team_output += format_tool(name, tool)
-                 team_has_tools = True
-         if team_has_tools:
-             output += f"\n--- Tools for Team: {getattr(team, 'name', 'Unnamed Team')} ---\n"
+         for name, jinx in sorted(team.jinxs_dict.items()):
+             if name not in jinxs_listed:
+                 team_output += format_jinx(name, jinx)
+                 team_has_jinxs = True
+         if team_has_jinxs:
+             output += f"\n--- Jinxs for Team: {getattr(team, 'name', 'Unnamed Team')} ---\n"
              output += team_output
 
-    if not tools_listed and not (team and hasattr(team, 'tools_dict') and team.tools_dict):
-        output = "No tools available for the current context."
+    if not jinxs_listed and not (team and hasattr(team, 'jinxs_dict') and team.jinxs_dict):
+        output = "No jinxs available for the current context."
 
     return {"output": output.strip(), "messages": safe_get(kwargs, "messages", [])}
 

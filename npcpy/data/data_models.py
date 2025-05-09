@@ -8,16 +8,16 @@ class NPC_Model(BaseModel):
     model: str
     provider: str
     api_url: str
-    tools: List[str]
+    jinxs: List[str]
 
 
-class Tool_Model(BaseModel):
-    tool_name: str
+class Jinx_Model(BaseModel):
+    jinx_name: str
     description: str
     steps: List[Dict[str, str]]
 
 
-class ToolStep_Model(BaseModel):
+class JinxStep_Model(BaseModel):
     engine: str
     code: str
 
@@ -33,7 +33,7 @@ class Pipeline_Model(BaseModel):
 
 
 class PipelineStep_Model(BaseModel):
-    tool: str
+    jinx: str
     args: List[str]
     model: str
     provider: str

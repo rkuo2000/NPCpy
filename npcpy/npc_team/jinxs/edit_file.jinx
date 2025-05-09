@@ -1,9 +1,10 @@
-tool_name: "file_editor"
-description: "Examines a file, determines what changes are needed, and applies those changes."
+jinx_name: file_editor
+description: Examines a file, determines what changes are needed, and applies those
+  changes.
 inputs:
-  - file_path
-  - edit_instructions
-  - backup: True
+- file_path
+- edit_instructions
+- backup: true
 steps:
   - name: "edit_file"
     engine: "python"
