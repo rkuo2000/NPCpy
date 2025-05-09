@@ -3,11 +3,11 @@
 # NPC Data Layer
 
 What principally powers the capabilities of npcsh is the NPC Data Layer. In the `~/.npcsh/` directory after installation, you will find
-the npc teaam with its tools, models, contexts, assembly lines, and NPCs. By making tools, NPCs, contexts, and assembly lines simple data structures with
-a fixed set of parameters, we can let users define them in easy-to-read YAML files, allowing for a modular and extensible system that can be easily modified and expanded upon. Furthermore, this data layer relies heavily on jinja templating to allow for dynamic content generation and the ability to reference other NPCs, tools, and assembly lines in the system.
+the npc teaam with its jinxs, models, contexts, assembly lines, and NPCs. By making jinxs, NPCs, contexts, and assembly lines simple data structures with
+a fixed set of parameters, we can let users define them in easy-to-read YAML files, allowing for a modular and extensible system that can be easily modified and expanded upon. Furthermore, this data layer relies heavily on jinja templating to allow for dynamic content generation and the ability to reference other NPCs, jinxs, and assembly lines in the system.
 
 ## Creating NPCs
-NPCs are defined in YAML files within the npc_team directory. Each NPC must have a name and a primary directive. Optionally, one can specify an LLM model/provider for the NPC as well as provide an explicit list of tools and whether or not to use the globally available tools. See the data models contained in `npcsh/data_models.py` for more explicit type details on the NPC data structure.
+NPCs are defined in YAML files within the npc_team directory. Each NPC must have a name and a primary directive. Optionally, one can specify an LLM model/provider for the NPC as well as provide an explicit list of jinxs and whether or not to use the globally available jinxs. See the data models contained in `npcsh/data_models.py` for more explicit type details on the NPC data structure.
 
 
 
@@ -15,19 +15,19 @@ Here is a typical NPC file:
 ```yaml
 name: sibiji
 primary_directive: You are a foundational AI assistant. Your role is to provide basic support and information. Respond to queries concisely and accurately.
-tools:
+jinxs:
   - simple data retrieval
 model: llama3.2
 provider: ollama
 ```
 
 
-## Creating Tools
-Tools are defined as YAMLs with `.tool` extension within the npc_team/tools directory. Each tool has a name, inputs, and consists of three distinct steps: preprocess, prompt, and postprocess. The idea here is that a tool consists of a stage where information is preprocessed and then passed to a prompt for some kind of analysis and then can be passed to another stage for postprocessing. In each of these three cases, the engine must be specified. The engine can be either "natural" for natural language processing or "python" for Python code. The code is the actual code that will be executed.
+## Creating Jinxs
+Jinxs are defined as YAMLs with `jinx` extension within the npc_team/jinxs directory. Each jinx has a name, inputs, and consists of three distinct steps: preprocess, prompt, and postprocess. The idea here is that a jinx consists of a stage where information is preprocessed and then passed to a prompt for some kind of analysis and then can be passed to another stage for postprocessing. In each of these three cases, the engine must be specified. The engine can be either "natural" for natural language processing or "python" for Python code. The code is the actual code that will be executed.
 
-Here is an example of a tool file:
+Here is an example of a jinx file:
 ```yaml
-tool_name: "screen_capture_analysis_tool"
+jinx_name: "screen_capture_analysis_jinx"
 description: Captures the whole screen and sends the image for analysis
 inputs:
   - "prompt"
@@ -58,10 +58,10 @@ steps:
 ```
 
 
-When you have created a tool, it will be surfaced as a potential option to be used when you ask a question in the base npcsh shell. The LLM will decide if it is the best tool to use based on the user's input. Alternatively, if you'd like, you can call the tools directly, without needing to let the AI decide if it's the right one to use.
+When you have created a jinx, it will be surfaced as a potential option to be used when you ask a question in the base npcsh shell. The LLM will decide if it is the best jinx to use based on the user's input. Alternatively, if you'd like, you can call the jinxs directly, without needing to let the AI decide if it's the right one to use.
 
   ```npcsh
-  npcsh> /screen_cap_tool <prompt>
+  npcsh> /screen_cap_jinx <prompt>
   ```
   or
   ```npcsh
@@ -116,7 +116,7 @@ and then here is our trusty friend sibiji:
 ```yaml
 name: sibiji
 primary_directive: You are a foundational AI assistant. Your role is to provide basic support and information. Respond to queries concisely and accurately.
-suggested_tools_to_use:
+suggested_jinxs_to_use:
   - simple data retrieval
 model: claude-3-5-sonnet-latest
 provider: anthropic

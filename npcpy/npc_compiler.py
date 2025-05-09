@@ -1,4 +1,6 @@
+from email import message
 import os
+from pyexpat.errors import messages
 import yaml
 import json
 import sqlite3
@@ -20,9 +22,10 @@ import npcpy as npy
 
 
 from npcpy.npc_sysenv import (
-
+    ensure_dirs_exist, 
     get_npc_path,
-    init_db_tables
+    init_db_tables,
+    print_and_process_stream_with_markdown
     )
 from npcpy.memory.command_history import CommandHistory
 
@@ -42,38 +45,44 @@ import math
 from PIL import Image
 
 
-class Tool:
-    def __init__(self, tool_data=None, tool_path=None):
-        """Initialize a tool from data or file path"""
-        if tool_path:
-            self._load_from_file(tool_path)
-        elif tool_data:
-            self._load_from_data(tool_data)
+class Jinx:
+    ''' 
+    
+    Jinx is a class that provides methods for rendering jinja templates to execute
+    natural language commands within the NPC ecosystem, python, and eventually
+    other code languages.
+    '''
+    def __init__(self, jinx_data=None, jinx_path=None):
+        """Initialize a jinx from data or file path"""
+        if jinx_path:
+            self._load_from_file(jinx_path)
+        elif jinx_data:
+            self._load_from_data(jinx_data)
         else:
-            raise ValueError("Either tool_data or tool_path must be provided")
+            raise ValueError("Either jinx_data or jinx_path must be provided")
             
     def _load_from_file(self, path):
-        """Load tool from file"""
-        tool_data = load_yaml_file(path)
-        if not tool_data:
-            raise ValueError(f"Failed to load tool from {path}")
-        self._load_from_data(tool_data)
+        """Load jinx from file"""
+        jinx_data = load_yaml_file(path)
+        if not jinx_data:
+            raise ValueError(f"Failed to load jinx from {path}")
+        self._load_from_data(jinx_data)
             
-    def _load_from_data(self, tool_data):
-        """Load tool from data dictionary"""
-        if not tool_data or not isinstance(tool_data, dict):
-            raise ValueError("Invalid tool data provided")
+    def _load_from_data(self, jinx_data):
+        """Load jinx from data dictionary"""
+        if not jinx_data or not isinstance(jinx_data, dict):
+            raise ValueError("Invalid jinx data provided")
             
-        if "tool_name" not in tool_data:
-            raise KeyError("Missing 'tool_name' in tool definition")
+        if "jinx_name" not in jinx_data:
+            raise KeyError("Missing 'jinx_name' in jinx definition")
             
-        self.tool_name = tool_data.get("tool_name")
-        self.inputs = tool_data.get("inputs", [])
-        self.description = tool_data.get("description", "")
-        self.steps = self._parse_steps(tool_data.get("steps", []))
+        self.jinx_name = jinx_data.get("jinx_name")
+        self.inputs = jinx_data.get("inputs", [])
+        self.description = jinx_data.get("description", "")
+        self.steps = self._parse_steps(jinx_data.get("steps", []))
             
     def _parse_steps(self, steps):
-        """Parse steps from tool definition"""
+        """Parse steps from jinx definition"""
         parsed_steps = []
         for i, step in enumerate(steps):
             if isinstance(step, dict):
@@ -87,14 +96,23 @@ class Tool:
                 raise ValueError(f"Invalid step format: {step}")
         return parsed_steps
         
-    def execute(self, input_values, tools_dict, jinja_env, command="", model=None, provider=None, npc=None, stream=False, messages=None):
-        """Execute the tool with given inputs"""
-        # Create context with input values and tools
+    def execute(self,
+                input_values, 
+                jinxs_dict, 
+                jinja_env = None,
+                npc = None,
+                messages=None):
+        """Execute the jinx with given inputs"""
+        if jinja_env is None:
+            jinja_env = Environment(
+                loader=FileSystemLoader([npc.npc_directory, npc.jinxs_directory]),
+                undefined=SilentUndefined,
+            )
+        # Create context with input values and jinxs
         context = (npc.shared_context.copy() if npc else {})
         context.update(input_values)
         context.update({
-            "tools": tools_dict,
-            "command": command,
+            "jinxs": jinxs_dict,
             "llm_response": None,
             "output": None
         })
@@ -102,58 +120,56 @@ class Tool:
         # Process each step in sequence
         for i, step in enumerate(self.steps):
             context = self._execute_step(
-                step, context, jinja_env, 
-                model=model, provider=provider, npc=npc, 
-                messages=messages
-            )
+                step, 
+                context,
+                jinja_env, 
+                npc=npc, 
+                messages=messages, 
+
+            )            
+
+        return context
             
-            # Return immediately for streaming responses in final step
-            if i == len(self.steps) - 1 and stream:
-                return context
-                
-        # Determine the output based on what's available in context
-        if "output" in context and context["output"] is not None:
-            result = context["output"]
-            if not isinstance(result, str):
-                result = str(result)
-            return result
-        elif "llm_response" in context and context["llm_response"] is not None:
-            return context["llm_response"]
-        else:
-            return context
-            
-    def _execute_step(self, step, context, jinja_env, model=None, provider=None, npc=None, messages=None):
-        """Execute a single step of the tool"""
+    def _execute_step(self,
+                      step, 
+                      context, 
+                      jinja_env,
+                      npc=None,
+                      messages=None, 
+):
+        """Execute a single step of the jinx"""
         engine = step.get("engine", "natural")
         code = step.get("code", "")
         step_name = step.get("name", "unnamed_step")
+
         
-        # Render template and engine with context
+        
+
         try:
+            #print(code)
             template = jinja_env.from_string(code)
             rendered_code = template.render(**context)
             
             engine_template = jinja_env.from_string(engine)
             rendered_engine = engine_template.render(**context)
+        
         except Exception as e:
             print(f"Error rendering templates for step {step_name}: {e}")
             rendered_code = code
             rendered_engine = engine
-            
+                
         # Execute based on engine type
         if rendered_engine == "natural":
             if rendered_code.strip():
                 # Handle streaming case
-                response =  npy.llm_funcs.get_llm_response(
+                response =  npc.get_llm_response(
                     rendered_code,
-                    model=model,
-                    provider=provider,
-                    npc=npc,
-                    api_key=npc.api_key if npc else None,
-                    api_url=npc.api_url if npc else None,
+                    context=context,
+                    messages=messages,
                 )
-                
+               # print(response)
                 response_text = response.get("response", "")
+                context['output'] = response_text
                 context["llm_response"] = response_text
                 context["results"] = response_text
                 context[step_name] = response_text
@@ -198,7 +214,7 @@ class Tool:
     def to_dict(self):
         """Convert to dictionary representation"""
         return {
-            "tool_name": self.tool_name,
+            "jinx_name": self.jinx_name,
             "description": self.description,
             "inputs": self.inputs,
             "steps": [
@@ -212,14 +228,14 @@ class Tool:
         }
         
     def save(self, directory):
-        """Save tool to file"""
-        tool_path = os.path.join(directory, f"{self.tool_name}.tool")
-        ensure_dirs_exist(os.path.dirname(tool_path))
-        return write_yaml_file(tool_path, self.to_dict())
+        """Save jinx to file"""
+        jinx_path = os.path.join(directory, f"{self.jinx_name}.jinx")
+        ensure_dirs_exist(os.path.dirname(jinx_path))
+        return write_yaml_file(jinx_path, self.to_dict())
         
     @classmethod
     def from_mcp(cls, mcp_tool):
-        """Convert an MCP tool to NPC tool format"""
+        """Convert an MCP tool to NPC jinx format"""
         # Extract function info from MCP tool
         import inspect
         
@@ -242,8 +258,8 @@ class Tool:
                 })
         
         # Create tool data
-        tool_data = {
-            "tool_name": name,
+        jinx_data = {
+            "jinx_name": name,
             "description": doc.strip(),
             "inputs": inputs,
             "steps": [
@@ -261,26 +277,26 @@ output = {mcp_tool.__module__}.{name}(
             ]
         }
         
-        return cls(tool_data=tool_data)
+        return cls(jinx_data=jinx_data)
 
-def load_tools_from_directory(directory):
-    """Load all tools from a directory"""
-    tools = []
+def load_jinxs_from_directory(directory):
+    """Load all jinxs from a directory"""
+    jinxs = []
     directory = os.path.expanduser(directory)
     
     if not os.path.exists(directory):
-        return tools
+        return jinxs
         
     for filename in os.listdir(directory):
-        if filename.endswith(".tool"):
+        if filename.endswith(".jinx"):
             try:
-                tool_path = os.path.join(directory, filename)
-                tool = Tool(tool_path=tool_path)
-                tools.append(tool)
+                jinx_path = os.path.join(directory, filename)
+                jinx = Jinx(jinx_path=jinx_path)
+                jinxs.append(jinx)
             except Exception as e:
-                print(f"Error loading tool {filename}: {e}")
+                print(f"Error loading jinx {filename}: {e}")
                 
-    return tools
+    return jinxs
 
 # ---------------------------------------------------------------------------
 # NPC Class
@@ -292,6 +308,7 @@ class NPC:
         file: str = None,
         name: str = None,
         primary_directive: str = None,
+        jinxs: list = None,
         tools: list = None,
         model: str = None,
         provider: str = None,
@@ -306,19 +323,21 @@ class NPC:
         Args:
             file: Path to .npc file or name for the NPC
             primary_directive: System prompt/directive for the NPC
-            tools: List of tools available to the NPC or "*" to load all tools
+            jinxs: List of jinxs available to the NPC or "*" to load all jinxs
             model: LLM model to use
             provider: LLM provider to use
             api_url: API URL for LLM
             api_key: API key for LLM
             db_conn: Database connection
         """
-        self.tools_directory = os.path.abspath("./npc_team/tools")       
         if not file and not name and not primary_directive:
             raise ValueError("Either 'file' or 'name' and 'primary_directive' must be provided") 
         if file:
             if file.endswith(".npc"):
                 self._load_from_file(file)
+            file_parent = os.path.dirname(file)
+            self.jinxs_directory = os.path.join(file_parent, "jinxs")
+            self.npc_directory = file_parent
         else:
             self.name = name            
             self.primary_directive = primary_directive
@@ -326,7 +345,13 @@ class NPC:
             self.provider = provider 
             self.api_url = api_url 
             self.api_key = api_key
-        self.npc_directory = os.path.abspath('./npc_team/')
+            #for these cases
+            # if npcsh is initialized, use the ~/.npcsh/npc_team
+            # otherwise imply
+            self.jinxs_directory = os.path.expanduser('~/.npcsh/npc_team/jinxs/')
+
+            self.npc_directory = None # only makes sense when the input is also a file 
+            # keep the jinxs tho to enable easieros.path.abspath('./npc_team/')
         
         self.memory_length = 20
         self.memory_strategy = 'recent'
@@ -334,7 +359,7 @@ class NPC:
         self.jinja_env = Environment(
             loader=FileSystemLoader([
                 self.npc_directory,
-                self.tools_directory,
+                self.jinxs_directory,
             ]),
             undefined=SilentUndefined,
         )
@@ -350,8 +375,8 @@ class NPC:
             self.memory = None
             
             
-        # Load tools
-        self.tools = self._load_npc_tools(tools or "*")
+        # Load jinxs
+        self.jinxs = self._load_npc_jinxs(jinxs or "*")
         
         # Set up shared context for NPC
         self.shared_context = {
@@ -393,14 +418,14 @@ class NPC:
             
         self.primary_directive = npc_data.get("primary_directive")
         
-        # Handle wildcard tools specification
-        tools_spec = npc_data.get("tools", [])
-        #print(tools_spec)
-        if tools_spec == "*":
-            # Will be loaded in _load_npc_tools
-            self.tools_spec = "*" 
+        # Handle wildcard jinxs specification
+        jinxs_spec = npc_data.get("jinxs", "*")
+        #print(jinxs_spec)
+        if jinxs_spec == "*":
+            # Will be loaded in _load_npc_jinxs
+            self.jinxs_spec = "*" 
         else:
-            self.tools_spec = tools_spec
+            self.jinxs_spec = jinxs_spec
 
         self.model = npc_data.get("model")
         self.provider = npc_data.get("provider")
@@ -411,8 +436,8 @@ class NPC:
         # Store path for future reference
         self.npc_path = file
         
-        # Set NPC-specific tools directory path
-        self.npc_tools_directory = os.path.join(os.path.dirname(file), "tools")
+        # Set NPC-specific jinxs directory path
+        self.npc_jinxs_directory = os.path.join(os.path.dirname(file), "jinxs")
             
     def _setup_db(self):
         """Set up database tables and determine type"""
@@ -443,62 +468,61 @@ class NPC:
             self.tables = None
             self.db_type = None
     
-    def _load_npc_tools(self, tools):
-        """Load and process NPC-specific tools"""
-        npc_tools = []
+    def _load_npc_jinxs(self, jinxs):
+        """Load and process NPC-specific jinxs"""
+        npc_jinxs = []
         
-        # Handle wildcard case - load all tools from the tools directory
-        if tools == "*":
-            #print(f'loading all tools for {self.name}')
-            # Try to find tools in NPC-specific tools dir first
-            #print(self.npc_tools_directory)
-            npc_tools.extend(load_tools_from_directory(self.tools_directory))
-            #print(npc_tools)               
-            if os.path.exists(self.tools_directory):
-                npc_tools.extend(load_tools_from_directory(self.tools_directory))                
-            # Return all loaded tools
-            self.tools_dict = {tool.tool_name: tool for tool in npc_tools}
-            #print(npc_tools)
-            return npc_tools
+        # Handle wildcard case - load all jinxs from the jinxs directory
+        if jinxs == "*":
+            #print(f'loading all jinxs for {self.name}')
+            # Try to find jinxs in NPC-specific jinxs dir first
+            #print(self.npc_jinxs_directory)
+            npc_jinxs.extend(load_jinxs_from_directory(self.jinxs_directory))
+            #print(npc_jinxs)               
+            if os.path.exists(self.jinxs_directory):
+                npc_jinxs.extend(load_jinxs_from_directory(self.jinxs_directory))                
+            # Return all loaded jinxs
+            self.jinxs_dict = {jinx.jinx_name: jinx for jinx in npc_jinxs}
+            #print(npc_jinxs)
+            return npc_jinxs
             
 
-        for tool in tools:
-            #need to add a block here for mcp tools.
+        for jinx in jinxs:
+            #need to add a block here for mcp jinxs.
                 
-            if isinstance(tool, Tool):
-                npc_tools.append(tool)
-            elif isinstance(tool, dict):
-                npc_tools.append(Tool(tool_data=tool))
-                
-            elif isinstance(tool, str):
-                    
+            if isinstance(jinx, Jinx):
+                npc_jinxs.append(jinx)
+            elif isinstance(jinx, dict):
+                npc_jinxs.append(Jinx(jinx_data=jinx))
+            
                 # Try to load from file
-                tool_path = None
-                tool_name = tool
-                if not tool_name.endswith(".tool"):
-                    tool_name += ".tool"
+                jinx_path = None
+                jinx_name = jinx
+                if not jinx_name.endswith(".jinx"):
+                    jinx_name += ".jinx"
                 
-                # Check NPC-specific tools directory first
-                if hasattr(self, 'tools_directory') and os.path.exists(self.tools_directory):
-                    candidate_path = os.path.join(self.tools_directory, tool_name)
+                # Check NPC-specific jinxs directory first
+                if hasattr(self, 'jinxs_directory') and os.path.exists(self.jinxs_directory):
+                    candidate_path = os.path.join(self.jinxs_directory, jinx_name)
                     if os.path.exists(candidate_path):
-                        tool_path = candidate_path
+                        jinx_path = candidate_path
                         
-                if tool_path:
+                if jinx_path:
                     try:
-                        tool_obj = Tool(tool_path=tool_path)
-                        npc_tools.append(tool_obj)
+                        jinx_obj = Jinx(jinx_path=jinx_path)
+                        npc_jinxs.append(jinx_obj)
                     except Exception as e:
-                        print(f"Error loading tool {tool_path}: {e}")
+                        print(f"Error loading jinx {jinx_path}: {e}")
         
-        # Update tools dictionary
-        self.tools_dict = {tool.tool_name: tool for tool in npc_tools}
-        return npc_tools
+        # Update jinxs dictionary
+        self.jinxs_dict = {jinx.jinx_name: jinx for jinx in npc_jinxs}
+        return npc_jinxs
     
     def get_llm_response(self, 
                          request,
-                         tools= None,
-                         memory=False,
+                         jinxs= None,
+                         tools=None,
+                         messages=False,
                          **kwargs):
         """Get a response from the LLM"""
         
@@ -508,37 +532,37 @@ class NPC:
             model=self.model, 
             provider=self.provider, 
             npc=self, 
-            tools=tools,
-            messages=self.memory if memory else None, 
+            jinxs=jinxs,
+            tools = tools, 
+            messages=self.memory if messages is None else messages,
             **kwargs
         )        
         
         return response
     
-    def execute_tool(self, tool_name, inputs, conversation_id=None, message_id=None, team_name=None):
-        """Execute a tool by name"""
-        # Find the tool
-        if tool_name in self.tools_dict:
-            tool = self.tools_dict[tool_name]
-        elif tool_name in self.tools_dict:
-            tool = self.tools_dict[tool_name]
+    def execute_jinx(self, jinx_name, inputs, conversation_id=None, message_id=None, team_name=None):
+        """Execute a jinx by name"""
+        # Find the jinx
+        if jinx_name in self.jinxs_dict:
+            jinx = self.jinxs_dict[jinx_name]
+        elif jinx_name in self.jinxs_dict:
+            jinx = self.jinxs_dict[jinx_name]
         else:
-            return {"error": f"Tool '{tool_name}' not found"}
-        result = tool.execute(
+            return {"error": f"jinx '{jinx_name}' not found"}
+        
+        result = jinx.execute(
             input_values=inputs,
-            tools_dict=self.tools_dict,
+            context=self.shared_context,
             jinja_env=self.jinja_env,
-            model=self.model,
-            provider=self.provider,
             npc=self
         )
         if self.db_conn is not None:
-            self.db_conn.add_tool_call(
+            self.db_conn.add_jinx_call(
                 triggering_message_id=message_id,
                 conversation_id=conversation_id,
-                tool_name=tool_name,
-                tool_inputs=inputs,
-                tool_output=result,
+                jinx_name=jinx_name,
+                jinx_inputs=inputs,
+                jinx_output=result,
                 status="success",
                 error_message=None,
                 duration_ms=None,
@@ -547,24 +571,24 @@ class NPC:
             )
         return result
     
-    def check_llm_command(self, command, messages=None, context=None, shared_context=None, team = None, stream = False):
+    def check_llm_command(self,
+                          command, 
+                          messages=None,
+                          context=None,
+                          team=None,
+                          stream=False):
         """Check if a command is for the LLM"""
-        if shared_context is not None:
-            self.shared_context = shared_context
-            
+        if context is None:
+            context = self.shared_context            
         # Call the LLM command checker
         return npy.llm_funcs.check_llm_command(
             command,
             model=self.model,
             provider=self.provider,
-            api_url=self.api_url,
-            api_key=self.api_key,
-            npc=self,
-            team = team,
+            team=team,
             messages=messages,
             context=context,
-            stream =stream
-            
+            stream=stream            
         )
     
     def handle_agent_pass(self, 
@@ -620,14 +644,14 @@ class NPC:
             "provider": self.provider,
             "api_url": self.api_url,
             "api_key": self.api_key,
-            "tools": [tool.to_dict() if isinstance(tool, Tool) else tool for tool in self.tools],
-            "use_global_tools": self.use_global_tools
+            "jinxs": [jinx.to_dict() if isinstance(jinx, Jinx) else jinx for jinx in self.jinxs],
+            "use_global_jinxs": self.use_global_jinxs
         }
         
     def save(self, directory=None):
         """Save NPC to file"""
         if directory is None:
-            directory = self.project_npc_directory
+            directory = self.npc_directory
             
         ensure_dirs_exist(directory)
         npc_path = os.path.join(directory, f"{self.name}.npc")
@@ -636,14 +660,14 @@ class NPC:
     
     def __str__(self):
         """String representation of NPC"""
-        return f"NPC: {self.name}\nDirective: {self.primary_directive}\nModel: {self.model}\nProvider: {self.provider}\nAPI URL: {self.api_url}\ntools: {', '.join([tool.tool_name for tool in self.tools])}"
+        return f"NPC: {self.name}\nDirective: {self.primary_directive}\nModel: {self.model}\nProvider: {self.provider}\nAPI URL: {self.api_url}\njinxs: {', '.join([jinx.jinx_name for jinx in self.jinxs])}"
 
 class Team:
     def __init__(self, 
                  team_path=None, 
                  npcs=None, 
                  forenpc=None,
-                 tools=None,                   
+                 jinxs=None,                   
                  db_conn=None):
         """
         Initialize an NPC team from directory or list of NPCs
@@ -655,7 +679,7 @@ class Team:
         """
         self.npcs = {}
         self.sub_teams = {}
-        self.tools_dict = tools or {}
+        self.jinxs_dict = jinxs or {}
         self.db_conn = db_conn
         self.team_path = os.path.expanduser(team_path) if team_path else None
         self.databases = {}
@@ -715,11 +739,11 @@ class Team:
                 except Exception as e:
                     print(f"Error loading NPC {filename}: {e}")
         
-        # Load tools from tools directory
-        tools_dir = os.path.join(self.team_path, "tools")
-        if os.path.exists(tools_dir):
-            for tool in load_tools_from_directory(tools_dir):
-                self.tools_dict[tool.tool_name] = tool
+        # Load jinxs from jinxs directory
+        jinxs_dir = os.path.join(self.team_path, "jinxs")
+        if os.path.exists(jinxs_dir):
+            for jinx in load_jinxs_from_directory(jinxs_dir):
+                self.jinxs_dict[jinx.jinx_name] = jinx
         
         # Load sub-teams (subfolders)
         self._load_sub_teams()
@@ -755,7 +779,7 @@ class Team:
             item_path = os.path.join(self.team_path, item)
             if (os.path.isdir(item_path) and 
                 not item.startswith('.') and 
-                item != "tools"):
+                item != "jinxs"):
                 
                 # Check if directory contains NPCs
                 if any(f.endswith(".npc") for f in os.listdir(item_path) 
@@ -947,7 +971,6 @@ class Team:
                 result = forenpc.check_llm_command(
                     updated_request,
                     context=getattr(self, 'context', {}),
-                    shared_context=self.shared_context,
                     stream = False,
                     team = self
                     
@@ -959,7 +982,7 @@ class Team:
             "name": self.name,
             "npcs": {name: npc.to_dict() for name, npc in self.npcs.items()},
             "sub_teams": {name: team.to_dict() for name, team in self.sub_teams.items()},
-            "tools": {name: tool.to_dict() for name, tool in self.tools.items()},
+            "jinxs": {name: jinx.to_dict() for name, jinx in self.jinxs.items()},
             "context": getattr(self, 'context', {})
         }
     
@@ -983,13 +1006,13 @@ class Team:
         for npc in self.npcs.values():
             npc.save(directory)
             
-        # Create tools directory
-        tools_dir = os.path.join(directory, "tools")
-        ensure_dirs_exist(tools_dir)
+        # Create jinxs directory
+        jinxs_dir = os.path.join(directory, "jinxs")
+        ensure_dirs_exist(jinxs_dir)
         
-        # Save tools
-        for tool in self.tools.values():
-            tool.save(tools_dir)
+        # Save jinxs
+        for jinx in self.jinxs.values():
+            jinx.save(jinxs_dir)
             
         # Save sub-teams
         for team_name, team in self.sub_teams.items():
@@ -1398,7 +1421,7 @@ def initialize_npc_project(
     npc_team_dir = os.path.join(directory, "npc_team")
     os.makedirs(npc_team_dir, exist_ok=True)
     
-    for subdir in ["tools", "assembly_lines", "sql_models", "jobs"]:
+    for subdir in ["jinxs", "assembly_lines", "sql_models", "jobs"]:
         os.makedirs(os.path.join(npc_team_dir, subdir), exist_ok=True)
     
     forenpc_path = os.path.join(npc_team_dir, "sibiji.npc")
@@ -1422,37 +1445,37 @@ def initialize_npc_project(
 
 
 
-def execute_tool_command(
-    tool: Tool,
+def execute_jinx_command(
+    jinx: Jinx,
     args: List[str],
     messages=None,
     npc: NPC = None,
 ) -> Dict[str, Any]:
     """
-    Execute a tool command with the given arguments.
+    Execute a jinx command with the given arguments.
     """
-    # Extract inputs for the current tool
-    input_values = extract_tool_inputs(args, tool)
+    # Extract inputs for the current jinx
+    input_values = extract_jinx_inputs(args, jinx)
 
     # print(f"Input values: {input_values}")
-    # Execute the tool with the extracted inputs
+    # Execute the jinx with the extracted inputs
 
-    tool_output = tool.execute(
+    jinx_output = jinx.execute(
         input_values,
-        tool.tool_name,
+        jinx.jinx_name,
         npc=npc,
     )
 
-    return {"messages": messages, "output": tool_output}
+    return {"messages": messages, "output": jinx_output}
 
 
 
-def extract_tool_inputs(args: List[str], tool: Tool) -> Dict[str, Any]:
+def extract_jinx_inputs(args: List[str], jinx: Jinx) -> Dict[str, Any]:
     inputs = {}
 
     # Create flag mapping
     flag_mapping = {}
-    for input_ in tool.inputs:
+    for input_ in jinx.inputs:
         if isinstance(input_, str):
             flag_mapping[f"-{input_[0]}"] = input_
             flag_mapping[f"--{input_}"] = input_
@@ -1476,8 +1499,8 @@ def extract_tool_inputs(args: List[str], tool: Tool) -> Dict[str, Any]:
 
     # If no flags used, combine remaining args for first input
     unused_args = [arg for i, arg in enumerate(args) if i not in used_args]
-    if unused_args and tool.inputs:
-        first_input = tool.inputs[0]
+    if unused_args and jinx.inputs:
+        first_input = jinx.inputs[0]
         if isinstance(first_input, str):
             inputs[first_input] = " ".join(unused_args)
         elif isinstance(first_input, dict):
@@ -1485,7 +1508,7 @@ def extract_tool_inputs(args: List[str], tool: Tool) -> Dict[str, Any]:
             inputs[key] = " ".join(unused_args)
 
     # Add default values for inputs not provided
-    for input_ in tool.inputs:
+    for input_ in jinx.inputs:
         if isinstance(input_, str):
             if input_ not in inputs:
                 if any(args):  # If we have any arguments at all

@@ -1,7 +1,8 @@
-tool_name: file_chat
-description: Enter spool mode with a list of files that will be loaded in automatically for rag for user responses.
+jinx_name: file_chat
+description: Enter spool mode with a list of files that will be loaded in automatically
+  for rag for user responses.
 inputs:
-  - files_list  # list of files 
+- files_list
 steps:
   - engine: python
     code: |
@@ -11,6 +12,3 @@ steps:
       output = enter_spool_mode(
         files = files_list
       )
-
-
-

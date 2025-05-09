@@ -1,8 +1,8 @@
-tool_name: bash_executor
+jinx_name: bash_executor
 description: Execute bash queries.
 inputs:
-  - bash_command
-  - user_request
+- bash_command
+- user_request
 steps:
   - engine: python
     code: |
@@ -29,4 +29,3 @@ steps:
       This was the original user request: {{ user_request }}
 
       Please provide a response accordingly.
-

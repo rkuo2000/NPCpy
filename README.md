@@ -153,7 +153,7 @@ The following are the current programs in the NPC shell:
 - a bash-replacement shell (`npcsh`) that can process bash, natural language, or special macro calls. `npcsh` detects whether input is bash or natural language and processes it accordingly. 
     
     - Users can specify whether natural language commands are processed in one of three ways:
-        - agentically (i.e. an NPC reviews and decides to pass to other NPCs or to use tools),
+        - agentically (i.e. an NPC reviews and decides to pass to other NPCs or to use tools (called `jinxs`)) to carry out tasks.
         - conversationally (the NPC generates a response which the user can approve to run) 
         - directly through bash execution (the NPC responds by generating executable bash code which is then processed automatically in the shell.
     
@@ -180,7 +180,7 @@ The following are the current programs in the NPC shell:
         ```
         
 
-    - Tool Use:   
+    - Jinx Use:   
         ```
         identify what windows are open on my computer desktop at the moment
         ```
@@ -304,7 +304,7 @@ The following are the current programs in the NPC shell:
 </details> 
 
 
-## `alicanto` : a deep research focused tool. 
+## `alicanto` : a deep research focused agent flow. 
 
 <p align="center"><a href ="https://github.com/cagostino/npcpy/blob/main/docs/deep.md"> 
   <img src="https://raw.githubusercontent.com/cagostino/npcpy/main/npcpy/npc_team/alicanto.png" alt="logo for deep research", width=250></a>
@@ -479,7 +479,7 @@ export NPCSH_CHAT_MODEL='llama3.2'
 export NPCSH_DB_PATH='~/npcsh_history.db'
 ```
 
-`npcsh` also comes with a set of tools and NPCs that are used in processing. It will generate a folder at ~/.npcsh/ that contains the tools and NPCs that are used in the shell and these will be used in the absence of other project-specific ones. Additionally, `npcsh` records interactions and compiled information about npcs within a local SQLite database at the path specified in the .npcshrc file. This will default to ~/npcsh_history.db if not specified. When the data mode is used to load or analyze data in CSVs or PDFs, these data will be stored in the same database for future reference.
+`npcsh` also comes with a set of jinxs and NPCs that are used in processing. It will generate a folder at ~/.npcsh/ that contains the tools and NPCs that are used in the shell and these will be used in the absence of other project-specific ones. Additionally, `npcsh` records interactions and compiled information about npcs within a local SQLite database at the path specified in the .npcshrc file. This will default to ~/npcsh_history.db if not specified. When the data mode is used to load or analyze data in CSVs or PDFs, these data will be stored in the same database for future reference.
 
 The installer will automatically add this file to your shell config, but if it does not do so successfully for whatever reason you can add the following to your .bashrc or .zshrc:
 
@@ -512,11 +512,11 @@ export PERPLEXITY_API_KEY='your_perplexity_key'
 │   └── assembly_lines/ # Workflow pipelines
 
 ```
-For cases where you wish to set up a project specific set of NPCs, tools, and assembly lines, add a `npc_team` directory to your project and `npcsh` should be able to pick up on its presence, like so:
+For cases where you wish to set up a project specific set of NPCs, jinxs, and assembly lines, add a `npc_team` directory to your project and `npcsh` should be able to pick up on its presence, like so:
 ```bash
 ./npc_team/            # Project-specific NPCs
-├── tools/             # Project tools #example tool next
-│   └── example.tool
+├── jinxs/             # Project jinxs #example jinx next
+│   └── example.jinx
 └── assembly_lines/    # Project workflows
     └── example.pipe
 └── models/    # Project workflows

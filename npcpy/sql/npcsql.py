@@ -140,7 +140,7 @@ class NPCSQLOperations:
         # Execute the SQL query
 
         """
-        1. delegate(COLUMN, npc, query, context, tools, reviewers)
+        1. delegate(COLUMN, npc, query, context, jinxs, reviewers)
         2. dilate(COLUMN, npc, query, context, scope, reviewers)
         3. erode(COLUMN, npc, query, context, scope, reviewers)
         4. strategize(COLUMN, npc, query, context, timeline, constraints)

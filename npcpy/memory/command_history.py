@@ -206,7 +206,7 @@ class CommandHistory:
         self.create_command_table()
         self.create_conversation_table()
         self.create_attachment_table()
-        self.create_tool_call_table()
+        self.create_jinx_call_table()
         print("Database schema initialization complete.")
 
     def _execute(self, sql: str, params: Optional[Union[tuple, Dict]] = None, script: bool = False, requires_fk: bool = False) -> Optional[int]:
@@ -338,13 +338,13 @@ class CommandHistory:
         )"""
         self._execute(query, requires_fk=True)
 
-    def create_tool_call_table(self):
+    def create_jinx_call_table(self):
         table_query = '''
-        CREATE TABLE IF NOT EXISTS tool_execution_log (
+        CREATE TABLE IF NOT EXISTS jinx_execution_log (
             execution_id INTEGER PRIMARY KEY AUTOINCREMENT, triggering_message_id TEXT NOT NULL,
             response_message_id TEXT, conversation_id TEXT NOT NULL, timestamp TEXT NOT NULL,
-            npc_name TEXT, team_name TEXT, tool_name TEXT NOT NULL, tool_inputs TEXT,
-            tool_output TEXT, status TEXT NOT NULL, error_message TEXT, duration_ms INTEGER,
+            npc_name TEXT, team_name TEXT, jinx_name TEXT NOT NULL, jinx_inputs TEXT,
+            jinx_output TEXT, status TEXT NOT NULL, error_message TEXT, duration_ms INTEGER,
             FOREIGN KEY (triggering_message_id) REFERENCES conversation_history(message_id) ON DELETE CASCADE,
             FOREIGN KEY (response_message_id) REFERENCES conversation_history(message_id) ON DELETE SET NULL
         );
@@ -352,10 +352,10 @@ class CommandHistory:
         self._execute(table_query, requires_fk=True)
 
         index_queries = [
-            "CREATE INDEX IF NOT EXISTS idx_tool_log_trigger_msg ON tool_execution_log (triggering_message_id);",
-            "CREATE INDEX IF NOT EXISTS idx_tool_log_convo_id ON tool_execution_log (conversation_id);",
-            "CREATE INDEX IF NOT EXISTS idx_tool_log_tool_name ON tool_execution_log (tool_name);",
-            "CREATE INDEX IF NOT EXISTS idx_tool_log_timestamp ON tool_execution_log (timestamp);"
+            "CREATE INDEX IF NOT EXISTS idx_jinx_log_trigger_msg ON jinx_execution_log (triggering_message_id);",
+            "CREATE INDEX IF NOT EXISTS idx_jinx_log_convo_id ON jinx_execution_log (conversation_id);",
+            "CREATE INDEX IF NOT EXISTS idx_jinx_log_jinx_name ON jinx_execution_log (jinx_name);",
+            "CREATE INDEX IF NOT EXISTS idx_jinx_log_timestamp ON jinx_execution_log (timestamp);"
         ]
         for idx_query in index_queries:
              self._execute(idx_query)
@@ -419,31 +419,31 @@ class CommandHistory:
         params = (message_id, attachment_name, attachment_type, attachment_data, attachment_size, timestamp,)
         self._execute(sql, params)
 
-    def save_tool_execution(
+    def save_jinx_execution(
         self, triggering_message_id: str, conversation_id: str, npc_name: Optional[str],
-        tool_name: str, tool_inputs: Dict, tool_output: Any, status: str,
+        jinx_name: str, jinx_inputs: Dict, jinx_output: Any, status: str,
         team_name: Optional[str] = None, error_message: Optional[str] = None,
         response_message_id: Optional[str] = None, duration_ms: Optional[int] = None
     ):
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        try: inputs_json = json.dumps(tool_inputs, cls=CustomJSONEncoder)
-        except TypeError: inputs_json = json.dumps(str(tool_inputs))
+        try: inputs_json = json.dumps(jinx_inputs, cls=CustomJSONEncoder)
+        except TypeError: inputs_json = json.dumps(str(jinx_inputs))
         try:
-            if isinstance(tool_output, (str, int, float, bool, list, dict, type(None))):
-                 outputs_json = json.dumps(tool_output, cls=CustomJSONEncoder)
-            else: outputs_json = json.dumps(str(tool_output))
-        except TypeError: outputs_json = json.dumps(f"Non-serializable output: {type(tool_output)}")
+            if isinstance(jinx_output, (str, int, float, bool, list, dict, type(None))):
+                 outputs_json = json.dumps(jinx_output, cls=CustomJSONEncoder)
+            else: outputs_json = json.dumps(str(jinx_output))
+        except TypeError: outputs_json = json.dumps(f"Non-serializable output: {type(jinx_output)}")
 
-        sql = """INSERT INTO tool_execution_log
+        sql = """INSERT INTO jinx_execution_log
             (triggering_message_id, conversation_id, timestamp, npc_name, team_name,
-             tool_name, tool_inputs, tool_output, status, error_message, response_message_id, duration_ms)
+             jinx_name, jinx_inputs, jinx_output, status, error_message, response_message_id, duration_ms)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"""
         params = (triggering_message_id, conversation_id, timestamp, npc_name, team_name,
-                  tool_name, inputs_json, outputs_json, status, error_message, response_message_id, duration_ms)
+                  jinx_name, inputs_json, outputs_json, status, error_message, response_message_id, duration_ms)
         try:
              return self._execute(sql, params) # Return lastrowid if available
         except Exception as e:
-             print(f"CRITICAL: Failed to save tool execution via _execute: {e}")
+             print(f"CRITICAL: Failed to save jinx execution via _execute: {e}")
              return None
 
     def get_full_message_content(self, message_id):
@@ -823,5 +823,5 @@ stats = command_history.get_npc_conversation_stats()
 
 from npcpy.memory.command_history import CommandHistory
 command_history = CommandHistory()
-command_history.create_tool_call_table()
+command_history.create_jinx_call_table()
 '''

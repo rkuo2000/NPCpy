@@ -1,11 +1,9 @@
-tool_name: "image_generation_tool"
-description: |
-  Generates images based on a text prompt.
+jinx_name: image_generation_jinx
+description: 'Generates images based on a text prompt.'
 inputs:
-  - prompt
-  - model: 'runwayml/stable-diffusion-v1-5'
-  - provider: 'diffusers'
-
+- prompt
+- model: runwayml/stable-diffusion-v1-5
+- provider: diffusers
 steps:
   - engine: "python"
     code: |
@@ -22,4 +20,3 @@ steps:
           image_generated = True
       else:
           image_generated = False
-

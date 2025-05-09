@@ -54,7 +54,7 @@ except ImportError:
     print("FATAL: 'mcp' library is required. Install it (`pip install mcp`).")
     exit(1)
 
-# --- Synchronous MCP Tool Execution Helper (Uses asyncio.run) ---
+# --- Synchronous MCP Jinx Execution Helper (Uses asyncio.run) ---
 
 async def _async_call_mcp_tool(
     abs_server_path: str,
@@ -154,9 +154,9 @@ if __name__ == "__main__":
          print(f"Error: {e}")
          sys.exit(1)
 
-    print(f"--- Attempting Synchronous MCP Tool Call ---")
+    print(f"--- Attempting Synchronous MCP Jinx Call ---")
     print(f"Server: {server_script_path}")
-    print(f"Tool:   {tool_to_call}")
+    print(f"Jinx:   {tool_to_call}")
     print(f"Args:   {tool_arguments}")
     print(f"---------------------------------------------")
 

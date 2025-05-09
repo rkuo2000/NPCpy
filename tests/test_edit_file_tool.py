@@ -1,13 +1,13 @@
-from npcpy.npc_compiler import NPC, Tool
+from npcpy.npc_compiler import NPC, Jinx
 
-# Load the tool
-file_editor = Tool(tool_path="~/npcww/npcsh/npcpy/npc_team/tools/edit_file.tool")
+# Load the jinx
+file_editor = Jinx(jinx_path="~/npcww/npcsh/npcpy/npc_team/jinxs/edit_file.jinx")
 
 # Create an NPC instance
-npc = NPC(name="editor", primary_directive="You're a code editor assistant", tools=[file_editor])
+npc = NPC(name="editor", primary_directive="You're a code editor assistant", jinxs=[file_editor])
 
-# Execute the tool
-result = npc.execute_tool(
+# Execute the jinx
+result = npc.execute_jinx(
     "file_editor", 
     {
         "file_path": "~/test_file.py",
@@ -18,8 +18,8 @@ result = npc.execute_tool(
 print(result)
 
 
-# Execute the tool
-result = npc.execute_tool(
+# Execute the jinx
+result = npc.execute_jinx(
     "file_editor", 
     {
         "file_path": "~/test_file.py",

@@ -64,7 +64,7 @@ for provider in ["openai", "ollama", "anthropic", "gemini"]:
     ]
 
 
-class MockToolKit:
+class MockJinxKit:
     """
     A collection of mock tools that demonstrate tool use without external APIs
     """
@@ -252,9 +252,9 @@ messages = [
 
 # Custom tool map
 tool_map = {
-    "generate_character_profile": MockToolKit.generate_character_profile,
-    "roll_dice": MockToolKit.roll_dice,
-    "generate_story_prompt": MockToolKit.generate_story_prompt,
+    "generate_character_profile": MockJinxKit.generate_character_profile,
+    "roll_dice": MockJinxKit.roll_dice,
+    "generate_story_prompt": MockJinxKit.generate_story_prompt,
 }
 
 
@@ -269,10 +269,10 @@ def test_anthropic():
     )
     tool_results = process_anthropic_tool_stream(stream, tool_map)
     # Print out the tool results with more context
-    print("Tool Execution Results:")
+    print("Jinx Execution Results:")
     for result in tool_results:
         print(f"\n--- {result['tool_name'].replace('_', ' ').title()} ---")
-        print("Tool Input:", result.get("tool_input", "No specific input"))
+        print("Jinx Input:", result.get("tool_input", "No specific input"))
         print("Execution Result:")
         for key, value in result["tool_result"].items():
             print(f"  {key}: {value}")
@@ -287,10 +287,10 @@ def test_openai_function_calling():
     tool_results = process_openai_tool_stream(stream, tool_map)
 
     # Print out the tool results with more context
-    print("Tool Execution Results:")
+    print("Jinx Execution Results:")
     for result in tool_results:
         print(f"\n--- {result['tool_name'].replace('_', ' ').title()} ---")
-        print("Tool Input:", result.get("tool_input", "No specific input"))
+        print("Jinx Input:", result.get("tool_input", "No specific input"))
         print("Execution Result:")
         for key, value in result["tool_result"].items():
             print(f"  {key}: {value}")
@@ -307,7 +307,7 @@ def test_ollama_function_calling():
         stream, tool_map, tools=tools_by_provider["ollama"]
     )
 
-    print("Tool Execution Results:")
+    print("Jinx Execution Results:")
     for result in tool_results:
         if "error" in result:
             print(f"\nError: {result['error']}")

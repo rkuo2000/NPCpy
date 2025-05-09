@@ -1,7 +1,7 @@
 
 
 ## TLDR Cheat Sheet
-Users can take advantage of `npcsh` through its custom shell or through a command-line interface (CLI) tool. Below is a cheat sheet that shows how to use `npcsh` commands in both the shell and the CLI. For the npcsh commands to work, one must activate `npcsh` by typing it in a shell.
+Users can take advantage of `npcsh` through its custom shell or through a command-line interface (CLI) jinx. Below is a cheat sheet that shows how to use `npcsh` commands in both the shell and the CLI. For the npcsh commands to work, one must activate `npcsh` by typing it in a shell.
 
 
 
@@ -89,12 +89,12 @@ response = npc.analyze_db_data('Provide a detailed report on the data contained 
 ```
 
 
-### Example 3: Creating and Using a Tool
-You can define a tool and execute it from within your Python script.
-Here we'll create a tool that will take in a pdf file, extract the text, and then answer a user request about the text.
+### Example 3: Creating and Using a Jinx
+You can define a jinx and execute it from within your Python script.
+Here we'll create a jinx that will take in a pdf file, extract the text, and then answer a user request about the text.
 
 ```bash
-from npcpy.npc_compiler import Tool, NPC
+from npcpy.npc_compiler import Jinx, NPC
 import sqlite3
 import os
 
@@ -104,8 +104,8 @@ from jinja2 import Environment, FileSystemLoader
 jinja_env = Environment(loader=FileSystemLoader('.'))
 
 
-tool_data = {
-    "tool_name": "pdf_analyzer",
+jinx_data = {
+    "jinx_name": "pdf_analyzer",
     "inputs": ["request", "file"],
     "steps": [{  # Make this a list with one dict inside
         "engine": "python",
@@ -165,8 +165,8 @@ Error: No text was extracted from the PDF.
     },]
     }
 
-# Instantiate the tool
-tool = Tool(tool_data)
+# Instantiate the jinx
+jinx = Jinx(jinx_data)
 
 # Create an NPC instance
 npc = NPC(
@@ -186,10 +186,10 @@ input_values = {
 print(f"Attempting to read file: {input_values['file']}")
 print(f"File exists: {os.path.exists(input_values['file'])}")
 
-# Execute the tool
-output = tool.execute(input_values, npc.tools_dict, jinja_env, 'Sample Command',model=npc.model, provider=npc.provider,  npc=npc)
+# Execute the jinx
+output = jinx.execute(input_values, npcjinxs_dict, jinja_env, npc=npc, messages= messages)
 
-print('Tool Output:', output)
+print('Jinx Output:', output)
 ```
 
 ### Example 4: Orchestrating a team
@@ -200,7 +200,7 @@ print('Tool Output:', output)
 import pandas as pd
 import numpy as np
 import os
-from npcpy.npc_compiler import NPC, Team , Tool
+from npcpy.npc_compiler import NPC, Team , Jinx
 
 
 # Create test data and save to CSV
@@ -229,9 +229,9 @@ def create_test_data(filepath="sales_data.csv"):
     return filepath, sales_data
 
 
-code_execution_tool = Tool(
+code_execution_jinx = Jinx(
     {
-        "tool_name": "execute_code",
+        "jinx_name": "execute_code",
         "description": """Executes a Python code block with access to pandas,
                           numpy, and matplotlib.
                           Results should be stored in the 'results' dict to be returned.
@@ -264,27 +264,27 @@ analytics_team = [
         "primary_directive": "You analyze sales performance data, focusing on revenue trends, customer behavior metrics, and market indicators. Your expertise is in extracting actionable insights from complex datasets.",
         "model": "gpt-4o-mini",
         "provider": "openai",
-        "tools": [code_execution_tool],  # Only the code execution tool
+        "jinxs": [code_execution_jinx],  # Only the code execution jinx
     },
     {
         "name": "researcher",
         "primary_directive": "You specialize in causal analysis and experimental design. Given data insights, you determine what factors drive observed patterns and design tests to validate hypotheses.",
         "model": "gpt-4o-mini",
         "provider": "openai",
-        "tools": [code_execution_tool],  # Only the code execution tool
+        "jinxs": [code_execution_jinx],  # Only the code execution jinx
     },
     {
         "name": "engineer",
         "primary_directive": "You implement data pipelines and optimize data processing. When given analysis requirements, you create efficient workflows to automate insights generation.",
         "model": "gpt-4o-mini",
         "provider": "openai",
-        "tools": [code_execution_tool],  # Only the code execution tool
+        "jinxs": [code_execution_jinx],  # Only the code execution jinx
     },
 ]
 
 
 def create_analytics_team():
-    # Initialize NPCs with just the code execution tool
+    # Initialize NPCs with just the code execution jinx
     npcs = []
     for npc_data in analytics_team:
         npc = NPC(
@@ -292,17 +292,17 @@ def create_analytics_team():
             primary_directive=npc_data["primary_directive"],
             model=npc_data["model"],
             provider=npc_data["provider"],
-            tools=[code_execution_tool],  # Only code execution tool
+            jinxs=[code_execution_jinx],  # Only code execution jinx
         )
         npcs.append(npc)
 
-    # Create coordinator with just code execution tool
+    # Create coordinator with just code execution jinx
     coordinator = NPC(
         name="coordinator",
         primary_directive="You coordinate the analytics team, ensuring each specialist contributes their expertise effectively. You synthesize insights and manage the workflow.",
         model="gpt-4o-mini",
         provider="openai",
-        tools=[code_execution_tool],  # Only code execution tool
+        jinxs=[code_execution_jinx],  # Only code execution jinx
     )
 
     # Create team

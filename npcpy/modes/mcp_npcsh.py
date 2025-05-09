@@ -719,7 +719,13 @@ def process_result(user_input: str, result_state: ShellState, output: Any, comma
     final_output_str = None
     
     if result_state.stream_output and (isgenerator(output) or hasattr(output, '__aiter__')):
-        final_output_str = print_and_process_stream_with_markdown(output, result_state.chat_model, result_state.chat_provider)
+        try:
+            final_output_str = print_and_process_stream_with_markdown(output, result_state.chat_model, result_state.chat_provider)
+        except AttributeError as e:
+            if isinstance(output, str):
+                if len(output) > 0:
+                    final_output_str = output
+                    render_markdown(final_output_str) 
     elif output is not None:
         final_output_str = str(output)
         render_markdown(final_output_str) 

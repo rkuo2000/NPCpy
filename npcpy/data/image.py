@@ -26,7 +26,7 @@ def _windows_snip_to_file(file_path: str) -> bool:
 
         # Wait for user to complete the snip
         print("Please select an area to capture...")
-        time.sleep(1)  # Give a moment for snipping tool to start
+        time.sleep(1)  # Give a moment for snipping jinx to start
 
         # Keep checking clipboard for new image
         max_wait = 30  # Maximum seconds to wait
@@ -97,7 +97,7 @@ def capture_screenshot(npc: Any = None, full=False) -> Dict[str, str]:
                     time.sleep(0.5)
             else:
                 print(
-                    "No supported screenshot tool found. Please install gnome-screenshot or scrot."
+                    "No supported screenshot jinx found. Please install gnome-screenshot or scrot."
                 )
                 return None
         elif system == "Windows":
@@ -160,7 +160,7 @@ def capture_screenshot(npc: Any = None, full=False) -> Dict[str, str]:
                     time.sleep(0.5)
             else:
                 print(
-                    "No supported screenshot tool found. Please install gnome-screenshot or scrot."
+                    "No supported screenshot jinx found. Please install gnome-screenshot or scrot."
                 )
                 return None
         elif system == "Windows":

@@ -20,7 +20,7 @@ from npcpy.memory.command_history import (
     CommandHistory,
     save_conversation_message,
 )
-from npcpy.npc_compiler import  Tool, NPC
+from npcpy.npc_compiler import  Jinx, NPC
 
 from npcpy.llm_funcs import (
     get_llm_response,    
@@ -585,7 +585,7 @@ def stream():
                                 if hasattr(tool_call.function, "name") and tool_call.function.name:
                                     tool_call_data["function_name"] = tool_call.function.name
                                 if hasattr(tool_call.function, "arguments") and tool_call.function.arguments:
-                                    tool_call_data["arguments"] += tool_call.function.arguments
+                                    tool_call_data["arguments"] += jinx_call.function.arguments
                 
                 # Check for reasoning content (thoughts)
                 for choice in response_chunk.choices:
@@ -670,16 +670,16 @@ def get_npc_team_global():
                     "model": npc.model,
                     "provider": npc.provider,
                     "api_url": npc.api_url,
-                    "use_global_tools": npc.use_global_tools,
-                    "tools": [
+                    "use_global_jinxs": npc.use_global_jinxs,
+                    "jinxs": [
                         {
-                            "tool_name": tool.tool_name,
-                            "inputs": tool.inputs,
-                            "preprocess": tool.preprocess,
-                            "prompt": tool.prompt,
-                            "postprocess": tool.postprocess,
+                            "jinx_name": jinx.jinx_name,
+                            "inputs": jinx.inputs,
+                            "preprocess": jinx.preprocess,
+                            "prompt": jinx.prompt,
+                            "postprocess": jinx.postprocess,
                         }
-                        for tool in npc.tools
+                        for jinx in npc.jinxs
                     ],
                 }
                 npc_data.append(serialized_npc)
@@ -691,80 +691,80 @@ def get_npc_team_global():
         return jsonify({"npcs": [], "error": str(e)})
 
 
-@app.route("/api/tools/global", methods=["GET"])
-def get_global_tools():
+@app.route("/api/jinxs/global", methods=["GET"])
+def get_global_jinxs():
     # try:
     user_home = os.path.expanduser("~")
-    tools_dir = os.path.join(user_home, ".npcsh", "npc_team", "tools")
-    tools = []
-    if os.path.exists(tools_dir):
-        for file in os.listdir(tools_dir):
-            if file.endswith(".tool"):
-                with open(os.path.join(tools_dir, file), "r") as f:
-                    tool_data = yaml.safe_load(f)
-                    tools.append(tool_data)
-    return jsonify({"tools": tools})
+    jinxs_dir = os.path.join(user_home, ".npcsh", "npc_team", "jinxs")
+    jinxs = []
+    if os.path.exists(jinxs_dir):
+        for file in os.listdir(jinxs_dir):
+            if file.endswith(".jinx"):
+                with open(os.path.join(jinxs_dir, file), "r") as f:
+                    jinx_data = yaml.safe_load(f)
+                    jinxs.append(jinx_data)
+    return jsonify({"jinxs": jinxs})
 
 
 # except Exception as e:
 #    return jsonify({"error": str(e)}), 500
 
 
-@app.route("/api/tools/project", methods=["GET"])
-def get_project_tools():
+@app.route("/api/jinxs/project", methods=["GET"])
+def get_project_jinxs():
     current_path = request.args.get(
         "currentPath"
     )  # Correctly retrieves `currentPath` from query params
     if not current_path:
-        return jsonify({"tools": []})
+        return jsonify({"jinxs": []})
 
     if not current_path.endswith("npc_team"):
         current_path = os.path.join(current_path, "npc_team")
 
-    tools_dir = os.path.join(current_path, "tools")
-    tools = []
-    if os.path.exists(tools_dir):
-        for file in os.listdir(tools_dir):
-            if file.endswith(".tool"):
-                with open(os.path.join(tools_dir, file), "r") as f:
-                    tool_data = yaml.safe_load(f)
-                    tools.append(tool_data)
-    return jsonify({"tools": tools})
+    jinxs_dir = os.path.join(current_path, "jinxs")
+    jinxs = []
+    if os.path.exists(jinxs_dir):
+        for file in os.listdir(jinxs_dir):
+            if file.endswith(".jinx"):
+                with open(os.path.join(jinxs_dir, file), "r") as f:
+                    jinx_data = yaml.safe_load(f)
+                    jinxs.append(jinx_data)
+    return jsonify({"jinxs": jinxs})
 
 
-@app.route("/api/tools/save", methods=["POST"])
-def save_tool():
+@app.route("/api/jinxs/save", methods=["POST"])
+def save_jinx():
     try:
         data = request.json
-        tool_data = data.get("tool")
+        jinx_data = data.get("jinx")
         is_global = data.get("isGlobal")
         current_path = data.get("currentPath")
-        tool_name = tool_data.get("tool_name")
+        jinx_name = jinx_data.get("jinx_name")
 
-        if not tool_name:
-            return jsonify({"error": "Tool name is required"}), 400
+        if not jinx_name:
+            return jsonify({"error": "Jinx name is required"}), 400
 
         if is_global:
-            tools_dir = os.path.join(
-                os.path.expanduser("~"), ".npcsh", "npc_team", "tools"
+            jinxs_dir = os.path.join(
+                os.path.expanduser("~"), ".npcsh", "npc_team", "jinxs"
             )
         else:
             if not current_path.endswith("npc_team"):
                 current_path = os.path.join(current_path, "npc_team")
-            tools_dir = os.path.join(current_path, "tools")
+            jinxs_dir = os.path.join(current_path, "jinxs")
 
-        os.makedirs(tools_dir, exist_ok=True)
+        os.makedirs(jinxs_dir, exist_ok=True)
 
-        # Full tool structure
-        tool_yaml = {
-            "description": tool_data.get("description", ""),
-            "inputs": tool_data.get("inputs", []),
-            "steps": tool_data.get("steps", []),
+        # Full jinx structure
+        jinx_yaml = {
+            "description": jinx_data.get("description", ""),
+            "inputs": jinx_data.get("inputs", []),
+            "steps": jinx_data.get("steps", []),
         }
 
-        file_path = os.path.join(tools_dir, f"{tool_name}.tool")
+        file_path = os.path.join(jinxs_dir, f"{jinx_name}.jinx")
         with open(file_path, "w") as f:
-            yaml.safe_dump(tool_yaml, f, sort_keys=False)
+            yaml.safe_dump(jinx_yaml, f, sort_keys=False)
 
         return jsonify({"status": "success"})
     except Exception as e:
@@ -797,7 +797,7 @@ primary_directive: "{npc_data['primary_directive']}"
 model: {npc_data['model']}
 provider: {npc_data['provider']}
 api_url: {npc_data.get('api_url', '')}
-use_global_tools: {str(npc_data.get('use_global_tools', True)).lower()}
+use_global_jinxs: {str(npc_data.get('use_global_jinxs', True)).lower()}
 """
 
         # Save the file
@@ -829,23 +829,23 @@ def get_npc_team_project():
                 npc_path = os.path.join(project_npc_directory, file)
                 npc = NPC(file=npc_path, db_conn= db_conn)
 
-                # Serialize the NPC data, including tools
+                # Serialize the NPC data, including jinxs
                 serialized_npc = {
                     "name": npc.name,
                     "primary_directive": npc.primary_directive,
                     "model": npc.model,
                     "provider": npc.provider,
                     "api_url": npc.api_url,
-                    "use_global_tools": npc.use_global_tools,
-                    "tools": [
+                    "use_global_jinxs": npc.use_global_jinxs,
+                    "jinxs": [
                         {
-                            "tool_name": tool.tool_name,
-                            "inputs": tool.inputs,
-                            "preprocess": tool.preprocess,
-                            "prompt": tool.prompt,
-                            "postprocess": tool.postprocess,
+                            "jinx_name": jinx.jinx_name,
+                            "inputs": jinx.inputs,
+                            "preprocess": jinx.preprocess,
+                            "prompt": jinx.prompt,
+                            "postprocess": jinx.postprocess,
                         }
-                        for tool in npc.tools
+                        for jinx in npc.jinxs
                     ],
                 }
                 npc_data.append(serialized_npc)
@@ -1361,7 +1361,7 @@ def stream_raw():
 
         # Clear and render markdown
         if tool_call_data["id"] or tool_call_data["function_name"] or tool_call_data["arguments"]:
-            str_output += "\n\n### Tool Call Data\n"
+            str_output += "\n\n### Jinx Call Data\n"
             if tool_call_data["id"]:
                 str_output += f"**ID:** {tool_call_data['id']}\n\n"
             if tool_call_data["function_name"]:

@@ -3,7 +3,7 @@ import os
 import tempfile
 import sqlite3
 from unittest.mock import patch, MagicMock
-from npcpy.npc_compiler import  NPC, Tool
+from npcpy.npc_compiler import  NPC, Jinx
 
 
 
@@ -117,7 +117,7 @@ def example_2_npc_team():
     ensure_dirs_exist(tools_dir)
     
     # Create analysis tool
-    analysis_tool = Tool(tool_data={
+    analysis_tool = Jinx(tool_data={
         "tool_name": "analyze_statistics",
         "description": "Perform statistical analysis on data",
         "inputs": [
@@ -168,7 +168,7 @@ else:
     analysis_tool.save(tools_dir)
     
     # Create visualization tool
-    viz_tool = Tool(tool_data={
+    viz_tool = Jinx(tool_data={
         "tool_name": "describe_visualization",
         "description": "Describe how to visualize data",
         "inputs": [
@@ -448,12 +448,12 @@ def example_4_hierarchical_teams():
     return main_team
 
 # ---------------------------------------------------------------------------
-# Example 5: Tool Creation and Conversion from MCP
+# Example 5: Jinx Creation and Conversion from MCP
 # ---------------------------------------------------------------------------
 
 def example_5_tool_conversion():
     """Example demonstrating tool creation and conversion from MCP"""
-    print("\nExample 5: Tool creation and conversion from MCP")
+    print("\nExample 5: Jinx creation and conversion from MCP")
     
     # Define an MCP-style function
     def analyze_sentiment(text: str, include_details: bool = False) -> dict:
@@ -494,9 +494,9 @@ def example_5_tool_conversion():
         return result
     
     # Convert MCP function to NPCSH tool
-    sentiment_tool = Tool.from_mcp(analyze_sentiment)
+    sentiment_tool = Jinx.from_mcp(analyze_sentiment)
     
-    print("Generated Tool:")
+    print("Generated Jinx:")
     print(f"Name: {sentiment_tool.tool_name}")
     print(f"Description: {sentiment_tool.description}")
     print(f"Inputs: {sentiment_tool.inputs}")
@@ -508,7 +508,7 @@ def example_5_tool_conversion():
     sentiment_tool.save(tools_dir)
     
     # Create a manual tool
-    translation_tool = Tool(tool_data={
+    translation_tool = Jinx(tool_data={
         "tool_name": "translate_text",
         "description": "Translate text from one language to another",
         "inputs": [

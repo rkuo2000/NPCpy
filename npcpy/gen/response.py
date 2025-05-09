@@ -5,7 +5,7 @@ from npcpy.npc_sysenv import get_system_message, lookup_provider, render_markdow
 import base64
 import json
 import uuid
-
+import os 
 try: 
     import ollama
 except ImportError:
@@ -316,7 +316,12 @@ def get_litellm_response(
         api_params["response_format"] = {"type": "json_object"}
     elif isinstance(format, BaseModel):
         api_params["response_format"] = format
-    
+    if model is None:
+        print('model not provided, using defaults')
+        model = os.environ.get("NPCSH_CHAT_MODEL", "llama3.2")
+    if provider is None:
+        provider = os.environ.get("NPCSH_CHAT_PROVIDER", "openai")
+
     if "/" not in model:
         model_str = f"{provider}/{model}"
     else:
@@ -501,7 +506,7 @@ def process_tool_calls(response_dict, tool_map, model, provider, messages, strea
                         tool_name = getattr(tool_call.function, "name", None)
                         arguments_str = getattr(tool_call.function, "arguments", "{}")
                 else:
-                    raise ValueError("Tool call missing function attribute or property")
+                    raise ValueError("Jinx call missing function attribute or property")
             
             # Parse arguments
             if not arguments_str:

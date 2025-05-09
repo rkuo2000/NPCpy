@@ -1,7 +1,7 @@
-tool_name: "screen_capture_analysis_tool"
-description: "Captures the whole screen and sends the image for analysis"
+jinx_name: screen_capture_analysis_jinx
+description: Captures the whole screen and sends the image for analysis
 inputs:
-  - prompt
+- prompt
 steps:
   - engine: "python"
     code: |

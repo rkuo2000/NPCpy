@@ -1,7 +1,7 @@
-tool_name: npcsh_executor
+jinx_name: npcsh_executor
 description: Issue npc shell requests. Uses one of the NPC macros.
 inputs:
-  - request 
+- request
 steps:
   - name: 'get_command_help'
     engine: 'python'

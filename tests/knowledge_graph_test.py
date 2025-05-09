@@ -13,7 +13,7 @@ Macros: npcsh provides macros to accomplish common tasks with LLMs like voice co
 
 NPC-Driven Interactions: npcsh allows users to coordinate agents (i.e. NPCs) to form assembly lines that can reliably accomplish complicated multi-step procedures. Define custom "NPCs" (Non-Player Characters) with specific personalities, directives, and tools. This allows for tailored interactions based on the task at hand.
 
-Tool Use: Define custom tools for your NPCs to use, expanding their capabilities beyond simple commands and questions. Some example tools include: image generation, local file search, data analysis, web search, local file search, bash command execution, and more.
+Jinx Use: Define custom tools for your NPCs to use, expanding their capabilities beyond simple commands and questions. Some example tools include: image generation, local file search, data analysis, web search, local file search, bash command execution, and more.
 
 Extensible with Python: Write your own tools and extend npcsh's functionality using Python or use our functionis to simplify interactions with LLMs in your projects.
 

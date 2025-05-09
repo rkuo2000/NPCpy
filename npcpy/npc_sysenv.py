@@ -152,7 +152,7 @@ def get_locally_available_models(project_directory):
                 available_models[mod] = "ollama"
     except Exception as e:
         print(f"Error loading ollama models: {e}")
-    print("locally available models", available_models)
+    #print("locally available models", available_models)
         
     return available_models
 
@@ -926,13 +926,15 @@ def initialize_base_npcs_if_needed(db_path: str) -> None:
     package_dir = os.path.dirname(__file__)
     package_npc_team_dir = os.path.join(package_dir, "npc_team")
 
+    
+
     # User's global npc_team directory
     user_npc_team_dir = os.path.expanduser("~/.npcsh/npc_team")
 
-    user_tools_dir = os.path.join(user_npc_team_dir, "tools")
+    user_jinxs_dir = os.path.join(user_npc_team_dir, "jinxs")
     user_templates_dir = os.path.join(user_npc_team_dir, "templates")
     os.makedirs(user_npc_team_dir, exist_ok=True)
-    os.makedirs(user_tools_dir, exist_ok=True)
+    os.makedirs(user_jinxs_dir, exist_ok=True)
     os.makedirs(user_templates_dir, exist_ok=True)
     # Copy NPCs from package to user directory
     for filename in os.listdir(package_npc_team_dir):
@@ -951,20 +953,20 @@ def initialize_base_npcs_if_needed(db_path: str) -> None:
                 source_path, destination_path
             ):
                 shutil.copy2(source_path, destination_path)
-                print(f"Copied tool {filename} to {destination_tool_path}")
+                print(f"Copied ctx {filename} to {destination_path}")
 
-    # Copy tools from package to user directory
-    package_tools_dir = os.path.join(package_npc_team_dir, "tools")
-    if os.path.exists(package_tools_dir):
-        for filename in os.listdir(package_tools_dir):
-            if filename.endswith(".tool"):
-                source_tool_path = os.path.join(package_tools_dir, filename)
-                destination_tool_path = os.path.join(user_tools_dir, filename)
-                if (not os.path.exists(destination_tool_path)) or file_has_changed(
-                    source_tool_path, destination_tool_path
+    # Copy jinxs from package to user directory
+    package_jinxs_dir = os.path.join(package_npc_team_dir, "jinxs")
+    if os.path.exists(package_jinxs_dir):
+        for filename in os.listdir(package_jinxs_dir):
+            if filename.endswith(".jinx"):
+                source_jinx_path = os.path.join(package_jinxs_dir, filename)
+                destination_jinx_path = os.path.join(user_jinxs_dir, filename)
+                if (not os.path.exists(destination_jinx_path)) or file_has_changed(
+                    source_jinx_path, destination_jinx_path
                 ):
-                    shutil.copy2(source_tool_path, destination_tool_path)
-                    print(f"Copied tool {filename} to {destination_tool_path}")
+                    shutil.copy2(source_jinx_path, destination_jinx_path)
+                    print(f"Copied jinx {filename} to {destination_jinx_path}")
 
     templates = os.path.join(package_npc_team_dir, "templates")
     if os.path.exists(templates):
@@ -1405,7 +1407,7 @@ def print_and_process_stream_with_markdown(response, model, provider):
     
     # Add tool call information to str_output if any was found
     if tool_call_data["id"] or tool_call_data["function_name"] or tool_call_data["arguments"]:
-        str_output += "\n\n### Tool Call Data\n"
+        str_output += "\n\n### Jinx Call Data\n"
         if tool_call_data["id"]:
             str_output += f"**ID:** {tool_call_data['id']}\n\n"
         if tool_call_data["function_name"]:

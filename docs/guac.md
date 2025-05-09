@@ -65,7 +65,7 @@ Items added/modified from llm_funcs.py:
   Template: <function or class>
   NPCSH_DEFAULT_MODE: 'chat'
   generate_image_litellm: <function or class>
-  handle_tool_call: <function or class>
+  handle_jinx_call: <function or class>
   List: <function or class>
   Environment: <function or class>
 
