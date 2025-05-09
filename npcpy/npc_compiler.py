@@ -355,11 +355,15 @@ class NPC:
         
         self.memory_length = 20
         self.memory_strategy = 'recent'
-
+        dirs = []
+        if self.npc_directory:
+            dirs.append(self.npc_directory)
+        if self.jinxs_directory:
+            dirs.append(self.jinxs_directory)
+            
         self.jinja_env = Environment(
             loader=FileSystemLoader([
-                self.npc_directory,
-                self.jinxs_directory,
+                os.path.expanduser(d) for d in dirs
             ]),
             undefined=SilentUndefined,
         )

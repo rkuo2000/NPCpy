@@ -1,4 +1,4 @@
-from sympy import Q
+#from sympy import Q
 from npcpy.llm_funcs import get_llm_response
 
     
