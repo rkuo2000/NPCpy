@@ -106,10 +106,10 @@ handling agent pass
 
  • Action chosen: answer_question                                                                                                                                      
 {'debrief': {'summary': "The responses provided detailed accounts of the books that the NPC team members, Gabriel Garcia Marquez and Isabel Allende, are most proud of. Gabriel highlighted 'Cien años de soledad,' while Isabel spoke of 'La Casa de los Espíritus.' Both authors expressed deep personal connections to their works, illustrating their significance in Latin American literature and their own identities.", 'recommendations': 'Encourage further engagement with each author to explore more about their literary contributions, or consider asking about themes in their works or their thoughts on current literary trends.'}, 'execution_history': [{'messages': ...}]}
+```
 
 
-See more examples of how to use `npcpy` to create agents and agentic systems [here](https://github.com/cagostino/npcpy/blob/main/docs/npcpy.md).
-
+See more examples of how to use `npcpy` to create agents and agentic systems [here](https://github.com/cagostino/npcpy/blob/main/docs/npcpy.md). `npcpy` can include images, pdfs, and csvs in its llm response generation. 
 
 
 ## Inference Capabilities
