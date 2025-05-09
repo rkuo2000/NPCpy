@@ -865,14 +865,27 @@ class Team:
                 {result}
 
                 Instructions:
-                Analyze if this result fully addresses the request. 
-                A result is complete if it satisfies the bare minimum requirements
-                and provides a good starting point for further refinement.
-                
+
+                Check whether there is enough information to respond to the
+                user with. 
+
                 If a partially complete answer can be provided with the current information, do not 
                 hold up a response as a faster back and forth with 
                 users is more important than getting the perfect answer.
 
+                These are all the members of the team: {', '.join(self.npcs.keys())}
+                Therefore, if you are trying to evaluate whether a request was fulfilled,
+                consider that requests are made to the forenpc: {forenpc.name}
+                and that the forenpc must pass those along to the other npcs. 
+                Do not over-concern yourself with the depths fo the request or on
+                making sure all of it is fulfilled, just mainly concern yourself
+                with glaring errors and fundamental mishaps rather than
+                stylistic hiccups that users can resolve by prompting more clearly.
+                               
+
+                If there is enough information fore the forenpc to proceed, please let them 
+                otherwise you will stall business unnecessarily.
+            
                 Return a JSON object with:
                     -'complete' with boolean value
                     -'explanation' for incompleteness

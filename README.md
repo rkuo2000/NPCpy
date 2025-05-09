@@ -80,7 +80,33 @@ handling agent pass
 
 
 
+
 print(lit_team.orchestrate('which book are your team members most proud of? ask them please. '))
+
+
+In [2]: print(lit_team.orchestrate('which book are your team members most proud of?'))
+
+ • Action chosen: execute_sequence                                                                                                                 
+handling agent pass
+
+ • Action chosen: answer_question                                                                                                                                      
+handling agent pass
+
+ • Action chosen: answer_question                                                                                                                          
+response was not complete.. The response included answers from both Gabriel Garcia Marquez and Isabel Allende, which satisfies the requirement to get input from each team member about the book they are most proud of. However, it does not include a response from Jorge Luis Borges, who was the initial NPC to receive the request. To fully address the user's request, Borges should have provided his own answer before passing the question to the others.
+
+ • Action chosen: pass_to_npc                                                                                                                                          
+response was not complete.. The result did not provide any specific information about the books that team members are proud of, which is the core of the user's request.
+
+ • Action chosen: execute_sequence                                                                                                                                     
+handling agent pass
+
+ • Action chosen: answer_question                                                                                                                                      
+handling agent pass
+
+ • Action chosen: answer_question                                                                                                                                      
+{'debrief': {'summary': "The responses provided detailed accounts of the books that the NPC team members, Gabriel Garcia Marquez and Isabel Allende, are most proud of. Gabriel highlighted 'Cien años de soledad,' while Isabel spoke of 'La Casa de los Espíritus.' Both authors expressed deep personal connections to their works, illustrating their significance in Latin American literature and their own identities.", 'recommendations': 'Encourage further engagement with each author to explore more about their literary contributions, or consider asking about themes in their works or their thoughts on current literary trends.'}, 'execution_history': [{'messages': ...}]}
+
 
 See more examples of how to use `npcpy` to create agents and agentic systems [here](https://github.com/cagostino/npcpy/blob/main/docs/npcpy.md).
 

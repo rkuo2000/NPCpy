@@ -939,21 +939,39 @@ def check_llm_command(
     elif action == "pass_to_npc":
         npc_to_pass = response_content_parsed.get("npc_name")
         npc_to_pass_obj = None
-        #print(npc_to_pass)
+        print(npc_to_pass)
         agent_passes = []
         if team is not None:
             #print(f"team npcs: {team.npcs}")
-            match = team.npcs.get(npc_to_pass)
-            if match is not None:
-                npc_to_pass_obj = match
-                #print(type(npc_to_pass_obj))
-                agent_passes.append(
-                    npc.handle_agent_pass(
-                        npc_to_pass_obj,
-                        command,
-                        messages=messages,
+            if isinstance(npc_to_pass, str):
+                
+                match = team.npcs.get(npc_to_pass)
+    
+                if match is not None:
+                    npc_to_pass_obj = match
+                    #print(type(npc_to_pass_obj))
+                    agent_passes.append(
+                        npc.handle_agent_pass(
+                            npc_to_pass_obj,
+                            command,
+                            messages=messages,
+                        )
                     )
-                )
+            elif isinstance(npc_to_pass, list):
+                for npc_name in npc_to_pass:
+                    match = team.npcs.get(npc_name)
+                    if match is not None:
+                        npc_to_pass_obj = match
+                        agent_passes.append(
+                            npc.handle_agent_pass(
+                                npc_to_pass_obj,
+                                command,
+                                messages=messages,
+                            )
+                        )
+        else:
+            print(f"NPC to pass not found: {npc_to_pass}")
+            
         output = ""
         #print(agent_passes)
         for agent_pass in agent_passes:
@@ -1007,8 +1025,8 @@ def check_llm_command(
 
         # print(npc_names)
         npcs = []
-        print(tool_names, npc_names)
-        if isinstance(npc_names, list):
+        #print(tool_names, npc_names)
+        if isinstance(npc_names, list): 
             if len(npc_names) == 0:
                 # if no npcs are specified, just have the npc take care of it itself instead of trying to force it to generate npc names for sequences all the time
 
@@ -1049,7 +1067,7 @@ def check_llm_command(
                 output += result.get("response", "")
                 # print(results_tool_calls)
         else:
-            print('agent pass')
+            #print('agent pass')
             for npc_obj in npcs:
                 result = npc.handle_agent_pass(
                     npc_obj,
@@ -1060,7 +1078,7 @@ def check_llm_command(
 
                 messages = result.get("messages", messages)
                 results_tool_calls.append(result.get("response"))
-                output += result.get("output")
+                output += f"<{npc_obj.name}>" + result.get("output") + f"</{npc_obj.name}>"
                 # print(messages[-1])
         # import pdb
 
