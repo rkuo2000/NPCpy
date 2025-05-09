@@ -809,3 +809,19 @@ def get_available_tables(db_path: str) -> str:
         return ""
     
     
+
+'''
+from npcpy.memory.command_history import CommandHistory
+command_history = CommandHistory()
+
+sibiji_messages = command_history.get_messages_by_npc('sibiji', n_last=10)
+
+stats = command_history.get_npc_conversation_stats()
+
+
+
+
+from npcpy.memory.command_history import CommandHistory
+command_history = CommandHistory()
+command_history.create_tool_call_table()
+'''

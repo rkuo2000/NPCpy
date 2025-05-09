@@ -452,7 +452,7 @@ class NPC:
             #print(f'loading all tools for {self.name}')
             # Try to find tools in NPC-specific tools dir first
             #print(self.npc_tools_directory)
-            npc_tools.extend(load_tools_from_directory(self.npc_tools_directory))
+            npc_tools.extend(load_tools_from_directory(self.tools_directory))
             #print(npc_tools)               
             if os.path.exists(self.tools_directory):
                 npc_tools.extend(load_tools_from_directory(self.tools_directory))                
@@ -479,13 +479,7 @@ class NPC:
                     tool_name += ".tool"
                 
                 # Check NPC-specific tools directory first
-                if hasattr(self, 'npc_tools_directory') and os.path.exists(self.npc_tools_directory):
-                    candidate_path = os.path.join(self.npc_tools_directory, tool_name)
-                    if os.path.exists(candidate_path):
-                        tool_path = candidate_path
-                        
-                # Then check global tools directory
-                if tool_path is None and os.path.exists(self.tools_directory):
+                if hasattr(self, 'tools_directory') and os.path.exists(self.tools_directory):
                     candidate_path = os.path.join(self.tools_directory, tool_name)
                     if os.path.exists(candidate_path):
                         tool_path = candidate_path
@@ -553,7 +547,7 @@ class NPC:
             )
         return result
     
-    def check_llm_command(self, command, messages=None, context=None, shared_context=None):
+    def check_llm_command(self, command, messages=None, context=None, shared_context=None, team = None, stream = False):
         """Check if a command is for the LLM"""
         if shared_context is not None:
             self.shared_context = shared_context
@@ -566,11 +560,20 @@ class NPC:
             api_url=self.api_url,
             api_key=self.api_key,
             npc=self,
+            team = team,
             messages=messages,
             context=context,
+            stream =stream
+            
         )
     
-    def handle_agent_pass(self, npc_to_pass, command, messages=None, context=None, shared_context=None):
+    def handle_agent_pass(self, 
+                          npc_to_pass,
+                          command, 
+                          messages=None, 
+                          context=None, 
+                          shared_context=None, 
+                          stream = False):
         """Pass a command to another NPC"""
         print('handling agent pass')
         if isinstance(npc_to_pass, NPC):
@@ -603,6 +606,9 @@ class NPC:
             updated_command,
             messages=messages,
             shared_context=self.shared_context,
+            stream = stream
+            
+            
         )
     
     def to_dict(self):
@@ -636,7 +642,7 @@ class Team:
     def __init__(self, 
                  team_path=None, 
                  npcs=None, 
-                 foreman=None,
+                 forenpc=None,
                  tools=None,                   
                  db_conn=None):
         """
@@ -652,11 +658,19 @@ class Team:
         self.tools_dict = tools or {}
         self.db_conn = db_conn
         self.team_path = os.path.expanduser(team_path) if team_path else None
-        self.foreman = foreman
+        self.databases = {}
+        self.mcp_servers = {}
+        if forenpc is not None:
+            self.forenpc = forenpc
+        else:
+            self.forenpc  = npcs[0] if npcs else None
+        
+        
         if team_path:
             self.name = os.path.basename(os.path.abspath(team_path))
         else:
             self.name = "custom_team"
+        self.context = {}
         self.shared_context = {
             "intermediate_results": {},
             "dataframes": {},
@@ -752,42 +766,42 @@ class Team:
                     except Exception as e:
                         print(f"Error loading sub-team {item}: {e}")
         
-    def get_foreman(self):
+    def get_forenpc(self):
         """
-        Get the foreman (coordinator) for this team.
-        The foreman is set only if explicitly defined in the context. 
+        Get the forenpc (coordinator) for this team.
+        The forenpc is set only if explicitly defined in the context.
                 
         """
-        # Check for explicit foreman in context
-        if hasattr(self, 'context') and self.context and 'foreman' in self.context:
-            foreman_ref = self.context['foreman']
+        if isinstance(self.forenpc, NPC):
+            return self.forenpc
+        if hasattr(self, 'context') and self.context and 'forenpc' in self.context:
+            forenpc_ref = self.context['forenpc']
             
             # Handle Jinja template references
-            if '{{ref(' in foreman_ref:
+            if '{{ref(' in forenpc_ref:
                 # Extract NPC name from {{ref('npc_name')}}
-                match = re.search(r"{{\s*ref\('([^']+)'\)\s*}}", foreman_ref)
+                match = re.search(r"{{\s*ref\('([^']+)'\)\s*}}", forenpc_ref)
                 if match:
-                    foreman_name = match.group(1)
-                    if foreman_name in self.npcs:
-                        return self.npcs[foreman_name]
-            elif foreman_ref in self.npcs:
-                return self.npcs[foreman_ref]
+                    forenpc_name = match.group(1)
+                    if forenpc_name in self.npcs:
+                        return self.npcs[forenpc_name]
+            elif forenpc_ref in self.npcs:
+                return self.npcs[forenpc_ref]
         else:
-            foreman_model=self.context.get('model', 'llama3.2'),
-            foreman_provider=self.context.get('model', 'ollama'),
-            foreman_api_key=self.context.get('api_key', None),
-            foreman_api_url=self.context.get('api_url', None)
+            forenpc_model=self.context.get('model', 'llama3.2'),
+            forenpc_provider=self.context.get('model', 'ollama'),
+            forenpc_api_key=self.context.get('api_key', None),
+            forenpc_api_url=self.context.get('api_url', None)
             
-
-            foreman = NPC(name='foreman', 
-                          primary_directive="""You are the foreman of the team, coordinating activities 
+            forenpc = NPC(name='forenpc', 
+                          primary_directive="""You are the forenpc of the team, coordinating activities 
                                                 between NPCs on the team, verifying that results from 
                                                 NPCs are high quality and can help to adequately answer 
                                                 user requests.""", 
-                            model=foreman_model,
-                            provider=foreman_provider,
-                            api_key=foreman_api_key,
-                            api_url=foreman_api_url,                            
+                            model=forenpc_model,
+                            provider=forenpc_provider,
+                            api_key=forenpc_api_key,
+                            api_url=forenpc_api_url,                            
                                                 )
         return None
     
@@ -809,9 +823,9 @@ class Team:
     
     def orchestrate(self, request):
         """Orchestrate a request through the team"""
-        foreman = self.get_foreman()
-        if not foreman:
-            return {"error": "No foreman available to coordinate the team"}
+        forenpc = self.get_forenpc()
+        if not forenpc:
+            return {"error": "No forenpc available to coordinate the team"}
         
         # Log the orchestration start
         log_entry(
@@ -820,13 +834,17 @@ class Team:
             {"request": request}
         )
         
-        # Initial request goes to foreman
-        result = foreman.check_llm_command(
-            request,
+        # Initial request goes to forenpc
+        result = forenpc.check_llm_command(            ''' KEEP IN MIND YOU ARE THE ORCHESTRATOR OF THE NPC TEAM.  IF THERE IS A REASON 
+            TO PASS TO AN NPC SO THAT THEY CAN ANSWER THE QUESTION FOR EXAMPLE IF A USER ASKS
+            FOR SOMETHING ABOUT EACH MEMBER OF THE TEAM, IT IS BEST TO PASS TO EACH OF THE TEAM MEMBERS.''' +             request,
             context=getattr(self, 'context', {}),
             shared_context=self.shared_context,
+            team = self, 
+            stream = False
         )
         
+        print(result)
         # Track execution until complete
         while True:
             # Save the result
@@ -850,16 +868,20 @@ class Team:
                 Analyze if this result fully addresses the request. 
                 A result is complete if it satisfies the bare minimum requirements
                 and provides a good starting point for further refinement.
+                
+                If a partially complete answer can be provided with the current information, do not 
+                hold up a response as a faster back and forth with 
+                users is more important than getting the perfect answer.
 
                 Return a JSON object with:
                     -'complete' with boolean value
                     -'explanation' for incompleteness
                 Return only the JSON object.""",
-                model=foreman.model,
-                provider=foreman.provider,
-                api_key=foreman.api_key,
-                api_url=foreman.api_url,
-                npc=foreman,
+                model=forenpc.model,
+                provider=forenpc.provider,
+                api_key=forenpc.api_key,
+                api_url=forenpc.api_url,
+                npc=forenpc,
                 format="json"
             )
             
@@ -885,11 +907,11 @@ class Team:
                     - 'summary': Overview of what was accomplished
                     - 'recommendations': Suggested next steps
                     Return only the JSON object.""",
-                    model=foreman.model,
-                    provider=foreman.provider,
-                    api_key=foreman.api_key,
-                    api_url=foreman.api_url,
-                    npc=foreman,
+                    model=forenpc.model,
+                    provider=forenpc.provider,
+                    api_key=forenpc.api_key,
+                    api_url=forenpc.api_url,
+                    npc=forenpc,
                     format="json"
                 )
                 
@@ -906,12 +928,16 @@ class Team:
                     + explanation
                     + "\nPlease address only the remaining parts of the request."
                 )
+                print(f'response was not complete.. {explanation}')
                 
-                # Call foreman again
-                result = foreman.check_llm_command(
+                # Call forenpc again
+                result = forenpc.check_llm_command(
                     updated_request,
                     context=getattr(self, 'context', {}),
                     shared_context=self.shared_context,
+                    stream = False,
+                    team = self
+                    
                 )
                 
     def to_dict(self):
@@ -1353,38 +1379,28 @@ def initialize_npc_project(
     provider=None,
 ) -> str:
     """Initialize an NPC project"""
-    # Implementation updated to work with new classes
     if directory is None:
         directory = os.getcwd()
 
-    # Create required directory structure
     npc_team_dir = os.path.join(directory, "npc_team")
     os.makedirs(npc_team_dir, exist_ok=True)
     
-    # Create subdirs
     for subdir in ["tools", "assembly_lines", "sql_models", "jobs"]:
         os.makedirs(os.path.join(npc_team_dir, subdir), exist_ok=True)
     
-    # Create default NPC if needed 
-    foreman_npc_path = os.path.join(npc_team_dir, "sibiji.npc")
+    forenpc_path = os.path.join(npc_team_dir, "sibiji.npc")
     
-    # Check if we need to generate a team
-    if context is not None:
-        # This would use your new team generation logic
-        # Maybe call a new implementation that uses your updated classes
-        from .team_generator import conjure_team
-        team = conjure_team(context, templates, model=model, provider=provider)
-    
+
     # Always ensure default NPC exists
-    if not os.path.exists(foreman_npc_path):
+    if not os.path.exists(forenpc_path):
         # Use your new NPC class to create sibiji
         default_npc = {
             "name": "sibiji",
-            "primary_directive": "You are sibiji, the foreman of an NPC team...",
+            "primary_directive": "You are sibiji, the forenpc of an NPC team...",
             "model": model or "llama3.2",
             "provider": provider or "ollama"
         }
-        with open(foreman_npc_path, "w") as f:
+        with open(forenpc_path, "w") as f:
             yaml.dump(default_npc, f)
             
     return f"NPC project initialized in {npc_team_dir}"

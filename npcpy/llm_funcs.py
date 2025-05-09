@@ -774,7 +774,7 @@ def check_llm_command(
                             {tool_name} : {tool_description} \n
 
                             """
-
+    
     if team is None:
         prompt += "No NPCs available for alternative answers."
     else:
@@ -939,14 +939,14 @@ def check_llm_command(
     elif action == "pass_to_npc":
         npc_to_pass = response_content_parsed.get("npc_name")
         npc_to_pass_obj = None
-        print(npc_to_pass)
+        #print(npc_to_pass)
         agent_passes = []
         if team is not None:
             #print(f"team npcs: {team.npcs}")
             match = team.npcs.get(npc_to_pass)
             if match is not None:
                 npc_to_pass_obj = match
-                print(type(npc_to_pass_obj))
+                #print(type(npc_to_pass_obj))
                 agent_passes.append(
                     npc.handle_agent_pass(
                         npc_to_pass_obj,
@@ -955,9 +955,11 @@ def check_llm_command(
                     )
                 )
         output = ""
-        print(agent_passes)
+        #print(agent_passes)
         for agent_pass in agent_passes:
-            output += str(agent_pass.get("response"))
+            output += str(agent_pass.get("output"))
+        #import pdb
+        #pdb.set_trace()
         return {"messages": messages, "output": output}
     elif action == "request_input":
         explanation = response_content_parsed.get("explanation")
@@ -1005,7 +1007,7 @@ def check_llm_command(
 
         # print(npc_names)
         npcs = []
-        # print(tool_names, npc_names)
+        print(tool_names, npc_names)
         if isinstance(npc_names, list):
             if len(npc_names) == 0:
                 # if no npcs are specified, just have the npc take care of it itself instead of trying to force it to generate npc names for sequences all the time
@@ -1015,9 +1017,9 @@ def check_llm_command(
                 # try again and append that there are no agents to pass to
                 print('')
             for npc_name in npc_names:
-                for npc_obj in team.npcs:
-                    if npc_name in npc_obj:
-                        npcs.append(npc_obj[npc_name])
+                for npc_obj_name, npc_obj in team.npcs.items():
+                    if npc_name in npc_obj_name:
+                        npcs.append(npc_obj)
                         break
                 if len(npcs) < len(tool_names):
                     npcs.append(npc)
@@ -1058,6 +1060,7 @@ def check_llm_command(
 
                 messages = result.get("messages", messages)
                 results_tool_calls.append(result.get("response"))
+                output += result.get("output")
                 # print(messages[-1])
         # import pdb
 

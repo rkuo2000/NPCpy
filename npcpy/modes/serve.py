@@ -1166,7 +1166,7 @@ def get_conversation_messages(conversation_id):
 
         cursor.execute(query, [conversation_id])
         messages = cursor.fetchall()
-        print(messages)
+        #print(messages)
 
         return jsonify(
             {
