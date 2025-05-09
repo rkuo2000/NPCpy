@@ -1,6 +1,11 @@
+
+
+
 <p align="center">
-  <img src="https://raw.githubusercontent.com/cagostino/npcpy/main/npcpy/npc_team/npcsh_sibiji.png" alt="npcsh logo with sibiji the spider" width=400 height=400>
+  <a href= "https://github.com/cagostino/npcpy/blob/main/docs/npcpy.md"> 
+  <img src="https://raw.githubusercontent.com/cagostino/npcpy/main/npcpy/npc-python.png" alt="npc-python logo" width=250></a>
 </p>
+
 
 Interested to stay in the loop and to hear the latest and greatest about `npcpy` ? Be sure to sign up for the [npcsh newsletter](https://forms.gle/n1NzQmwjsV4xv1B2A)!
 
@@ -8,11 +13,6 @@ Welcome to `npcpy`, the python library for the NPC Toolkit and the home of the c
 
 
 `npcpy` is an agent-based framework designed to easily integrate AI models into one's daily workflow and it does this by providing users with a variety of interfaces through which they can use, test, and explore the capabilities of AI models, agents, and agent systems. 
-
-<p align="center">
-  <a href= "https://github.com/cagostino/npcpy/blob/main/docs/npcpy.md"> 
-  <img src="https://raw.githubusercontent.com/cagostino/npcpy/main/npcpy/npc-python.png" alt="npc-python logo" width=250></a>
-</p>
 
 
 Here is an example for getting responses for a particular agent:
