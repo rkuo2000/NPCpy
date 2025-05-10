@@ -17,6 +17,7 @@ def package_files(directory):
 # Base requirements (no LLM packages)
 base_requirements = [
     "jinja2",
+    "litellm",    
     "scipy",
     "numpy",
     "requests",
@@ -46,7 +47,6 @@ base_requirements = [
 
 # API integration requirements
 api_requirements = [
-    "litellm",
     "anthropic",
     "openai",
     "google-generativeai",
