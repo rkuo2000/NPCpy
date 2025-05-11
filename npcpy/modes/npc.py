@@ -76,27 +76,52 @@ def main():
 
     effective_model = args.model or NPCSH_CHAT_MODEL
     effective_provider = args.provider or NPCSH_CHAT_PROVIDER
+    #print(args)
+    #print("Debug - args dict:", vars(args))
+    #print("Debug - unknown_args:", unknown_args)
+    #print("Debug - command:", args.command)
+    #print("Debug - command_args:", args.command_args)
+
+    extras = {}
+
+    # After parsing arguments, add this code to handle the case where flags are split
+    if unknown_args and args.command_args:
+        i = 0
+        while i < len(unknown_args):
+            # Check if the unknown arg is a flag (--something)
+            if unknown_args[i].startswith('--'):
+                # Extract the parameter name without the -- prefix
+                param = unknown_args[i][2:]
+                
+                # Add it to extras with the corresponding value from command_args
+                if args.command_args:
+                    extras[param] = args.command_args[0]
+                    args.command_args.pop(0)  # Remove the used value
+                else:
+                    extras[param] = True
+            i += 1
 
     if args.command:
         handler = router.get_route(args.command)
         if not handler:
-            print(f"Error: Command '{args.command}' recognized but no handler found.", file=sys.stderr)
+            #print(f"Error: Command '{args.command}' recognized but no handler found.", file=sys.stderr)
             sys.exit(1)
 
         full_command_str = args.command
         command_args = []
-        extras = {}
         
         # Parse command args properly
-        print(args)
         if args.command_args:
             i = 0
             while i < len(args.command_args):
-                
                 arg = args.command_args[i]
                 if arg.startswith("--"):
                     param = arg[2:]  # Remove --
-                    if i + 1 < len(args.command_args) and not args.command_args[i+1].startswith("--"):
+                    if "=" in param:
+                        param_name, param_value = param.split("=", 1)
+                        extras[param_name] = param_value
+                        i += 1
+                    elif i + 1 < len(args.command_args) and not args.command_args[i+1].startswith("--"):
                         extras[param] = args.command_args[i+1]
                         i += 2
                     else:
@@ -110,7 +135,6 @@ def main():
             if prompt_parts:
                 full_command_str += " " + " ".join(prompt_parts)
         
-        print(full_command_str)
         handler_kwargs = {
             "model": effective_model,
             "provider": effective_provider,

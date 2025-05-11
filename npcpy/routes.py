@@ -552,9 +552,11 @@ def search_handler(command: str, **kwargs):
 
 @router.route("serve", "Set configuration values")
 def serve_handler(command: str, **kwargs):
-
+    #print('calling serve handler')
+    #print(kwargs)
 
     port   = safe_get(kwargs, "port", 5337)
+    #print(port, type(port))
     messages = safe_get(kwargs, "messages", [])
     cors = safe_get(kwargs, "cors", None)
     if cors:
@@ -719,7 +721,6 @@ def vixynt_handler(command: str, **kwargs):
             prompt=user_prompt,
             model=model,
             provider=provider,
-            filename=filename,
             npc=npc,
             height=height,
             width=width,

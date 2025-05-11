@@ -51,6 +51,7 @@ def openai_image_gen(
     if attachments is not None:
         # Process the attachments into the format OpenAI expects
         processed_images = []
+    
         for attachment in attachments:
             if isinstance(attachment, str):
                 # Assume it's a file path
@@ -78,11 +79,18 @@ def openai_image_gen(
             n=n_images,
             size=f"{height}x{width}",
         )
-
-    image_base64 = result.data[0].b64_json
-    image_bytes = base64.b64decode(image_base64)
-    image = Image.open(io.BytesIO(image_bytes))
-    image.save('generated_image.png') 
+    if model =='gpt-image-1':
+        image_base64 = result.data[0].b64_json
+        image_bytes = base64.b64decode(image_base64)
+        image = Image.open(io.BytesIO(image_bytes))
+        image.save('generated_image.png') 
+    elif model == 'dall-e-2' or model == 'dall-e-3':
+        image_base64 = result.data[0].url
+        import requests
+        response = requests.get(image_base64)
+        image = Image.open(io.BytesIO(response.content))
+        image.save('generated_image.png')
+        
     return image
 
 

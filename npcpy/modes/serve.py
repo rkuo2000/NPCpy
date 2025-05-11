@@ -1512,8 +1512,8 @@ def start_flask_server(
             )
 
         # Run the Flask app on all interfaces
-        print("Starting Flask server on http://0.0.0.0:5337")
-        app.run(host="0.0.0.0", port=5337, debug=True)
+        print(f"Starting Flask server on http://0.0.0.0:{port}")
+        app.run(host="0.0.0.0", port=port, debug=True)
     except Exception as e:
         print(f"Error starting server: {str(e)}")
 
