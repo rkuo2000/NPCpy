@@ -27,7 +27,7 @@ def safe_kuzu_execute(conn, query, error_message="Kuzu query failed"):
         return None, error
 
 
-def create_group(conn: kuzu.Connection, name: str, metadata: str = ""):
+def create_group(conn, name: str, metadata: str = ""):
     """Create a new group in the database with robust error handling"""
     if conn is None:
         print("Cannot create group: database connection is None")
@@ -1019,7 +1019,7 @@ def process_text_with_chroma(
 
 
 def hybrid_search_with_chroma(
-    kuzu_conn: kuzu.Connection,
+    kuzu_conn,
     chroma_collection,
     query: str,
     group_filter: Optional[List[str]] = None,
