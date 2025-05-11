@@ -37,7 +37,7 @@ It’s the heart of the Inca Empire, a crucial logistical hub, and holds immense
 ```
 
 
-Here is an example for getting responses for setting up an agent team:
+Here is an example for setting up an agent team:
 
 ```
 from npcpy.npc_compiler import NPC, Team
