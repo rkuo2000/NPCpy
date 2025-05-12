@@ -455,11 +455,11 @@ As of now, npcsh appears to work well with some of the core functionalities like
 ### Fedora Install (under construction)
 
 <details>  <summary> Toggle </summary>
+  
 ```bash
-python3-dev (fixes hnswlib issues with chroma db)
+python3-dev #(fixes hnswlib issues with chroma db)
 xhost +  (pyautogui)
 python-tkinter (pyautogui)
-
 ```
 
 </details>
