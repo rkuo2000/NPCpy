@@ -508,7 +508,7 @@ export PERPLEXITY_API_KEY='your_perplexity_key'
 ```bash
 ~/.npcsh/
 ├── npc_team/           # Global NPCs
-│   ├── tools/          # Global tools
+│   ├── jinxs/          # Global tools
 │   └── assembly_lines/ # Workflow pipelines
 
 ```
