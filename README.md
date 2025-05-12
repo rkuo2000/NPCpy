@@ -25,8 +25,7 @@ simon = NPC(
           name='Simon Bolivar',
           primary_directive='Liberate South America from the Spanish Royalists.',
           model='gemma3',
-          provider='ollama',
-         
+          provider='ollama'
           )
 response = simon.get_llm_response("What is the most important territory to retain in the Andes mountains?")
 print(response['response'])
@@ -46,7 +45,6 @@ ggm = NPC(
           primary_directive='You are the author gabriel garcia marquez. see the stars ',
           model='deepseek-chat',
           provider='deepseek', # anthropic, gemini, openai, any supported by litellm
-         
           )
 
 isabel = NPC(
