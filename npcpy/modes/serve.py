@@ -1460,44 +1460,14 @@ def health_check():
 def start_flask_server(
     port=5337,
     cors_origins=None,
+    static_files=None
 ):
     try:
         # Ensure the database tables exist
-        conn = get_db_connection()
-        try:
-            cursor = conn.cursor()
 
-            # Create tables if they don't exist
-            cursor.execute(
-                """
-                CREATE TABLE IF NOT EXISTS command_history (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    timestamp TEXT,
-                    command TEXT,
-                    tags TEXT,
-                    response TEXT,
-                    directory TEXT,
-                    conversation_id TEXT
-                )
-            """
-            )
 
-            cursor.execute(
-                """
-                CREATE TABLE IF NOT EXISTS conversation_history (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    timestamp TEXT,
-                    role TEXT,
-                    content TEXT,
-                    conversation_id TEXT,
-                    directory_path TEXT
-                )
-            """
-            )
+        command_history = CommandHistory(db_path)
 
-            conn.commit()
-        finally:
-            conn.close()
 
         # Only apply CORS if origins are specified
         if cors_origins:
@@ -1509,11 +1479,12 @@ def start_flask_server(
                 allow_headers=["Content-Type", "Authorization"],
                 methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
                 supports_credentials=True,
+                
             )
 
         # Run the Flask app on all interfaces
         print(f"Starting Flask server on http://0.0.0.0:{port}")
-        app.run(host="0.0.0.0", port=port, debug=True)
+        app.run(host="0.0.0.0", port=port, debug=True, static_files=static_files)
     except Exception as e:
         print(f"Error starting server: {str(e)}")
 

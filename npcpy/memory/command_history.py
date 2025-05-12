@@ -443,7 +443,7 @@ class CommandHistory:
         try:
              return self._execute(sql, params) # Return lastrowid if available
         except Exception as e:
-             print(f"CRITICAL: Failed to save jinx execution via _execute: {e}")
+             print(f"CRITICAL: Failed to save tool execution via _execute: {e}")
              return None
 
     def get_full_message_content(self, message_id):
@@ -823,5 +823,5 @@ stats = command_history.get_npc_conversation_stats()
 
 from npcpy.memory.command_history import CommandHistory
 command_history = CommandHistory()
-command_history.create_jinx_call_table()
+command_history.create_tool_call_table()
 '''
