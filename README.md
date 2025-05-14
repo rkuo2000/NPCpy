@@ -75,16 +75,11 @@ handling agent pass
   'recommendations': 'Proceed with thorough system tests under various conditions, conduct simulation runs of key mission phases, and confirm backup systems are operational before launch.'},
  'execution_history': [{'messages': [],
    'output': 'I am currently finalizing preparations for my lunar expedition. It involves recalibrating my navigation systems and verifying the integrity of my life support modules. Details are quite...complex.'}]}
-
-
-
-
-
+```
+```
 print(lit_team.orchestrate('which book are your team members most proud of? ask them please. '))
-
-
-In [2]: print(lit_team.orchestrate('which book are your team members most proud of?'))
-
+```
+```
  • Action chosen: execute_sequence                                                                                                                 
 handling agent pass
 
@@ -157,7 +152,6 @@ The following are the current programs in the NPC shell:
         - directly through bash execution (the NPC responds by generating executable bash code which is then processed automatically in the shell.
     
         Switching between the modes within the session is straightforward and the user can specify the default mode in the `.npcshrc` file described in greater detail below. The default mode is agentic, but the user can switch by typing `/chat` to switch to conversational mode or `/cmd` to switch to bash execution mode.
-    <details>  <summary>Click to see some examples</summary>
     
     - Web searching     
         ```
@@ -200,11 +194,6 @@ The following are the current programs in the NPC shell:
         ```
         /spool -n <npc_name>
         ```
-    </details>
-
-
-
-
 
 ## `guac`
 
@@ -212,8 +201,7 @@ The following are the current programs in the NPC shell:
   <img src="https://raw.githubusercontent.com/cagostino/npcpy/main/npcpy/npc_team/guac.png" alt="npcpy logo of a solarpunk sign", width=250></a>
 </p> 
 
-- a replacement shell for interpreters like python/r/node/julia with an avocado input marker 🥑 that brings a pomodoro-like approach to interactive coding. <details>  <summary>Click to see some examples</summary>
-
+- a replacement shell for interpreters like python/r/node/julia with an avocado input marker 🥑 that brings a pomodoro-like approach to interactive coding. 
     - Simulation:      
         `🥑 Make a markov chain simulation of a random walk in 2D space with 1000 steps and visualize`
         ```
@@ -270,8 +258,8 @@ The following are the current programs in the NPC shell:
         `🥑 /show`    
 
     A guac session progresses through a series of stages, each of equal length. Each stage adjusts the emoji input prompt. Once the stages have passed, it is time to refresh. Stage 1: `🥑`, Stage 2: `🥑🔪` Stage 3: `🥑🥣` Stage:4 `🥑🥣🧂`, `Stage 5: 🥘 TIME TO REFRESH`. At stage 5, the user is reminded to refresh with the /refresh macro. This will evaluate the session so farand suggest and implement new functions or automations that will aid in future sessions, with the ultimate approval of the user.
- </details>
 
+ 
 ## `npc`
 - a command line interface offering the capabilities of the npc shell from a regular bash shell. Our mascot agent sibiji the spider will help you weave your agent web with the `npc` cli. 
 
