@@ -64,7 +64,8 @@ borges = NPC(
 lit_team = Team(npcs = [ggm, isabel], forenpc=borges)
 
 print(lit_team.orchestrate('whats isabel working on? '))
-
+```
+```
  • Action chosen: pass_to_npc                                                                                                                                          
 handling agent pass
 
