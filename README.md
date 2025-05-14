@@ -229,8 +229,12 @@ The following are the current programs in the NPC shell:
         plt.axis('equal')
         plt.show()
         # Generated code executed successfully
-
+      
         ```
+        <p align="center">
+          <img src="https://raw.githubusercontent.com/cagostino/npcpy/main/test_data/markov_chain.png" alt="markov_chain_figure", width=250>
+        </p>
+        
         Access the variables created in the code:    
         `🥑 print(positions)`
         ```
@@ -242,9 +246,7 @@ The following are the current programs in the NPC shell:
         [ 28 -23]
         [ 27 -23]]
         ```
-        <p align="center">
-          <img src="https://raw.githubusercontent.com/cagostino/npcpy/main/test_data/markov_chain.png" alt="markov_chain_figure", width=250>
-        </p>
+     
     - Run a python script:   
         `🥑 run file.py`    
     - Refresh:    
