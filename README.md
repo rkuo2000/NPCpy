@@ -147,7 +147,7 @@ The following are the current programs in the NPC shell:
 - a bash-replacement shell (`npcsh`) that can process bash, natural language, or special macro calls. `npcsh` detects whether input is bash or natural language and processes it accordingly. 
     
     - Users can specify whether natural language commands are processed in one of three ways:
-        - agentically (i.e. an NPC reviews and decides to pass to other NPCs or to use tools (called `jinxs`)) to carry out tasks.
+        - agentically (i.e. an NPC reviews and decides to pass to other NPCs or to use NPC tools called `jinxs` (short for Jinja Template Executions) to carry out tasks.
         - conversationally (the NPC generates a response which the user can approve to run) 
         - directly through bash execution (the NPC responds by generating executable bash code which is then processed automatically in the shell.
     
@@ -170,14 +170,7 @@ The following are the current programs in the NPC shell:
     - Process Identification:       
         ```    
         please identify the process consuming the most memory on my computer
-        ```
-        
-
-    - Jinx Use:   
-        ```
-        identify what windows are open on my computer desktop at the moment
-        ```
-    
+        ```    
     - Screenshot analysis:     
         ```
         /ots
