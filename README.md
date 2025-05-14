@@ -324,6 +324,10 @@ The following are the current programs in the NPC shell:
   <img src="https://raw.githubusercontent.com/cagostino/npcpy/main/npcpy/npc_team/alicanto.png" alt="logo for deep research", width=250></a>
 </p>
 
+  - start a sequence:
+    ```
+    npc alicanto "What are the implications of quantum computing for cybersecurity?"
+    ```
  
 ## `pti`
 -  a reasoning REPL loop with explicit checks to request inputs from users following thinking traces.
@@ -331,6 +335,10 @@ The following are the current programs in the NPC shell:
 <p align="center"><a href ="https://github.com/cagostino/npcpy/blob/main/docs/pti.md"> 
   <img src="https://raw.githubusercontent.com/cagostino/npcpy/main/npcpy/npc_team/frederic4.png" alt="npcpy logo of frederic the bear and the pti logo", width=250></a>
 </p>
+Speak frederic the bear who, once he's done thinking, asks you for input before trudging on so it can work with confidence.
+```
+pti
+```
 
 
 ## `spool`
@@ -348,6 +356,9 @@ The following are the current programs in the NPC shell:
 </p>
 
 - an agentic voice control loop with a specified agent. 
+```
+yap 
+```
 
 
 ## `wander` 
@@ -355,7 +366,20 @@ The following are the current programs in the NPC shell:
 <p align="center"><a href ="https://github.com/cagostino/npcpy/blob/main/docs/wander.md">
   <img src="https://raw.githubusercontent.com/cagostino/npcpy/main/npcpy/npc_team/kadiefa.png" alt="logo for wander", width=250></a>
 </p>
-- a system for thinking outside of the box
+  A system for thinking outside of the box.  
+  
+  - Wander with an auto-generated environment  
+    ```
+    npc wander "How can I improve my creative writing?"
+    ```
+  - Specify a custom environment
+    ```
+    npc wander "How can I improve my creative writing?" --environment "A vast library with towering bookshelves stretching to infinity, filled with books from all of human history"
+    ```
+  - Control event generation
+    ```
+    npc wander "How can I improve my creative writing?" --num-events 5
+    ```
 
 ## Enabling Innovation
 - `npcpy` is a framework that speeds up and simplifies the development of NLP-based or Agent-based applications and provides developers and researchers with methods to explore and test across dozens of models, providers, and personas as well as other model-level hyperparameters (e.g. `temperature`, `top_k`, etc.), incorporating an array of data sources and common tools.
