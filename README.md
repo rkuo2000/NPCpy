@@ -261,34 +261,61 @@ The following are the current programs in the NPC shell:
 
  
 ## `npc`
-- a command line interface offering the capabilities of the npc shell from a regular bash shell. Our mascot agent sibiji the spider will help you weave your agent web with the `npc` cli. 
+- A command line interface offering the capabilities of the npc shell from a regular bash shell. Our mascot agent Sibiji the spider will help you weave your agent web with the `npc` CLI. 
 
-    <p align="center">
-    <img src="https://raw.githubusercontent.com/cagostino/npcsh/main/npcpy/npc_team/sibiji.png" alt="npcsh logo with sibiji the spider">
-    </p>
+<p align="center">
+<img src="https://raw.githubusercontent.com/cagostino/npcsh/main/npcpy/npc_team/sibiji.png" alt="npcsh logo with sibiji the spider">
+</p>
+
+- The NPC CLI lets users iterate and experiment with AI through bash commands. Below is a cheat sheet that shows how to use the `npc` CLI.
+
+  - **Ask a Generic Question**
+    ```bash
+    npc 'has there ever been a better pasta shape than bucatini?'
+    ```
+    ```
+    .Loaded .env file...                                                                                                                                               
+    Initializing database schema...                                                                                                                                                            
+    Database schema initialization complete.                                                                                                                                                   
+    Processing prompt: 'has there ever been a better pasta shape than bucatini?' with NPC: 'sibiji'...                                                                                         
+    • Action chosen: answer_question                                                                                                                                                           
+    • Explanation given: The question is a general opinion-based inquiry about pasta shapes and can be answered without external data or jinx invocation.                                      
+    ...............................................................................                                                                                                            
+    Bucatini is certainly a favorite for many due to its unique hollow center, which holds sauces beautifully. Whether it's "better" is subjective and depends on the dish and personal        
+    preference. Shapes like orecchiette, rigatoni, or trofie excel in different recipes. Bucatini stands out for its versatility and texture, making it a top contender among pasta shapes!    
+    ```
     
-### Cheat Sheet for NPC shell and cli
- <details>  <summary> Toggle Cheat Sheet </summary>
 
-- The NPC shell and CLI let users iterate and experiment with AI in a natural way. Below is a cheat sheet that shows how to use the NPC Toolkit's macro commands in both the shell and the CLI. For the `npcsh` commands to work, one must activate `npcsh` by typing it in a shell.
+  - **Compile an NPC**
+    ```bash
+    npc compile /path/to/npc.npc
+    ```
 
-    | Task | npc CLI | npcsh |
-    |----------|----------|----------|
-    | Ask a generic question | npc 'prompt' | 'prompt' |
-    | Compile an NPC | npc compile /path/to/npc.npc | /compile /path/to/npc.npc |
-    | Computer use | npc plonk -n 'npc_name' -sp 'task for plonk to carry out '| /plonk -n 'npc_name' -sp 'task for plonk to carry out ' |
-    | Enter a chat with an NPC (NPC needs to be compiled first) | npc spool -n npc_name | /spool -n <npc_name> |
-    | Generate image    | npc vixynt 'prompt'  | /vixynt prompt   |
-    | Get a sample LLM response  | npc sample 'prompt'   | /sample prompt for llm  |
-    | Search the web | npc search -q "cal golden bears football schedule" -sp perplexity | /search -p perplexity 'cal bears football schedule' |
-    | Serve an NPC team | npc serve --port 5337 --cors='http://localhost:5137/' | /serve --port 5337 --cors='http://localhost:5137/' |
-    | Screenshot analysis  | npc ots |  /ots  |
-    | Voice Chat    | npc yap   | /yap   |
-    
+  - **Computer Use**
+    ```bash
+    npc plonk -n 'npc_name' -sp 'task for plonk to carry out'
+    ```
 
+  - **Generate Image**
+    ```bash
+    npc vixynt 'generate an image of a rabbit eating ham in the brink of dawn' model='gpt-image-1' provider='openai'
+    ```
 
+  - **Search the Web**
+    ```bash
+    npc search -q "cal golden bears football schedule" -sp perplexity
+    ```
 
-</details> 
+  - **Serve an NPC Team**
+    ```bash
+    npc serve --port 5337 --cors='http://localhost:5137/'
+    ```
+
+  - **Screenshot Analysis**
+    ```bash
+    npc ots
+    ```
+
 
 
 ## `alicanto` : a deep research focused agent flow. 
