@@ -242,7 +242,9 @@ The following are the current programs in the NPC shell:
         [ 28 -23]
         [ 27 -23]]
         ```
-
+        <p align="center">
+          <img src="https://raw.githubusercontent.com/cagostino/npcpy/main/test_data/markov_chain.png" alt="markov_chain_figure", width=250>
+        </p>
     - Run a python script:   
         `🥑 run file.py`    
     - Refresh:    
@@ -293,6 +295,7 @@ The following are the current programs in the NPC shell:
     ```bash
     npc vixynt 'generate an image of a rabbit eating ham in the brink of dawn' model='gpt-image-1' provider='openai'
     ```
+  
 
   - **Search the Web**
     ```bash
