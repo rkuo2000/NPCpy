@@ -1,269 +1,572 @@
+"""
+Sleep module for NPC agents.
+
+This module provides functions for the "sleep" process of NPC agents, which includes:
+1. Breathing: extracting facts, lessons, and mistakes from conversation history
+2. Processing: organizing and storing these extractions in knowledge graphs
+3. Consolidation: merging similar memories and updating belief structures
+4. Integration: connecting new knowledge with existing knowledge
+"""
+
 import os
-import sys
+import json
+import time
 import datetime
-from typing import List, Dict, Any, Optional, Union
+import sqlite3
+from typing import Dict, List, Tuple, Any, Optional
 
-import npcpy.memory.knowledge_graph as kg
-from npcpy.llm_funcs import get_llm_response
-from npcpy.npc_compiler import NPC
+from npcpy.memory.knowledge_graph import (
+    breathe, 
+    add_fact, 
+    add_mistake, 
+    add_lesson,
+    add_action,
+    add_decision,
+    search_facts,
+    search_mistakes,
+    search_lessons,
+    search_actions,
+    search_decisions,
+    store_in_vector_db,
+    retrieve_relevant_memory
+)
 
-def sleep(
-    messages: Optional[List[Dict[str, str]]],
-    model: str,
-    provider: str,
-    db_path: str = os.path.expanduser("~/npcsh_graph.db"),
-    chroma_path: str = os.path.expanduser("~/npcsh_chroma.db"),
-    npc: Any = None,
-    context: str = None,
-) -> Union[str, Dict[str, Any]]:
+def initialize_sleep_db(db_path: str) -> sqlite3.Connection:
     """
-    Process conversation history to update the knowledge graph.
-    This function extracts facts, mistakes, and lessons learned from the conversation
-    and stores them in the knowledge graph for long-term memory.
+    Initialize the database for sleep operations.
     
     Args:
-        messages: The conversation history
-        model: The model to use for the LLM
-        provider: The provider for the LLM
-        db_path: Path to the knowledge graph database
-        chroma_path: Path to the vector database for embeddings
-        npc: The NPC object (optional)
-        context: Additional context (optional)
+        db_path: Path to the SQLite database
         
     Returns:
-        Summary string or dict with extraction results
+        SQLite connection object
     """
-    if not messages or not isinstance(messages, list):
-        return "No valid messages provided to process"
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
     
-    # Convert messages to text
-    conversation_text = "\n".join([f"{msg.get('role', 'unknown')}: {msg.get('content', '')}" for msg in messages])
+    # Create sleep_sessions table to track sleeping sessions
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS sleep_sessions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        start_time TIMESTAMP NOT NULL,
+        end_time TIMESTAMP,
+        conversation_source TEXT NOT NULL,
+        status TEXT NOT NULL,
+        extraction_count INTEGER DEFAULT 0,
+        consolidation_count INTEGER DEFAULT 0
+    )
+    ''')
+    
+    # Create sleep_logs table for detailed logging
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS sleep_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id INTEGER NOT NULL,
+        timestamp TIMESTAMP NOT NULL,
+        event_type TEXT NOT NULL,
+        details TEXT,
+        FOREIGN KEY (session_id) REFERENCES sleep_sessions(id)
+    )
+    ''')
+    
+    conn.commit()
+    return conn
+
+def sleep(conversation_history: List[Dict], 
+          db_path: str, 
+          chroma_path: str,
+          agent_name: str = "default_agent",
+          sleep_duration: int = 5,
+          verbose: bool = False) -> Dict:
+    """
+    Main sleep function for NPC agents. This processes conversation history,
+    extracts knowledge, and integrates it into the agent's memory.
+    
+    Args:
+        conversation_history: List of conversation turns in dict format
+        db_path: Path to the SQLite database
+        chroma_path: Path to the ChromaDB directory
+        agent_name: Name of the agent
+        sleep_duration: Duration to simulate sleep in seconds
+        verbose: Whether to print verbose output
+        
+    Returns:
+        Dict with results of the sleep operation
+    """
+    # Initialize results dictionary
+    results = {
+        "success": False,
+        "extraction_count": 0,
+        "facts": [],
+        "mistakes": [],
+        "lessons": [],
+        "actions": [],
+        "decisions": [],
+        "start_time": datetime.datetime.now().isoformat(),
+        "end_time": None,
+        "duration": 0,
+        "errors": []
+    }
     
     try:
-        # Initialize database connection
-        conn = kg.init_db(db_path, drop=False)
-        if not conn:
-            return "Failed to connect to the knowledge graph database"
+        # Connect to database
+        conn = initialize_sleep_db(db_path)
+        cursor = conn.cursor()
         
-        # Extract insights from conversation
-        extraction_prompt = f"""
-        You are analyzing a conversation to extract valuable information for long-term memory.
-        Identify the following from the conversation:
-
-        1. Facts: Important factual information worth remembering
-        2. Mistakes: Errors made or misconceptions corrected
-        3. Lessons: Insights, learning points, or principles discovered
-        4. Actions: Tasks completed or important actions taken
-        5. Decisions: Key decisions or choices made
-
-        Format your response as a JSON object with these categories as keys,
-        and lists of extracted items as values. Be concise and specific.
-
-        Conversation:
-        {conversation_text}
-        """
-
-        if npc and hasattr(npc, 'name'):
-            extraction_prompt += f"\n\nThis is for an AI assistant named {npc.name}."
-
-        response = get_llm_response(
-            prompt=extraction_prompt,
-            model=model,
-            provider=provider,
-            messages=[{"role": "system", "content": "You are a helpful assistant for memory extraction"}],
-            stream=False,
-            format="json"
+        # Log start of sleep session
+        cursor.execute(
+            "INSERT INTO sleep_sessions (start_time, conversation_source, status) VALUES (datetime('now'), ?, ?)",
+            (agent_name, "started")
         )
-
-        extraction_data = response.get("response", {})
-        if isinstance(extraction_data, str):
-            try:
-                import json
-                extraction_data = json.loads(extraction_data)
-            except:
-                extraction_data = {"facts": [], "mistakes": [], "lessons": [], "actions": [], "decisions": []}
+        session_id = cursor.lastrowid
+        conn.commit()
         
-        # Store extractions in knowledge graph
-        timestamp = datetime.datetime.now().isoformat()
-        source = f"conversation_{timestamp}"
+        if verbose:
+            print(f"🌙 {agent_name} is sleeping and processing memories...")
         
-        facts = extraction_data.get("facts", [])
-        mistakes = extraction_data.get("mistakes", [])
-        lessons = extraction_data.get("lessons", [])
-        actions = extraction_data.get("actions", [])
-        decisions = extraction_data.get("decisions", [])
+        # Simulate sleep processing time
+        time.sleep(sleep_duration)
         
+        # Process conversation history
+        conversation_text = ""
+        for turn in conversation_history:
+            role = turn.get("role", "unknown")
+            content = turn.get("content", "")
+            conversation_text += f"{role}: {content}\n\n"
+        
+        # Extract knowledge using breathe
+        if verbose:
+            print("🧠 Extracting knowledge from conversation...")
+            
+        extraction_results = breathe(conversation_text)
+        
+        # Store results
+        results["facts"] = extraction_results.get("facts", [])
+        results["mistakes"] = extraction_results.get("mistakes", [])
+        results["lessons"] = extraction_results.get("lessons", [])
+        results["actions"] = extraction_results.get("actions", [])
+        results["decisions"] = extraction_results.get("decisions", [])
+        
+        # Calculate extraction count
+        extraction_count = sum(len(items) for items in extraction_results.values() if isinstance(items, list))
+        results["extraction_count"] = extraction_count
+        
+        # Store in SQLite
+        if verbose:
+            print("💾 Storing knowledge in database...")
+            
         # Store facts
-        for fact in facts:
-            kg.add_fact(conn, fact, source)
+        for fact in results["facts"]:
+            add_fact(conn, fact, agent_name)
+            cursor.execute(
+                "INSERT INTO sleep_logs (session_id, timestamp, event_type, details) VALUES (?, datetime('now'), ?, ?)",
+                (session_id, "fact_added", fact)
+            )
         
         # Store mistakes
-        for mistake in mistakes:
-            kg.add_mistake(conn, mistake, source)
+        for mistake in results["mistakes"]:
+            add_mistake(conn, mistake, agent_name)
+            cursor.execute(
+                "INSERT INTO sleep_logs (session_id, timestamp, event_type, details) VALUES (?, datetime('now'), ?, ?)",
+                (session_id, "mistake_added", mistake)
+            )
         
         # Store lessons
-        for lesson in lessons:
-            kg.add_lesson(conn, lesson, source)
-            
-        # Store actions (if the function exists)
-        if hasattr(kg, 'add_action'):
-            for action in actions:
-                kg.add_action(conn, action, source)
-                
-        # Store decisions (if the function exists)
-        if hasattr(kg, 'add_decision'):
-            for decision in decisions:
-                kg.add_decision(conn, decision, source)
-        
-        # Generate summary
-        summary = []
-        if facts:
-            summary.append(f"📚 **Facts Learned**: {len(facts)}")
-            for fact in facts[:3]:  # Show only first 3 for brevity
-                summary.append(f"- {fact}")
-            if len(facts) > 3:
-                summary.append(f"- _(and {len(facts) - 3} more facts)_")
-                
-        if mistakes:
-            summary.append(f"⚠️ **Mistakes Noted**: {len(mistakes)}")
-            for mistake in mistakes[:3]:
-                summary.append(f"- {mistake}")
-            if len(mistakes) > 3:
-                summary.append(f"- _(and {len(mistakes) - 3} more mistakes)_")
-                
-        if lessons:
-            summary.append(f"💡 **Lessons Learned**: {len(lessons)}")
-            for lesson in lessons[:3]:
-                summary.append(f"- {lesson}")
-            if len(lessons) > 3:
-                summary.append(f"- _(and {len(lessons) - 3} more lessons)_")
-                
-        if actions:
-            summary.append(f"🏃 **Actions Taken**: {len(actions)}")
-            for action in actions[:3]:
-                summary.append(f"- {action}")
-            if len(actions) > 3:
-                summary.append(f"- _(and {len(actions) - 3} more actions)_")
-                
-        if decisions:
-            summary.append(f"🔀 **Decisions Made**: {len(decisions)}")
-            for decision in decisions[:3]:
-                summary.append(f"- {decision}")
-            if len(decisions) > 3:
-                summary.append(f"- _(and {len(decisions) - 3} more decisions)_")
-        
-        summary_text = "\n\n".join(summary)
-        if not summary_text:
-            summary_text = "No significant information extracted from this conversation."
-            
-        # Also store in vector DB if possible
-        try:
-            kg.store_in_vector_db(
-                chroma_path, 
-                conversation_text, 
-                extraction_data, 
-                source
+        for lesson in results["lessons"]:
+            add_lesson(conn, lesson, agent_name)
+            cursor.execute(
+                "INSERT INTO sleep_logs (session_id, timestamp, event_type, details) VALUES (?, datetime('now'), ?, ?)",
+                (session_id, "lesson_added", lesson)
             )
-        except Exception as e:
-            summary_text += f"\n\n⚠️ Note: Failed to store in vector database: {str(e)}"
-            
-        return summary_text
         
+        # Store actions
+        for action in results["actions"]:
+            add_action(conn, action, agent_name)
+            cursor.execute(
+                "INSERT INTO sleep_logs (session_id, timestamp, event_type, details) VALUES (?, datetime('now'), ?, ?)",
+                (session_id, "action_added", action)
+            )
+        
+        # Store decisions
+        for decision in results["decisions"]:
+            add_decision(conn, decision, agent_name)
+            cursor.execute(
+                "INSERT INTO sleep_logs (session_id, timestamp, event_type, details) VALUES (?, datetime('now'), ?, ?)",
+                (session_id, "decision_added", decision)
+            )
+        
+        # Store in vector database
+        store_in_vector_db(chroma_path, conversation_text, extraction_results, agent_name)
+        
+        # Update session information
+        end_time = datetime.datetime.now()
+        results["end_time"] = end_time.isoformat()
+        results["duration"] = (end_time - datetime.datetime.fromisoformat(results["start_time"])).total_seconds()
+        
+        cursor.execute(
+            "UPDATE sleep_sessions SET end_time = datetime('now'), status = ?, extraction_count = ? WHERE id = ?",
+            ("completed", extraction_count, session_id)
+        )
+        conn.commit()
+        
+        if verbose:
+            print(f"✅ Sleep completed. Extracted {extraction_count} items.")
+            print(f"⏱️ Duration: {results['duration']:.2f} seconds")
+        
+        results["success"] = True
     except Exception as e:
-        import traceback
-        traceback.print_exc()
-        return f"Error processing memory: {str(e)}"
+        results["errors"].append(str(e))
+        if verbose:
+            print(f"❌ Error during sleep: {str(e)}")
+        
+        # Log error in database if session_id exists
+        try:
+            if 'session_id' in locals():
+                cursor.execute(
+                    "UPDATE sleep_sessions SET status = ? WHERE id = ?",
+                    ("error", session_id)
+                )
+                cursor.execute(
+                    "INSERT INTO sleep_logs (session_id, timestamp, event_type, details) VALUES (?, datetime('now'), ?, ?)",
+                    (session_id, "error", str(e))
+                )
+                conn.commit()
+        except Exception as inner_e:
+            results["errors"].append(f"Failed to log error: {str(inner_e)}")
+    finally:
+        # Close database connection
+        if 'conn' in locals():
+            conn.close()
+    
+    return results
 
-def forget(
-    entity: str,
-    model: str,
-    provider: str, 
-    db_path: str = os.path.expanduser("~/npcsh_graph.db"),
-    chroma_path: str = os.path.expanduser("~/npcsh_chroma.db"),
-    npc: Any = None,
-) -> Union[str, Dict[str, Any]]:
+def recall(query: str, 
+           db_path: str, 
+           chroma_path: str, 
+           top_k: int = 5, 
+           include_vector_search: bool = True,
+           verbose: bool = False) -> Dict:
     """
-    Remove specific information from the knowledge graph.
+    Recall information from the agent's memory.
     
     Args:
-        entity: The entity or concept to forget
-        model: The model to use
-        provider: The provider to use
-        db_path: Path to the knowledge graph database
-        chroma_path: Path to the vector database
-        npc: The NPC object (optional)
+        query: The query to search for
+        db_path: Path to the SQLite database
+        chroma_path: Path to the ChromaDB directory
+        top_k: Number of results to return
+        include_vector_search: Whether to include vector search results
+        verbose: Whether to print verbose output
         
     Returns:
-        Summary of what was forgotten
+        Dict with search results
     """
-    if not entity or not entity.strip():
-        return "Please specify what to forget"
+    results = {
+        "facts": [],
+        "mistakes": [],
+        "lessons": [],
+        "actions": [],
+        "decisions": [],
+        "vector_results": [],
+        "success": False,
+        "errors": []
+    }
     
     try:
-        # Initialize database connection
-        conn = kg.init_db(db_path, drop=False)
-        if not conn:
-            return "Failed to connect to the knowledge graph database"
+        # Connect to database
+        conn = sqlite3.connect(db_path)
         
-        # Search for facts, mistakes, and lessons related to the entity
-        facts = kg.search_facts(conn, entity)
-        mistakes = kg.search_mistakes(conn, entity)
-        lessons = kg.search_lessons(conn, entity)
-        
-        # If the specific functions exist, also search for actions and decisions
-        actions = []
-        decisions = []
-        if hasattr(kg, 'search_actions'):
-            actions = kg.search_actions(conn, entity)
-        if hasattr(kg, 'search_decisions'):
-            decisions = kg.search_decisions(conn, entity)
-        
-        # Generate a verification prompt to confirm what to forget
-        items_to_forget = []
-        items_to_forget.extend([("fact", fact_id, fact_text) for fact_id, fact_text, _ in facts])
-        items_to_forget.extend([("mistake", mistake_id, mistake_text) for mistake_id, mistake_text, _ in mistakes])
-        items_to_forget.extend([("lesson", lesson_id, lesson_text) for lesson_id, lesson_text, _ in lessons])
-        items_to_forget.extend([("action", action_id, action_text) for action_id, action_text, _ in actions])
-        items_to_forget.extend([("decision", decision_id, decision_text) for decision_id, decision_text, _ in decisions])
-        
-        if not items_to_forget:
-            return f"No memories found related to '{entity}'"
-        
-        # Generate a confirmation message
-        summary = []
-        summary.append(f"🗑️ **Forgetting information about '{entity}'**\n")
-        
-        # Delete the items
-        forgotten_count = 0
-        for item_type, item_id, item_text in items_to_forget:
-            if item_type == "fact":
-                kg.delete_fact(conn, item_id)
-            elif item_type == "mistake":
-                kg.delete_mistake(conn, item_id)
-            elif item_type == "lesson":
-                kg.delete_lesson(conn, item_id)
-            elif item_type == "action" and hasattr(kg, 'delete_action'):
-                kg.delete_action(conn, item_id)
-            elif item_type == "decision" and hasattr(kg, 'delete_decision'):
-                kg.delete_decision(conn, item_id)
+        # Search in SQL database
+        if verbose:
+            print(f"🔍 Searching for: '{query}'")
             
-            summary.append(f"- Forgot {item_type}: {item_text}")
-            forgotten_count += 1
+        # Search for facts
+        facts = search_facts(conn, query)
+        results["facts"] = [{"id": f[0], "content": f[1], "source": f[2]} for f in facts]
         
-        # Also remove from vector DB if possible
-        try:
-            kg.remove_from_vector_db(chroma_path, entity)
-            summary.append(f"\nAlso removed related embeddings from vector database.")
-        except Exception as e:
-            summary.append(f"\n⚠️ Note: Failed to remove from vector database: {str(e)}")
+        # Search for mistakes
+        mistakes = search_mistakes(conn, query)
+        results["mistakes"] = [{"id": m[0], "content": m[1], "source": m[2]} for m in mistakes]
         
-        summary_text = "\n".join(summary)
-        if forgotten_count == 0:
-            summary_text = f"No memories were forgotten related to '{entity}'."
+        # Search for lessons
+        lessons = search_lessons(conn, query)
+        results["lessons"] = [{"id": l[0], "content": l[1], "source": l[2]} for l in lessons]
+        
+        # Search for actions
+        actions = search_actions(conn, query)
+        results["actions"] = [{"id": a[0], "content": a[1], "source": a[2]} for a in actions]
+        
+        # Search for decisions
+        decisions = search_decisions(conn, query)
+        results["decisions"] = [{"id": d[0], "content": d[1], "source": d[2]} for d in decisions]
+        
+        # Vector search
+        if include_vector_search:
+            vector_results = retrieve_relevant_memory(query, chroma_path, top_k)
+            results["vector_results"] = vector_results
             
-        return summary_text
-        
+        if verbose:
+            total_results = sum(len(results[key]) for key in ["facts", "mistakes", "lessons", "actions", "decisions"])
+            vector_count = len(results["vector_results"])
+            print(f"✅ Found {total_results} direct matches and {vector_count} semantic matches.")
+            
+        results["success"] = True
     except Exception as e:
-        import traceback
-        traceback.print_exc()
-        return f"Error forgetting memory: {str(e)}"
+        results["errors"].append(str(e))
+        if verbose:
+            print(f"❌ Error during recall: {str(e)}")
+    finally:
+        # Close database connection
+        if 'conn' in locals():
+            conn.close()
+            
+    return results
+
+def list_sleep_sessions(db_path: str, limit: int = 10) -> List[Dict]:
+    """
+    List recent sleep sessions.
+    
+    Args:
+        db_path: Path to the SQLite database
+        limit: Maximum number of sessions to return
+        
+    Returns:
+        List of session information dictionaries
+    """
+    sessions = []
+    
+    try:
+        # Connect to database
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        
+        # Query sessions
+        cursor.execute("""
+            SELECT id, start_time, end_time, conversation_source, status, extraction_count, consolidation_count 
+            FROM sleep_sessions 
+            ORDER BY start_time DESC 
+            LIMIT ?
+        """, (limit,))
+        
+        for row in cursor.fetchall():
+            session_id, start_time, end_time, source, status, extraction_count, consolidation_count = row
+            
+            # Calculate duration if available
+            duration = None
+            if start_time and end_time:
+                try:
+                    start_dt = datetime.datetime.fromisoformat(start_time.replace('Z', '+00:00'))
+                    end_dt = datetime.datetime.fromisoformat(end_time.replace('Z', '+00:00'))
+                    duration = (end_dt - start_dt).total_seconds()
+                except:
+                    pass
+            
+            sessions.append({
+                "id": session_id,
+                "start_time": start_time,
+                "end_time": end_time,
+                "source": source,
+                "status": status,
+                "extraction_count": extraction_count,
+                "consolidation_count": consolidation_count,
+                "duration": duration
+            })
+        
+        conn.close()
+    except Exception as e:
+        print(f"Error listing sleep sessions: {str(e)}")
+    
+    return sessions
+
+def get_session_details(db_path: str, session_id: int) -> Dict:
+    """
+    Get detailed information about a sleep session.
+    
+    Args:
+        db_path: Path to the SQLite database
+        session_id: ID of the session to retrieve
+        
+    Returns:
+        Dictionary with session details and logs
+    """
+    details = {
+        "session": None,
+        "logs": [],
+        "success": False,
+        "error": None
+    }
+    
+    try:
+        # Connect to database
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        
+        # Query session information
+        cursor.execute("""
+            SELECT id, start_time, end_time, conversation_source, status, extraction_count, consolidation_count 
+            FROM sleep_sessions 
+            WHERE id = ?
+        """, (session_id,))
+        
+        row = cursor.fetchone()
+        if not row:
+            details["error"] = f"Session {session_id} not found"
+            return details
+            
+        session_id, start_time, end_time, source, status, extraction_count, consolidation_count = row
+        
+        # Calculate duration if available
+        duration = None
+        if start_time and end_time:
+            try:
+                start_dt = datetime.datetime.fromisoformat(start_time.replace('Z', '+00:00'))
+                end_dt = datetime.datetime.fromisoformat(end_time.replace('Z', '+00:00'))
+                duration = (end_dt - start_dt).total_seconds()
+            except:
+                pass
+        
+        details["session"] = {
+            "id": session_id,
+            "start_time": start_time,
+            "end_time": end_time,
+            "source": source,
+            "status": status,
+            "extraction_count": extraction_count,
+            "consolidation_count": consolidation_count,
+            "duration": duration
+        }
+        
+        # Query session logs
+        cursor.execute("""
+            SELECT id, timestamp, event_type, details 
+            FROM sleep_logs 
+            WHERE session_id = ? 
+            ORDER BY timestamp ASC
+        """, (session_id,))
+        
+        for log_row in cursor.fetchall():
+            log_id, timestamp, event_type, log_details = log_row
+            details["logs"].append({
+                "id": log_id,
+                "timestamp": timestamp,
+                "event_type": event_type,
+                "details": log_details
+            })
+        
+        details["success"] = True
+        conn.close()
+    except Exception as e:
+        details["error"] = str(e)
+    
+    return details
+
+def forget(query: str, 
+           db_path: str, 
+           chroma_path: str,
+           source: Optional[str] = None,
+           verbose: bool = False) -> Dict:
+    """
+    Forget/remove specific memories from the agent's memory based on query.
+    
+    Args:
+        query: The query to identify memories to forget
+        db_path: Path to the SQLite database
+        chroma_path: Path to the ChromaDB directory
+        source: Optional source filter (e.g., agent name)
+        verbose: Whether to print verbose output
+        
+    Returns:
+        Dict with deletion results
+    """
+    results = {
+        "success": False,
+        "removed": {
+            "facts": 0,
+            "mistakes": 0,
+            "lessons": 0,
+            "actions": 0,
+            "decisions": 0,
+            "vector_items": 0
+        },
+        "errors": []
+    }
+    
+    try:
+        # Connect to database
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        
+        if verbose:
+            print(f"🗑️ Forgetting memories matching: '{query}'")
+            
+        # Build source filter if provided
+        source_filter = "AND source = ?" if source else ""
+        params = (f"%{query}%", source) if source else (f"%{query}%",)
+        
+        # Delete facts
+        cursor.execute(
+            f"DELETE FROM facts WHERE content LIKE ? {source_filter}",
+            params
+        )
+        results["removed"]["facts"] = cursor.rowcount
+        
+        # Delete mistakes
+        cursor.execute(
+            f"DELETE FROM mistakes WHERE content LIKE ? {source_filter}",
+            params
+        )
+        results["removed"]["mistakes"] = cursor.rowcount
+        
+        # Delete lessons
+        cursor.execute(
+            f"DELETE FROM lessons WHERE content LIKE ? {source_filter}",
+            params
+        )
+        results["removed"]["lessons"] = cursor.rowcount
+        
+        # Delete actions
+        cursor.execute(
+            f"DELETE FROM actions WHERE content LIKE ? {source_filter}",
+            params
+        )
+        results["removed"]["actions"] = cursor.rowcount
+        
+        # Delete decisions
+        cursor.execute(
+            f"DELETE FROM decisions WHERE content LIKE ? {source_filter}",
+            params
+        )
+        results["removed"]["decisions"] = cursor.rowcount
+        
+        conn.commit()
+        
+        # Delete from vector database
+        try:
+            from npcpy.memory.knowledge_graph import remove_from_vector_db
+            vector_count = remove_from_vector_db(chroma_path, query, source)
+            results["removed"]["vector_items"] = vector_count
+        except ImportError:
+            results["errors"].append("Vector database removal function not available")
+            
+        # Calculate total removed items
+        total_removed = sum(results["removed"].values())
+        
+        if verbose:
+            print(f"✅ Removed {total_removed} memories matching the query.")
+            print(f"  - Facts: {results['removed']['facts']}")
+            print(f"  - Mistakes: {results['removed']['mistakes']}")
+            print(f"  - Lessons: {results['removed']['lessons']}")
+            print(f"  - Actions: {results['removed']['actions']}")
+            print(f"  - Decisions: {results['removed']['decisions']}")
+            print(f"  - Vector items: {results['removed']['vector_items']}")
+            
+        results["success"] = True
+    except Exception as e:
+        results["errors"].append(str(e))
+        if verbose:
+            print(f"❌ Error during forget operation: {str(e)}")
+    finally:
+        # Close database connection
+        if 'conn' in locals():
+            conn.close()
+            
+    return results

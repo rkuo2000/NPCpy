@@ -11,16 +11,51 @@ import base64
 import datetime
 import tempfile
 import subprocess
+import networkx as nx
 
 from npcpy.npc_compiler import NPC
 from npcpy.llm_funcs import get_llm_response
 from npcpy.npc_sysenv import NPCSH_CHAT_MODEL, NPCSH_CHAT_PROVIDER, print_and_process_stream_with_markdown
+from npcpy.memory.deep_research import consolidate_research
+from npcpy.memory.knowledge_graph import extract_facts, identify_groups, assign_groups_to_fact
 
 def generate_random_npcs(num_npcs: int, model: str, provider: str, request: str) -> List[NPC]:
     """
     Generate a diverse set of NPCs with different expertise and perspectives
     related to the research request.
     """
+    # For single NPC, use a simpler approach to avoid unnecessary LLM calls
+    if num_npcs == 1:
+        # Generate directly without complex JSON parsing
+        name = f"Expert Researcher on {request}"
+        expertise = "Interdisciplinary semantic theory researcher"
+        background = "Extensive experience in linguistics, cognitive science, and NLP"
+        perspective = "Combines formal logic with empirical linguistic evidence"
+        quirk = "Uses mathematical metaphors to explain language phenomena"
+        biases = "May favor formal approaches over descriptive linguistics"
+        
+        system_prompt = f"""
+        You are {name}, {expertise}.
+        
+        Background: {background}
+        
+        Your perspective: {perspective}
+        
+        Your methodological quirk: {quirk}
+        
+        Note: Be aware that you may have these biases: {biases}
+        
+        Your task is to research the given topic thoroughly, focusing on your unique perspective.
+        Challenge conventional thinking and identify unexpected connections.
+        Your insights should be provocative and novel.
+        
+        IMPORTANT: You must be extremely concise. Limit responses to 50-75 words maximum.
+        """
+        
+        npc = NPC(name=name, primary_directive=f"Research expert on {request}")
+        npc.system_prompt = system_prompt
+        return [npc]
+    
     # Generate diverse expert personas based on the research topic
     prompt = f"""
     For the research topic: "{request}"
@@ -35,41 +70,40 @@ def generate_random_npcs(num_npcs: int, model: str, provider: str, request: str)
     4. Their unique perspective or approach to the topic (emphasize contrarian, minority, or unexpected viewpoints)
     5. A methodological quirk that makes their research approach unusual
     6. Any potential biases they might have
-    
-    Aim for experts who would approach the problem from dramatically different angles - include perspectives from 
-    art, philosophy, diverse cultural traditions, fringe sciences, emerging fields, and historical perspectives.
-    
-    Return the results as a JSON array with objects containing these fields.
     """
     
-    response = get_llm_response(prompt=prompt, model=model, provider=provider)
+    response = get_llm_response(
+        prompt=prompt, 
+        model=model, 
+        provider=provider,
+        format="json"  # Directly request JSON format
+    )
     
-    try:
-        import json
-        experts_data = json.loads(response.get('response', '[]'))
-    except:
-        # Fallback to creating generic experts
-        experts_data = []
-        expert_types = [
-            "Contrarian", "Synthesist", "Edge-Case", "Historian", 
-            "Innovator", "Outsider", "Philosopher", "Engineer",
-            "Traditionalist", "Futurist", "Cross-Disciplinary", "Naturalist",
-            "Pragmatist", "Theorist", "Skeptic", "Indigenous Knowledge"
-        ]
-        for i in range(num_npcs):
-            expert_type = expert_types[i % len(expert_types)]
-            experts_data.append({
-                "name": f"{expert_type}_{i+1}",
-                "expertise": f"Expert in {expert_type.lower()} approaches",
-                "background": "Brings unexpected perspectives to the field",
-                "perspective": f"Focuses on {expert_type.lower()} aspects that others overlook",
-                "methodological_quirk": "Uses unorthodox methods to generate insights",
-                "biases": "May overemphasize their domain"
-            })
+    # Response will be properly structured JSON from get_llm_response
+    experts_data = response.get('response', [])
     
     # Create NPC instances from expert data
     npcs = []
-    for expert in experts_data[:num_npcs]:
+    
+    # Handle experts_data safely whether it's a list or not
+    if isinstance(experts_data, list):
+        experts_to_process = experts_data[:num_npcs]
+    else:
+        # If not a list, try to convert or use as a single item
+        if isinstance(experts_data, dict):
+            experts_to_process = [experts_data]
+        else:
+            # Create a basic expert as fallback
+            experts_to_process = [{
+                "name": f"Expert_1",
+                "expertise": "Interdisciplinary researcher",
+                "background": "Diverse academic and practical experience",
+                "perspective": "Balanced analysis with focus on innovative connections",
+                "methodological_quirk": "Uses unconventional conceptual frameworks",
+                "biases": "Tends toward theoretical rather than practical solutions"
+            }]
+    
+    for expert in experts_to_process:
         name = expert.get("name", f"Expert_{len(npcs)}")
         
         # Create a system prompt that defines this NPC's expertise and perspective
@@ -106,7 +140,6 @@ def generate_research_chain(request: str, npc: NPC, depth: int, memory: int = 3,
                            creativity_factor: float = 0.5) -> List[str]:
     """
     Generate a chain of research thoughts from a single NPC, diving deeper with each step.
-    The chain occasionally branches into new directions based on the exploration factor.
     
     Args:
         request: The research question/topic
@@ -128,15 +161,14 @@ def generate_research_chain(request: str, npc: NPC, depth: int, memory: int = 3,
     initial_prompt = f"""
     Research request: {request}
     
-    {f'Additional context: {context}' if context else ''}
+    {f"Additional context: {context}" if context else ""}
     
     As {npc.name}, begin your research process by:
     1. Analyzing what you know about this topic
     2. Identifying key questions that need to be explored
     3. Providing initial insights based on your expertise and unique perspective
-    4. Highlighting at least one surprising or counterintuitive angle that's rarely discussed
     
-    BE EXTREMELY CONCISE. Focus on substance over wordiness. Provide clear, high-value insights in 50-75 words maximum. Be bold and original in your thinking while staying brief.
+    BE EXTREMELY CONCISE. Focus on substance over wordiness. Provide clear, high-value insights in 50-75 words maximum.
     """
     
     response = get_llm_response(prompt=initial_prompt, model=model, provider=provider, npc=npc, temperature=0.7)
@@ -148,88 +180,22 @@ def generate_research_chain(request: str, npc: NPC, depth: int, memory: int = 3,
     
     # For each level of depth, continue the research
     for i in range(1, depth):
-        # Decide research direction based on exploration and creativity factors
-        random_val = random.random()
-        if random_val < exploration_factor:
-            if random_val < (exploration_factor * creativity_factor):
-                # Highly creative tangential exploration
-                research_type = "highly_creative"
-            else:
-                # Standard tangential exploration
-                research_type = "exploratory"
-        else:
-            if random_val < creativity_factor:
-                # Deep dive with creative approach
-                research_type = "deep_creative"
-            else:
-                # Standard deep dive
-                research_type = "deep_standard"
-        
         # Get recent memory to include as context
         memory_context = "\n\n".join(chain[-memory:]) if len(chain) > 0 else ""
         
-        if research_type == "highly_creative":
-            # Highly creative exploration prompt - radical new directions
-            next_prompt = f"""
-            Research request: {request}
-            
-            Recent research findings:
-            {memory_context}
-            
-            As {npc.name}, explore a radically different angle on this topic.
-            1. Challenge a fundamental assumption that most researchers take for granted
-            2. Propose a novel framework or metaphor for understanding this topic
-            
-            BE EXTREMELY CONCISE. Focus on substance over wordiness. Keep your response to 50-75 words maximum.
-            """
-        elif research_type == "exploratory":
-            # Exploration prompt - branch into a new direction
-            next_prompt = f"""
-            Research request: {request}
-            
-            Recent research findings:
-            {memory_context}
-            
-            As {npc.name}, explore a tangential or alternative direction that hasn't been covered yet.
-            1. Identify an unexplored angle related to the main topic
-            2. Begin a detailed exploration of this new direction
-            
-            BE EXTREMELY CONCISE. Provide insights that are surprising yet relevant (50-75 words maximum).
-            """
-        elif research_type == "deep_creative":
-            # Creative depth prompt - novel approach to current direction
-            next_prompt = f"""
-            Research request: {request}
-            
-            Recent research findings:
-            {memory_context}
-            
-            As {npc.name}, continue exploring what you've discussed so far, but take a creative approach.
-            1. Apply an unusual methodology or perspective to your previous findings
-            2. Generate insights that might emerge from this creative approach
-            
-            BE EXTREMELY CONCISE. Focus on generating novel insights (50-75 words maximum).
-            """
-        else:  # deep_standard
-            # Depth prompt - go deeper on current direction
-            next_prompt = f"""
-            Research request: {request}
-            
-            Recent research findings:
-            {memory_context}
-            
-            As {npc.name}, continue your research by going deeper into what you've explored so far.
-            1. Identify the most important thread from your previous findings
-            2. Dive deeper with more detailed analysis
-            
-            BE EXTREMELY CONCISE. Focus on depth rather than breadth (50-75 words maximum).
-            """
+        # Simple follow-up prompt without specific research modes
+        next_prompt = f"""
+        Research request: {request}
         
-        temperature = 0.7
-        if research_type in ["highly_creative", "deep_creative"]:
-            temperature = 0.9  # Higher temperature for more creative explorations
+        Recent research findings:
+        {memory_context}
         
-        response = get_llm_response(prompt=next_prompt, model=model, provider=provider, npc=npc, temperature=temperature)
+        As {npc.name}, continue your research on this topic. Build on previous insights and explore new aspects.
+        
+        BE EXTREMELY CONCISE. Keep your response to 50-75 words maximum.
+        """
+        
+        response = get_llm_response(prompt=next_prompt, model=model, provider=provider, npc=npc, temperature=0.7)
         next_findings = response.get('response', '')
         if isinstance(next_findings, (list, dict)) or hasattr(next_findings, '__iter__') and not isinstance(next_findings, (str, bytes)):
             next_findings = ''.join([str(chunk) for chunk in next_findings])
@@ -238,67 +204,429 @@ def generate_research_chain(request: str, npc: NPC, depth: int, memory: int = 3,
     
     return chain
 
-def extract_facts(research_text: str, model: str = None, provider: str = None) -> List[str]:
+def format_facts_list(facts: List[str]) -> str:
+    """Format a list of facts for display in a report"""
+    return "\n".join([f"• {fact}" for fact in facts])
+
+def simulate_experiments(research: Dict[str, Any], request: str, model: str = None, provider: str = None, max_experiments: int = None) -> Dict[str, Dict[str, Any]]:
     """
-    Extract key facts and insights from a research text.
+    Simulate thought experiments based on research findings
     
     Args:
-        research_text: The full research text
+        research: Consolidated research data
+        request: Original research question
         model: LLM model to use
         provider: LLM provider to use
+        max_experiments: Maximum number of experiments to generate
         
     Returns:
-        List of extracted facts/insights
+        Dictionary mapping experiment titles to experiment data
     """
+    # Prepare context with key facts
+    facts_context = ""
+    
+    # Add facts from thematic groups
+    if "fact_groups" in research:
+        for group, facts in list(research["fact_groups"].items())[:5]:  # Use top 5 groups
+            facts_context += f"\n\nThematic Group: {group}\n"
+            facts_context += format_facts_list(facts)
+    
+    # Add insights from combinations
+    if "combination_insights" in research:
+        facts_context += "\n\nEmergent Insights:\n"
+        for combo in research["combination_insights"][:3]:  # Use top 3 insights
+            facts_context += f"• {combo.get('emergent_insight', '')}\n"
+    
+    # Create prompt to design experiments
     prompt = f"""
-    Extract the most important facts, insights, and conclusions from the following research text.
-    Focus on both conventional wisdom and unusual, provocative, or counterintuitive ideas.
+    You are a creative research scientist exploring the topic: "{request}"
     
-    For each fact or insight:
-    1. State it clearly and concisely
-    2. Ensure it captures a single, coherent idea
-    3. Preserve the nuance and specificity
-    4. Mark particularly novel or unconventional ideas with [NOVEL] at the beginning
+    Based on the following research findings:
     
-    Focus on extracting 10-15 key points that represent the most valuable findings.
-    Format each as a separate statement.
+    {facts_context}
     
-    Research text:
-    {research_text}
+    Design {max_experiments if max_experiments else "3-5"} thought experiments that could test, validate, or extend these insights.
+    
+    For each experiment:
+    1. Create a descriptive title that captures the experiment's focus
+    2. Describe the experimental design/methodology (be specific and detailed)
+    3. Predict the potential results and their implications
+    4. Explain how these results would advance our understanding of {request}
+    
+    Format your response as JSON with this structure:
+    {{
+      "experiment_title_1": {{
+        "design": "detailed description of experimental design",
+        "results": "predicted results and implications"
+      }},
+      "experiment_title_2": {{
+        ...
+      }}
+    }}
+    
+    Be bold and imaginative in your experimental designs. Consider unconventional approaches,
+    simulations, thought experiments, and interdisciplinary methods.
     """
     
-    response = get_llm_response(prompt=prompt, model=model, provider=provider)
-    facts_text = response.get('response', '')
-    if isinstance(facts_text, (list, dict)) or hasattr(facts_text, '__iter__') and not isinstance(facts_text, (str, bytes)):
-        facts_text = ''.join([str(chunk) for chunk in facts_text])
+    response = get_llm_response(prompt=prompt, model=model, provider=provider, temperature=0.8, format="json")
+    experiments = response.get("response", {})
     
-    # Split text into individual facts
-    facts = [fact.strip() for fact in facts_text.split('\n') if fact.strip()]
+    # Limit experiments if needed
+    if max_experiments and isinstance(experiments, dict) and len(experiments) > max_experiments:
+        # Sort by title length (approximating complexity/interestingness)
+        sorted_exps = sorted(experiments.items(), key=lambda x: len(x[0]), reverse=True)
+        experiments = dict(sorted_exps[:max_experiments])
     
-    # Remove numbering if present but preserve [NOVEL] tags
-    processed_facts = []
-    for fact in facts:
-        # Remove numbering while preserving [NOVEL] tag if present
-        if fact.startswith("[NOVEL]"):
-            # Handle numbered novel facts
-            if any(fact[7:].strip().startswith(str(i)) for i in range(1, 20)):
-                for i in range(1, 20):
-                    prefix = f"[NOVEL] {i}."
-                    if fact.startswith(prefix):
-                        processed_fact = "[NOVEL] " + fact[len(prefix):].strip()
-                        processed_facts.append(processed_fact)
-                        break
+    return experiments
+
+def alicanto(request: str,
+             num_npcs: int = 5,
+             depth: int = 3, memory: int = 3, 
+             context: str = None, 
+             model: str = None, 
+             provider: str = None,
+             exploration_factor: float = 0.3,
+             creativity_factor: float = 0.5,
+             output_format: str = "report",
+             max_facts_per_chain: int = None,
+             max_thematic_groups: int = None, 
+             max_criticisms_per_group: int = None,
+             max_conceptual_combinations: int = None,
+             max_experiments: int = None,
+             generate_pdf: bool = True) -> Dict[str, Any]:
+    """
+    Alicanto: Generate diverse research insights by coordinating multiple NPCs with different expertise.
+    
+    Args:
+        request: The research question/topic
+        num_npcs: Number of NPCs to generate (with different expertise)
+        depth: Depth of research for each NPC
+        memory: How many previous steps to include in context
+        context: Additional context to include
+        model: LLM model to use
+        provider: LLM provider to use
+        exploration_factor: Probability (0-1) of exploring a tangential direction
+        creativity_factor: Probability (0-1) of pursuing highly creative or unusual ideas
+        output_format: Format of the output ("report", "json", "markdown")
+        max_facts_per_chain: Maximum number of facts to extract per research chain
+        max_thematic_groups: Maximum number of thematic groups to identify
+        max_criticisms_per_group: Maximum number of criticisms per thematic group
+        max_conceptual_combinations: Maximum number of conceptual combinations to generate
+        max_experiments: Maximum number of experiments to generate
+        generate_pdf: Whether to generate a PDF report
+        
+    Returns:
+        Dictionary with research results
+    """
+    # Use default model/provider if not specified
+    if model is None:
+        model = NPCSH_CHAT_MODEL
+    if provider is None:
+        provider = NPCSH_CHAT_PROVIDER
+    
+    # Generate researcher NPCs with diverse expertise
+    print(f"Generating {num_npcs} diverse researcher NPCs...")
+    researchers = generate_random_npcs(num_npcs, model, provider, request)
+    
+    # Generate research chains for each NPC
+    print(f"Generating research chains (depth={depth})...")
+    research_chains = {}
+    facts_by_researcher = {}
+    
+    for npc in researchers:
+        print(f"  Research chain from {npc.name}...")
+        chain = generate_research_chain(
+            request=request,
+            npc=npc,
+            depth=depth,
+            memory=memory,
+            context=context,
+            model=model,
+            provider=provider,
+            exploration_factor=exploration_factor,
+            creativity_factor=creativity_factor
+        )
+        research_chains[npc.name] = chain
+        
+        # Extract facts from chain
+        print(f"  Extracting facts from {npc.name}'s research...")
+        facts = extract_facts("\n\n".join(chain), model=model, provider=provider, npc=npc, context=request)
+        
+        # Limit facts if specified
+        if max_facts_per_chain is not None and len(facts) > max_facts_per_chain:
+            facts = facts[:max_facts_per_chain]
+            
+        facts_by_researcher[npc.name] = facts
+        print({"fact_list": facts})
+    
+    # Identify thematic groups across all research
+    print("Identifying thematic groups across all research insights...")
+    all_facts = []
+    for researcher_facts in facts_by_researcher.values():
+        all_facts.extend(researcher_facts)
+    
+    groups = identify_groups(all_facts, model=model, provider=provider)
+    
+    # Limit number of groups if specified
+    if max_thematic_groups is not None and len(groups) > max_thematic_groups:
+        groups = groups[:max_thematic_groups]
+    
+    # Assign facts to groups
+    fact_groups = {group: [] for group in groups}
+    for fact in all_facts:
+        group_assignments = assign_groups_to_fact(fact, groups, model=model, provider=provider)
+        assigned_groups = group_assignments.get("groups", [])
+        for group in assigned_groups:
+            if group in fact_groups:
+                fact_groups[group].append(fact)
+    
+    # Evaluate thematic groups
+    print("Evaluating thematic groups for quality and risk...")
+    group_evaluations = evaluate_thematic_groups(
+        fact_groups, 
+        request,
+        model=model,
+        provider=provider,
+        max_criticisms=max_criticisms_per_group
+    )
+    
+    # Generate group summaries
+    group_summaries = {}
+    for group_name, facts in fact_groups.items():
+        if not facts:
+            continue
+            
+        prompt = f"""
+        Summarize the key insights from this thematic group of research findings on the topic:
+        "{request}"
+        
+        Thematic Group: {group_name}
+        
+        Findings:
+        {format_facts_list(facts)}
+        
+        Provide a concise, coherent synthesis that captures the core ideas, 
+        emphasizes what's most novel or significant, and suggests potential implications.
+        Keep your response to 200-300 words.
+        """
+        
+        response = get_llm_response(prompt=prompt, model=model, provider=provider)
+        summary = response.get('response', '')
+        if isinstance(summary, (list, dict)) or hasattr(summary, '__iter__') and not isinstance(summary, (str, bytes)):
+            summary = ''.join([str(chunk) for chunk in summary])
+        
+        group_summaries[group_name] = summary
+    
+    # Generate conceptual combinations to spark novel ideas
+    print("Generating conceptual combinations to spark novel insights...")
+    fact_lists = list(facts_by_researcher.values())
+    combinations = generate_conceptual_combinations(
+        fact_lists,
+        sample_size=min(3, len(all_facts)),
+        num_combinations=max_conceptual_combinations if max_conceptual_combinations is not None else 5
+    )
+    
+    # Analyze combinations for emergent insights
+    print("Analyzing conceptual combinations for emergent insights...")
+    combination_insights = analyze_conceptual_combinations(
+        combinations,
+        request,
+        model=model,
+        provider=provider
+    )
+    
+    # Identify meta-patterns
+    print("Identifying meta-patterns across research approaches...")
+    meta_patterns = identify_patterns_across_chains(research_chains, model=model, provider=provider)
+    
+    # Generate consolidated research summary
+    print("Consolidating research into comprehensive synthesis...")
+    
+    # Extract key points for integration
+    integration_points = []
+    
+    # Add top facts from each thematic group
+    for group, facts in fact_groups.items():
+        if facts:
+            integration_points.append(f"From thematic group '{group}':")
+            for fact in facts[:3]:  # Top 3 facts per group
+                integration_points.append(f"- {fact}")
+    
+    # Add insights from combinations
+    for insight in combination_insights[:3]:  # Top 3 insights
+        integration_points.append(f"Emergent insight: {insight.get('emergent_insight', '')}")
+    
+    # Add key points from meta-analysis
+    integration_points.append(f"Meta-analysis insight: {meta_patterns.get('meta_analysis', '')[:300]}...")
+    
+    # Generate integration
+    integration_prompt = f"""
+    Consolidate these diverse research findings into a comprehensive, integrative analysis of the topic:
+    "{request}"
+    
+    Key points from the research:
+    {format_facts_list(integration_points)}
+    
+    Your consolidation should:
+    1. Provide a coherent synthesis of the diverse perspectives
+    2. Identify the most significant findings and patterns
+    3. Note any tensions, contradictions, or complementary insights
+    4. Suggest an integrated framework for understanding the topic
+    5. Briefly outline implications and future directions
+    
+    Aim for a comprehensive, balanced, and insightful analysis (300-500 words).
+    """
+    
+    integration_response = get_llm_response(integration_prompt, model=model, provider=provider)
+    integration = integration_response.get('response', '')
+    if isinstance(integration, (list, dict)) or hasattr(integration, '__iter__') and not isinstance(integration, (str, bytes)):
+        integration = ''.join([str(chunk) for chunk in integration])
+    
+    # Create concise summary
+    summary_prompt = f"""
+    Create a concise executive summary (150 words max) of this research on:
+    "{request}"
+    
+    Integration:
+    {integration}
+    
+    Focus on the most significant findings and implications. This should be suitable for someone who only has time to read a brief overview.
+    """
+    
+    summary_response = get_llm_response(summary_prompt, model=model, provider=provider)
+    ideas_summarized = summary_response.get('response', '')
+    if isinstance(ideas_summarized, (list, dict)) or hasattr(ideas_summarized, '__iter__') and not isinstance(ideas_summarized, (str, bytes)):
+        ideas_summarized = ''.join([str(chunk) for chunk in ideas_summarized])
+    
+    # Simulate experiments
+    print("Generating simulated experiments...")
+    research_results = {
+        "research_request": request,
+        "research_chains": research_chains,
+        "fact_groups": fact_groups,
+        "group_evaluations": group_evaluations,
+        "group_summaries": group_summaries,
+        "combination_insights": combination_insights,
+        "meta_patterns": meta_patterns,
+        "integration": integration,
+        "ideas_summarized": ideas_summarized
+    }
+    
+    experiments = simulate_experiments(
+        research_results,
+        request,
+        model=model,
+        provider=provider,
+        max_experiments=max_experiments
+    )
+    
+    # Generate PDF report if requested
+    pdf_path = None
+    if generate_pdf:
+        pdf_path = generate_pdf_report(request, model, provider, research_results, experiments)
+    
+    # Final research results
+    research_results["experiments"] = experiments
+    research_results["pdf_path"] = pdf_path
+    
+    return research_results
+
+def evaluate_thematic_groups(fact_groups: Dict[str, List[str]], request: str, model: str = None, provider: str = None, max_criticisms: int = None) -> Dict[str, Dict[str, int]]:
+    """
+    Evaluate each thematic group for quality, potential risks, and biases.
+    
+    Args:
+        fact_groups: Dictionary mapping group names to lists of facts
+        request: The original research question
+        model: LLM model to use
+        provider: LLM provider to use
+        max_criticisms: Maximum number of criticisms to generate per group
+        
+    Returns:
+        Dictionary mapping group names to evaluation metrics
+    """
+    evaluations = {}
+    
+    for group_name, facts in fact_groups.items():
+        facts_text = format_facts_list(facts)
+        
+        prompt = f"""
+        Evaluate this thematic group of research insights on the topic:
+        "{request}"
+        
+        Thematic Group: {group_name}
+        
+        Insights:
+        {facts_text}
+        
+        Evaluate this group of insights on a scale of 1-10 (where 10 is highest) for:
+        1. Novelty: How original and non-obvious are these insights?
+        2. Depth: How deeply do they explore the underlying concepts?
+        3. Practicality: How useful are these insights for further research or application?
+        4. Evidence: How well-supported do these claims appear to be?
+        5. Risk: What is the chance that these insights lead to problematic directions or dead ends?
+        
+        Then identify potential weaknesses, biases, or limitations in these insights.
+        {f"Provide exactly {max_criticisms} criticisms." if max_criticisms is not None else ""}
+        
+        Format your response as:
+        Novelty: [score]
+        Depth: [score]
+        Practicality: [score]
+        Evidence: [score]
+        Risk: [score]
+        
+        Criticisms:
+        1. [First criticism]
+        2. [Second criticism]
+        ...
+        """
+        
+        response = get_llm_response(prompt=prompt, model=model, provider=provider)
+        eval_text = response.get('response', '')
+        if isinstance(eval_text, (list, dict)) or hasattr(eval_text, '__iter__') and not isinstance(eval_text, (str, bytes)):
+            eval_text = ''.join([str(chunk) for chunk in eval_text])
+        
+        # Parse scores
+        scores = {}
+        criticisms = []
+        in_criticisms = False
+        
+        for line in eval_text.split('\n'):
+            line = line.strip()
+            if not line:
+                continue
+            
+            if line.lower() == "criticisms:":
+                in_criticisms = True
+                continue
+            
+            if in_criticisms:
+                # Parse criticisms
+                if line[0].isdigit() and line[1:].startswith('. '):
+                    criticism = line[line.find(' ')+1:].strip()
+                    criticisms.append(criticism)
             else:
-                processed_facts.append(fact)
-        else:
-            # Handle regular numbered facts
-            if fact[0].isdigit() and fact[1:].strip().startswith(('.', ')', '-')):
-                processed_fact = fact[fact.find(' ')+1:].strip()
-                processed_facts.append(processed_fact)
-            else:
-                processed_facts.append(fact)
+                # Parse scores
+                if ':' in line:
+                    metric, score_str = line.split(':', 1)
+                    metric = metric.strip()
+                    try:
+                        score = int(score_str.strip())
+                        scores[metric] = score
+                    except ValueError:
+                        pass
+        
+        # Apply criticism limit if specified
+        if max_criticisms is not None and len(criticisms) > max_criticisms:
+            criticisms = criticisms[:max_criticisms]
+        
+        evaluations[group_name] = {
+            **scores,
+            "criticisms": criticisms
+        }
     
-    return processed_facts
+    return evaluations
 
 def generate_conceptual_combinations(fact_lists: List[List[str]], sample_size: int = 3, num_combinations: int = 5) -> List[Dict]:
     """
@@ -349,13 +677,13 @@ def analyze_conceptual_combinations(combinations: List[Dict], request: str, mode
     results = []
     
     for i, combo in enumerate(combinations):
-        facts_text = "\n".join([f"- {fact}" for fact in combo["facts"]])
+        facts_formatted = format_facts_list(combo["facts"])
         
         prompt = f"""
         Consider these seemingly unrelated insights from different researchers exploring the topic:
         "{request}"
         
-        {facts_text}
+        {facts_formatted}
         
         Your task is to identify a non-obvious connection, pattern, or insight that emerges when these ideas are juxtaposed.
         Focus on discovering something truly novel that none of the individual researchers may have recognized.
@@ -467,489 +795,87 @@ def identify_patterns_across_chains(chains: Dict[str, List[str]], model: str = N
         "innovative_directions": new_directions
     }
 
-def consolidate_research(
-    chains: Dict[str, List[str]], 
-    chain_facts: Dict[str, List[str]], 
-    fact_groups: Dict[str, List[int]], 
-    meta_patterns: Dict,
-    conceptual_combinations: List[Dict],
-    model: str = None, 
-    provider: str = None
-) -> Dict[str, Any]:
+def preprocess_content_for_pdf(content: str, model: str = None, provider: str = None, max_words: int = 2000, concise_mode: bool = False) -> str:
     """
-    Consolidate the research chains into a comprehensive research report.
+    Quick and lightweight preprocessing for PDF generation.
     
     Args:
-        chains: Dictionary mapping NPC names to their research chains
-        chain_facts: Dictionary mapping NPC names to lists of extracted facts
-        fact_groups: Dictionary mapping group names to lists of fact indices
-        meta_patterns: Results from the meta-pattern analysis
-        conceptual_combinations: Results from the conceptual combination analysis
-        model: LLM model to use
-        provider: LLM provider to use
+        content: Raw content to preprocess
+        model: LLM model to use (optional)
+        provider: LLM provider to use (optional)
+        max_words: Maximum word count (default 2000)
+        concise_mode: If True, creates a very short summary instead of full formatting
         
     Returns:
-        Dictionary containing the consolidated research
+        Formatted content ready for PDF generation
     """
-    # Flatten all facts for reference by the grouping indices
-    all_facts = []
-    fact_sources = []
-    for npc_name, facts in chain_facts.items():
-        for fact in facts:
-            all_facts.append(fact)
-            fact_sources.append(npc_name)
+    # Handle non-string content
+    if not isinstance(content, str):
+        content = str(content)
     
-    # Prepare group content
-    group_contents = {}
-    for group_name, fact_indices in fact_groups.items():
-        group_facts = [(all_facts[idx], fact_sources[idx]) for idx in fact_indices if idx < len(all_facts)]
-        facts_text = "\n".join([f"- {fact} (Source: {source})" for fact, source in group_facts])
-        group_contents[group_name] = facts_text
-    
-    # Generate summary for each group
-    group_summaries = {}
-    group_evaluations = {}
-    
-    for group_name, content in group_contents.items():
-        # Create a summary of the group
-        summary_prompt = f"""
-        Synthesize the following facts and insights into a coherent summary:
+    # If in concise mode, create a drastically shortened version
+    if concise_mode:
+        from npcpy.llm_funcs import get_llm_response
+        from npcpy.npc_sysenv import NPCSH_CHAT_MODEL, NPCSH_CHAT_PROVIDER
         
+        if model is None:
+            model = NPCSH_CHAT_MODEL
+        if provider is None:
+            provider = NPCSH_CHAT_PROVIDER
+            
+        concise_prompt = f"""
+        Summarize the following content into an extremely concise, no-bullshit format with maximum 500 words:
         {content}
         
-        Provide a detailed synthesis that:
-        1. Integrates the different perspectives
-        2. Highlights consensus and disagreements
-        3. Identifies the most important findings
-        4. Suggests implications or applications
-        5. Emphasizes any particularly unconventional or innovative ideas
-        
-        Write 200-300 words that represent the essence of these insights.
+        - Use clear section headings
+        - Use bullet points for key ideas
+        - Focus only on essential insights
+        - No verbose academic language
+        - No padding or fillers
+        - Just the core ideas in simple language
         """
         
-        summary_response = get_llm_response(prompt=summary_prompt, model=model, provider=provider)
-        summary = summary_response.get('response', '')
-        if isinstance(summary, (list, dict)) or hasattr(summary, '__iter__') and not isinstance(summary, (str, bytes)):
-            summary = ''.join([str(chunk) for chunk in summary])
-        
-        group_summaries[group_name] = summary
-        
-        # Evaluate the quality of this group's insights
-        group_evaluations[group_name] = evaluate_insight_quality(summary, model=model, provider=provider)
+        response = get_llm_response(prompt=concise_prompt, model=model, provider=provider)
+        content = response.get('response', '')
     
-    # Prepare the conceptual combinations section
-    combinations_text = ""
-    for combo in conceptual_combinations:
-        facts_list = "\n".join([f"- {fact}" for fact in combo["facts"]])
-        combinations_text += f"""
-        ## Emergent Insight {combo['combination_id']}
-        
-        **Combined Facts:**
-        {facts_list}
-        
-        **Novel Perspective:**
-        {combo['emergent_insight']}
-        
-        """
+    # Basic cleanup for any problematic characters that cause PDF issues
+    for char, replacement in {
+        '%': '',
+        '#': '-',
+        '_': '-',
+        '~': '-',
+        '^': '',
+        '\\': '/',
+        '{': '(',
+        '}': ')'
+    }.items():
+        content = content.replace(char, replacement)
     
-    # Prepare meta-patterns section
-    safe_integration = meta_patterns.get("meta_analysis", "").replace("_", r"\_").replace("&", r"\&").replace("#", r"\#").replace("%", r"\%")
-    meta_patterns_text = f"""
-    ## Meta-Analysis of Research Approaches
+    # Apply word count limit if the content is too long
+    words = content.split()
+    if len(words) > max_words:
+        content = ' '.join(words[:max_words]) + '... [truncated]'
     
-    {safe_integration}
-    
-    ## Innovative Research Directions
-    
-    {meta_patterns['innovative_directions']}
-    """
-    
-    # Generate the consolidated report
-    groups_text = ""
-    for group_name, summary in group_summaries.items():
-        eval_scores = group_evaluations[group_name]
-        quality_score = (eval_scores.get("Novelty", 5) + eval_scores.get("Depth", 5) + 
-                        eval_scores.get("Practicality", 5) + eval_scores.get("Evidence", 5)) / 4
-        risk_score = eval_scores.get("Risk", 5)
-        
-        # Determine if this is "gold" (high quality, low risk) or "cliff" (high risk)
-        if quality_score > 7 and risk_score < 4:
-            guidance = "🌟 GOLD INSIGHT: This appears to be a valuable finding with strong backing."
-        elif risk_score > 7:
-            guidance = "⚠️ CLIFF WARNING: This insight has significant risks or uncertainties."
-        else:
-            guidance = "NEUTRAL: This insight has moderate value and risk."
-        
-        groups_text += f"""
-        ## {group_name}
-        
-        {summary}
-        
-        **Evaluation**:
-        - Quality: {quality_score:.1f}/10
-        - Risk: {risk_score:.1f}/10
-        - **Alicanto Guidance**: {guidance}
-        
-        """
-    
-    # Final integration and recommendations
-    integration_prompt = f"""
-    You're synthesizing research on the following topic:
-    
-    {list(chains.values())[0][0][:200]}...
-    
-    You have several types of analyses to integrate:
-    
-    1. Thematic group findings:
-    {groups_text}
-    
-    2. Emergent insights from conceptual combinations:
-    {combinations_text}
-    
-    3. Meta-patterns and innovative directions:
-    {meta_patterns_text}
-    
-    Please provide:
-    1. An integrated overview that connects these different perspectives
-    2. The most significant overall findings, especially unusual or counterintuitive ones
-    3. Specific recommendations for transformative research directions
-    4. Particular cautions or limitations to be aware of
-    5. A topological map of the problem space - how the different perspectives and approaches relate to each other
-    
-    Your response should guide the researcher to the most valuable insights (gold) while warning about potentially misleading directions (cliffs).
-    Focus on identifying truly innovative directions that could transform understanding of this topic.
-    """
-    
-    integration_response = get_llm_response(integration_prompt, model=model, provider=provider, temperature=0.8)
-    integration = integration_response.get('response', '')
-    if isinstance(integration, (list, dict)) or hasattr(integration, '__iter__') and not isinstance(integration, (str, bytes)):
-        integration = ''.join([str(chunk) for chunk in integration])
-    
-    # Compile the complete research report
-    return {
-        "group_summaries": group_summaries,
-        "group_evaluations": group_evaluations,
-        "conceptual_combinations": conceptual_combinations,
-        "meta_patterns": meta_patterns,
-        "integration": integration,
-        "chains": chains,
-        "facts": chain_facts,
-        "groups": fact_groups
-    }
+    return content.strip()
 
-def identify_groups(fact_lists: List[List[str]], model: str = None, provider: str = None) -> Dict[str, List[int]]:
+def generate_pdf_report(request: str, 
+                        model, 
+                        provider, 
+                        research: Dict[str, Any], 
+                        experiments: Dict[str, Dict[str, Any]], 
+                        output_path: str = None, 
+                        max_pages: int = 5) -> str:
     """
-    Identify thematic groups across all facts extracted from research chains.
-    
-    Args:
-        fact_lists: List of lists of facts from different researchers
-        model: LLM model to use
-        provider: LLM provider to use
-        
-    Returns:
-        Dictionary mapping group names to lists of fact indices
-    """
-    # Flatten all facts into a single list
-    all_facts = []
-    for facts in fact_lists:
-        all_facts.extend(facts)
-    
-    if not all_facts:
-        return {}
-    
-    all_facts_text = "\n".join([f"{i+1}. {fact}" for i, fact in enumerate(all_facts)])
-    
-    # Prompt the LLM to identify thematic groups
-    group_prompt = f"""
-    Review these research insights:
-    
-    {all_facts_text}
-    
-    Identify 5-8 distinct thematic groups that these insights could be organized into.
-    For each group:
-    1. Create a descriptive name that captures the essence of that category
-    2. List the numbers of the insights that belong in that group
-    
-    Return your analysis in this format:
-    Group Name 1: [1, 5, 9, ...]
-    Group Name 2: [2, 6, 10, ...]
-    
-    Ensure all insight numbers are included in at least one group. Some insights may belong to multiple groups.
-    Focus on identifying surprising connections and conceptual families rather than obvious categories.
-    """
-    
-    response = get_llm_response(prompt=group_prompt, model=model, provider=provider)
-    groups_text = response.get('response', '')
-    if isinstance(groups_text, (list, dict)) or hasattr(groups_text, '__iter__') and not isinstance(groups_text, (str, bytes)):
-        groups_text = ''.join([str(chunk) for chunk in groups_text])
-    
-    # Parse the groups from the response
-    groups = {}
-    for line in groups_text.split("\n"):
-        line = line.strip()
-        if line and ":" in line:
-            parts = line.split(":", 1)
-            group_name = parts[0].strip()
-            
-            # Extract fact indices
-            indices_text = parts[1].strip()
-            if indices_text.startswith("[") and indices_text.endswith("]"):
-                indices_text = indices_text[1:-1]
-            
-            # Parse indices
-            indices = []
-            for idx_part in indices_text.split(","):
-                try:
-                    # Subtract 1 because we 1-indexed in the prompt but need 0-indexed for processing
-                    idx = int(idx_part.strip()) - 1
-                    if 0 <= idx < len(all_facts):
-                        indices.append(idx)
-                except ValueError:
-                    continue
-            
-            if indices:
-                groups[group_name] = indices
-    
-    # If groups parsing failed, create default groups
-    if not groups:
-        num_facts = len(all_facts)
-        num_groups = min(7, max(4, num_facts // 10 + 3))  # Adaptive number of groups
-        group_size = num_facts // num_groups
-        
-        for i in range(num_groups):
-            start_idx = i * group_size
-            end_idx = start_idx + group_size if i < num_groups - 1 else num_facts
-            groups[f"Thematic Group {i+1}"] = list(range(start_idx, end_idx))
-    
-    return groups
-
-def evaluate_insight_quality(insight_text: str, model: str = None, provider: str = None) -> Dict[str, float]:
-    """
-    Evaluate the quality and risk of a research insight.
-    
-    Args:
-        insight_text: The insight text to evaluate
-        model: LLM model to use
-        provider: LLM provider to use
-        
-    Returns:
-        Dictionary of evaluation scores
-    """
-    eval_prompt = f"""
-    Evaluate this research insight on climate change and food security:
-    
-    {insight_text}
-    
-    Please rate this insight on the following dimensions from 1-10:
-    
-    1. Novelty: How original or unexpected is this insight? (1=entirely conventional, 10=groundbreaking)
-    2. Depth: How deeply does it explore complex interactions and underlying mechanisms? (1=surface-level, 10=profound analysis)
-    3. Practicality: How relevant and actionable is this for addressing real-world problems? (1=purely theoretical, 10=immediately applicable)
-    4. Evidence: How well-supported is this insight by established knowledge? (1=speculative, 10=strongly supported)
-    5. Risk: What is the level of uncertainty or potential for harmful outcomes if this insight guides policy? (1=extremely low risk, 10=high risk/uncertainty)
-    
-    For each dimension, provide a numeric score and a brief 1-sentence justification.
-    """
-    
-    response = get_llm_response(prompt=eval_prompt, model=model, provider=provider)
-    eval_text = response.get('response', '')
-    if isinstance(eval_text, (list, dict)) or hasattr(eval_text, '__iter__') and not isinstance(eval_text, (str, bytes)):
-        eval_text = ''.join([str(chunk) for chunk in eval_text])
-    
-    # Extract scores from the evaluation text
-    scores = {}
-    for dimension in ["Novelty", "Depth", "Practicality", "Evidence", "Risk"]:
-        pattern = f"{dimension}:\\s*(\\d+)"
-        import re
-        match = re.search(pattern, eval_text)
-        if match:
-            try:
-                scores[dimension] = min(10, max(1, int(match.group(1))))  # Ensure 1-10 range
-            except ValueError:
-                scores[dimension] = 5  # Default score
-        else:
-            scores[dimension] = 5  # Default score if not found
-    
-    return scores
-
-def generate_simulated_experiments(request: str, groups: Dict[str, List[int]], facts: Dict[str, List[str]], model: str = None, provider: str = None) -> Dict[str, Any]:
-    """
-    Generate simulated experiments based on the research findings to provide baselines 
-    and concrete examples for users to understand the concepts.
-    
-    Args:
-        request: The original research question/topic
-        groups: Dictionary mapping group names to fact indices
-        facts: Dictionary mapping NPC names to their facts
-        model: LLM model to use
-        provider: LLM provider to use
-        
-    Returns:
-        Dictionary with experiment designs and simulated results
-    """
-    print("Generating simulated experiments based on research findings...")
-    
-    # Collect all facts across NPCs
-    all_facts = []
-    for npc_facts in facts.values():
-        all_facts.extend(npc_facts)
-    
-    # Prompt for experiment design based on thematic groups
-    experiments = {}
-    
-    for group_name, fact_indices in groups.items():
-        # Skip if there are no facts for this group
-        if not fact_indices or max(fact_indices) >= len(all_facts):
-            continue
-            
-        # Get facts for this group
-        group_facts = [all_facts[idx] for idx in fact_indices if idx < len(all_facts)]
-        facts_text = "\n".join([f"- {fact}" for fact in group_facts])
-        
-        # Create experiment design prompt
-        design_prompt = f"""
-        Based on the following research insights related to "{request}" within the theme "{group_name}":
-        
-        {facts_text}
-        
-        Design a simple experiment or simulation that could test or demonstrate these concepts.
-        
-        The experiment should:
-        1. Be clear and straightforward to understand
-        2. Demonstrate a key principle or finding from the research
-        3. Include variables that could be measured
-        4. Produce data that could be visualized
-        5. Serve as a baseline example that researchers could build upon
-        
-        For your experiment design, provide:
-        1. A title for the experiment
-        2. The hypothesis being tested
-        3. The methodology (steps, variables, measurements)
-        4. Expected outcomes based on the research insights
-        5. How the results would look (what pattern to expect in the data)
-        6. A suggestion for how to visualize the results effectively
-        
-        Make this a concrete, practical experiment design that could actually be run.
-        """
-        
-        response = get_llm_response(prompt=design_prompt, model=model, provider=provider)
-        experiment_design = response.get('response', '')
-        if isinstance(experiment_design, (list, dict)) or hasattr(experiment_design, '__iter__') and not isinstance(experiment_design, (str, bytes)):
-            experiment_design = ''.join([str(chunk) for chunk in experiment_design])
-        
-        # Generate simulated data for the experiment
-        data_prompt = f"""
-        You designed the following experiment:
-        
-        {experiment_design}
-        
-        Now, generate simulated data for this experiment using the Python libraries numpy and matplotlib.
-        
-        Your simulation code should:
-        1. Define all necessary parameters
-        2. Generate realistic synthetic data based on the expected outcomes
-        3. Calculate relevant statistics
-        4. Create simple, clear matplotlib visualizations (not using seaborn)
-        5. Provide brief textual interpretation of the results
-        
-        Return ONLY executable Python code that simulates this experiment and visualizes the results.
-        Include comments to explain key steps. The code should be completely self-contained.
-        Be creative but realistic in your data simulation.
-        """
-        
-        response = get_llm_response(prompt=data_prompt, model=model, provider=provider)
-        simulation_code = response.get('response', '')
-        if isinstance(simulation_code, (list, dict)) or hasattr(simulation_code, '__iter__') and not isinstance(simulation_code, (str, bytes)):
-            simulation_code = ''.join([str(chunk) for chunk in simulation_code])
-        
-        # Extract the actual code from the response, removing markdown code blocks if present
-        if "```python" in simulation_code:
-            simulation_code = simulation_code.split("```python")[1].split("```")[0].strip()
-        elif "```" in simulation_code:
-            simulation_code = simulation_code.split("```")[1].split("```")[0].strip()
-        
-        # Store the experiment design and simulation code
-        experiments[group_name] = {
-            "design": experiment_design,
-            "simulation_code": simulation_code,
-            "results": None  # Will be populated after running the simulation
-        }
-    
-    return experiments
-
-def run_simulations(experiments: Dict[str, Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
-    """
-    Run the simulated experiments and capture their results.
-    
-    Args:
-        experiments: Dictionary of experiment designs and simulation code
-        
-    Returns:
-        Updated experiments dictionary with results
-    """
-    print("Running simulations and generating visualizations...")
-    
-    for group_name, experiment in experiments.items():
-        try:
-            # Create a BytesIO object to capture the plot
-            buffer = BytesIO()
-            
-            # Prepare local variables for the code to execute
-            local_vars = {
-                'plt': plt,
-                'np': np,
-                'Figure': Figure,
-                'BytesIO': BytesIO,
-                'base64': base64,
-                'buffer': buffer
-            }
-            
-            # Modify the code to save the figure to our buffer
-            code = experiment["simulation_code"]
-            if "plt.show()" in code:
-                code = code.replace("plt.show()", "plt.savefig(buffer, format='png', dpi=100)\nbuffer.seek(0)")
-            else:
-                code += "\nplt.savefig(buffer, format='png', dpi=100)\nbuffer.seek(0)"
-            
-            # Execute the simulation code
-            exec(code, globals(), local_vars)
-            
-            # Get the buffer from the local variables
-            buffer = local_vars.get('buffer', buffer)
-            
-            # Convert the buffer to a base64-encoded string
-            buffer.seek(0)
-            img_str = base64.b64encode(buffer.read()).decode()
-            
-            # Store the results
-            experiment["results"] = {
-                "image": img_str,
-                "success": True,
-                "error": None
-            }
-            
-        except Exception as e:
-            import traceback
-            experiment["results"] = {
-                "image": None,
-                "success": False,
-                "error": str(e),
-                "traceback": traceback.format_exc()
-            }
-    
-    return experiments
-
-def generate_pdf_report(request: str, research: Dict[str, Any], experiments: Dict[str, Dict[str, Any]], output_path: str = None, fast_mode: bool = True) -> str:
-    """
-    Generate a PDF report with visualizations from the research and simulated experiments.
-    Using only ReportLab for PDF generation to avoid LaTeX issues.
+    Generate a professional PDF report using LaTeX for superior formatting, typesetting, and layout.
     
     Args:
         request: The original research question
         research: The consolidated research results
         experiments: The simulated experiments and their results
         output_path: Path to save the PDF report (default: current directory)
-        fast_mode: Ignored parameter, kept for backward compatibility
+        fast_mode: If True, uses simpler formatting
+        concise_mode: If True, drastically reduces content length
+        max_pages: Maximum number of pages to generate (approximate)
         
     Returns:
         Path to the generated PDF file
@@ -957,394 +883,193 @@ def generate_pdf_report(request: str, research: Dict[str, Any], experiments: Dic
     if output_path is None:
         output_path = os.getcwd()
     
-    # Create a filename based on the request
+    # Create filename
     sanitized_request = "".join(c for c in request if c.isalnum() or c.isspace()).strip()
     sanitized_request = sanitized_request.replace(" ", "_")[:50]
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"{sanitized_request}_{timestamp}.pdf"
-    filepath = os.path.join(output_path, filename)
+    filename = f"{sanitized_request}_{timestamp}"
     
-    # Generate PDF with ReportLab
-    print("Generating PDF report with ReportLab...")
-    
+    # Check for LaTeX installation
     try:
-        from reportlab.lib.pagesizes import letter
-        from reportlab.lib import colors
-        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image, Table, TableStyle
-        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-        from reportlab.lib.enums import TA_CENTER, TA_LEFT
-    except ImportError:
-        import subprocess
-        subprocess.run(["pip", "install", "reportlab"], check=True)
-        from reportlab.lib.pagesizes import letter
-        from reportlab.lib import colors
-        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image, Table, TableStyle
-        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-        from reportlab.lib.enums import TA_CENTER, TA_LEFT
-    
-    # Create the document
-    doc = SimpleDocTemplate(filepath, pagesize=letter)
-    styles = getSampleStyleSheet()
-    
-    # Custom styles
-    custom_styles = {
-        'Title': ParagraphStyle(
-            name='Title', 
-            parent=styles['Heading1'], 
-            fontSize=20, 
-            alignment=TA_CENTER,
-            spaceAfter=20
-        ),
-        'Heading2': ParagraphStyle(
-            name='Heading2', 
-            parent=styles['Heading2'], 
-            fontSize=16, 
-            spaceAfter=10
-        ),
-        'Heading3': ParagraphStyle(
-            name='Heading3', 
-            parent=styles['Heading3'], 
-            fontSize=14, 
-            spaceAfter=8
-        ),
-        'Normal': ParagraphStyle(
-            name='Normal', 
-            parent=styles['Normal'], 
-            fontSize=11, 
-            spaceAfter=10
-        ),
-        'GoldInsight': ParagraphStyle(
-            name='GoldInsight', 
-            parent=styles['Normal'], 
-            fontSize=11, 
-            backColor=colors.gold,
-            borderColor=colors.black,
-            borderWidth=1,
-            borderPadding=5,
-            spaceAfter=10
-        ),
-        'CliffWarning': ParagraphStyle(
-            name='CliffWarning', 
-            parent=styles['Normal'], 
-            fontSize=11, 
-            backColor=colors.lightcoral,
-            borderColor=colors.black,
-            borderWidth=1,
-            borderPadding=5,
-            spaceAfter=10
-        ),
-        'NeutralInsight': ParagraphStyle(
-            name='NeutralInsight', 
-            parent=styles['Normal'], 
-            fontSize=11, 
-            backColor=colors.lightblue,
-            borderColor=colors.black,
-            borderWidth=1,
-            borderPadding=5,
-            spaceAfter=10
-        )
-    }
-    
-    # Add custom styles to the stylesheet
-    for style_name, style in custom_styles.items():
-        styles.add(style)
-    
-    # Content elements
-    elements = []
-    
-    # Title
-    elements.append(Paragraph("Alicanto Research Report", styles["Title"]))
-    elements.append(Spacer(1, 20))
-    
-    # Research Topic
-    elements.append(Paragraph("Research Topic:", styles["Heading2"]))
-    elements.append(Paragraph(request, styles["Normal"]))
-    elements.append(Spacer(1, 20))
-    
-    # Executive Summary
-    elements.append(Paragraph("Executive Summary", styles["Heading2"]))
-    elements.append(Paragraph(research.get("integration", ""), styles["Normal"]))
-    elements.append(Spacer(1, 20))
-    
-    # Thematic Findings
-    elements.append(Paragraph("Thematic Findings and Insights", styles["Heading2"]))
-    
-    for group_name, summary in research.get("group_summaries", {}).items():
-        eval_scores = research.get("group_evaluations", {}).get(group_name, {})
-        quality_score = (eval_scores.get("Novelty", 5) + eval_scores.get("Depth", 5) + 
-                        eval_scores.get("Practicality", 5) + eval_scores.get("Evidence", 5)) / 4
-        risk_score = eval_scores.get("Risk", 5)
-        
-        elements.append(Paragraph(group_name, styles["Heading3"]))
-        
-        # Choose style based on scores
-        style_name = "NeutralInsight"
-        if quality_score > 7 and risk_score < 4:
-            style_name = "GoldInsight"
-        elif risk_score > 7:
-            style_name = "CliffWarning"
-        
-        elements.append(Paragraph(summary, styles[style_name]))
-        elements.append(Paragraph(f"Quality Score: {quality_score:.1f}/10, Risk Score: {risk_score:.1f}/10", styles["Normal"]))
-        
-        # Add experiment data if available
-        if group_name in experiments:
-            experiment = experiments[group_name]
-            elements.append(Paragraph("Simulated Experiment", styles["Heading3"]))
-            elements.append(Paragraph(experiment.get("design", ""), styles["Normal"]))
+        subprocess.run(["which", "pdflatex"], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    except subprocess.CalledProcessError:
+        print("LaTeX not installed. Attempting to install...")
+        try:
+            subprocess.run(["apt-get", "update"], check=True)
+            subprocess.run(["apt-get", "install", "-y", "texlive-latex-base", "texlive-fonts-recommended", 
+                            "texlive-fonts-extra", "texlive-latex-extra"], check=True)
+        except subprocess.CalledProcessError as e:
+            print(f"Error installing LaTeX: {str(e)}")
+            return None
+    # Create chart for thematic groups using matplotlib
+    chart_path = None
+    try:
+        if "group_evaluations" in research and research["group_evaluations"]:
+            # Create basic folder for figures
+            figures_dir = os.path.join(output_path, "figures")
+            os.makedirs(figures_dir, exist_ok=True)
             
-            if experiment.get("results", {}).get("image"):
-                img_path = os.path.join(os.path.dirname(filepath), f"{group_name.replace(' ', '_')}_experiment.png")
-                with open(img_path, "wb") as img_file:
-                    img_file.write(base64.b64decode(experiment["results"]["image"]))
-                img = Image(img_path, width=400, height=300)
-                elements.append(img)
-            elif experiment.get("results", {}).get("error"):
-                elements.append(Paragraph(f"Error running simulation: {experiment['results']['error']}", styles["Normal"]))
+            fig, ax = plt.subplots(figsize=(7.5, 4))
+            plt.style.use('ggplot')  # Clean style without seaborn
+            
+            groups = []
+            scores = []
+            
+            for group_name, eval_data in research["group_evaluations"].items():
+                groups.append(group_name[:30])  # Truncate long names
+                quality_score = (eval_data.get("Novelty", 5) + eval_data.get("Depth", 5) + 
+                               eval_data.get("Practicality", 5) + eval_data.get("Evidence", 5)) / 4
+                scores.append(quality_score)
+            
+            # Sort by score
+            sorted_data = sorted(zip(groups, scores), key=lambda x: x[1], reverse=True)
+            groups = [x[0] for x in sorted_data]
+            scores = [x[1] for x in sorted_data]
+            
+            # Create horizontal bar chart
+            y_pos = range(len(groups))
+            ax.barh(y_pos, scores, color='steelblue')
+            ax.set_yticks(y_pos)
+            ax.set_yticklabels(groups)
+            ax.set_xlabel('Quality Score (1-10)')
+            ax.set_title('Thematic Groups by Quality Score')
+            plt.tight_layout()
+            
+            # Save chart
+            chart_path = os.path.join(figures_dir, f"thematic_groups.pdf")
+            plt.savefig(chart_path, dpi=300, bbox_inches='tight', format='pdf')
+            plt.close()
+    except Exception as e:
+        print(f"Warning: Could not generate chart: {str(e)}")
+    
+    # Create LaTeX document
+    latex_content = generate_latex_document(request, model, provider,  research, experiments, chart_path, max_pages)
+    
+    # Write LaTeX to file
+    tex_path = os.path.join(output_path, f"{filename}.tex")
+    with open(tex_path, "w") as f:
+        f.write(latex_content)
+    
+    # Use subprocess to run pdflatex without check=True to prevent exceptions
+    try:
+        # First run
+        result = subprocess.run(
+            ["pdflatex", "-interaction=nonstopmode", "-output-directory", output_path, tex_path],
+            stdout=subprocess.PIPE, 
+            stderr=subprocess.PIPE
+        )
         
-        elements.append(Spacer(1, 20))
-    
-    # Emergent Insights
-    elements.append(Paragraph("Emergent Insights from Conceptual Combinations", styles["Heading2"]))
-    
-    for combo in research.get("conceptual_combinations", []):
-        elements.append(Paragraph(f"Insight {combo.get('combination_id', '')}", styles["Heading3"]))
+        if result.returncode != 0:
+            print(f"Warning: First LaTeX run had issues (exit code {result.returncode})")
+            # Still continue - sometimes the second run fixes things
         
-        # Facts list
-        elements.append(Paragraph("Combined Facts:", styles["Normal"]))
-        for fact in combo.get("facts", []):
-            elements.append(Paragraph(f"• {fact}", styles["Normal"]))
+        # Second run for references
+        result = subprocess.run(
+            ["pdflatex", "-interaction=nonstopmode", "-output-directory", output_path, tex_path],
+            stdout=subprocess.PIPE, 
+            stderr=subprocess.PIPE
+        )
         
-        elements.append(Paragraph("Novel Perspective:", styles["Normal"]))
-        elements.append(Paragraph(combo.get("emergent_insight", ""), styles["GoldInsight"]))
-        elements.append(Spacer(1, 10))
+        if result.returncode != 0:
+            print(f"Warning: Second LaTeX run had issues (exit code {result.returncode})")
+            # Write LaTeX log for debugging
+            log_path = os.path.join(output_path, f"{filename}.log")
+            if os.path.exists(log_path):
+                print(f"Check LaTeX log for details: {log_path}")
+    except Exception as e:
+        print(f"Error during LaTeX compilation: {str(e)}")
+        return None
     
-    # Meta-analysis
-    elements.append(Paragraph("Meta-Analysis and Research Directions", styles["Heading2"]))
-    elements.append(Paragraph("Meta-Analysis of Research Approaches", styles["Heading3"]))
-    elements.append(Paragraph(research.get("meta_patterns", {}).get("meta_analysis", ""), styles["Normal"]))
+    # Clean up temporary files
+    for ext in [".aux", ".out", ".toc"]:
+        try:
+            os.remove(os.path.join(output_path, f"{filename}{ext}"))
+        except OSError:
+            pass
     
-    elements.append(Paragraph("Innovative Research Directions", styles["Heading3"]))
-    elements.append(Paragraph(research.get("meta_patterns", {}).get("innovative_directions", ""), styles["Normal"]))
-    
-    # Contributors
-    elements.append(Paragraph("Contributors", styles["Heading2"]))
-    for npc_name in research.get("chains", {}).keys():
-        elements.append(Paragraph(f"• {npc_name}", styles["Normal"]))
-    
-    # Build the PDF
-    doc.build(elements)
-    
-    return filepath
+    # Check if PDF was generated successfully
+    pdf_path = os.path.join(output_path, f"{filename}.pdf")
+    if os.path.exists(pdf_path):
+        print(f"PDF report successfully generated using LaTeX: {pdf_path}")
+        return pdf_path
+    else:
+        print(f"PDF generation failed. Check the LaTeX log for details.")
+        return None
 
-def alicanto(
-    request: str,
-    num_npcs: int = 5,
-    depth: int = 3,
-    memory: int = 3,
-    context: str = None,
-    model: str = None,
-    provider: str = None,
-    exploration_factor: float = 0.3,
-    creativity_factor: float = 0.5,
-    output_format: str = "report",
-    fast_mode: bool = True  # Default to fast mode for PDF generation
-) -> Dict[str, Any]:
+def generate_latex_document(request: str, model, provider, research: Dict[str, Any], experiments: Dict[str, Dict[str, Any]],
+                            chart_path: str = None, max_pages: int = 5) -> str:
     """
-    Run the Alicanto research process to explore a topic from multiple perspectives.
+    Generate LaTeX document content.
     
     Args:
-        request: The research question/topic to explore
-        num_npcs: Number of researcher NPCs to use
-        depth: Depth of research chains
-        memory: How many previous steps to remember in each chain
-        context: Additional context to include
-        model: LLM model to use
-        provider: LLM provider to use
-        exploration_factor: Factor for exploration vs exploitation (0-1)
-        creativity_factor: Factor for creative vs standard approaches (0-1)
-        output_format: Format of the output ("full", "summary", "report", "concise")
-        fast_mode: Whether to use fast mode for PDF generation
-        
+        request: The research topic
+        research: Research results
+        experiments: Experiments data
+        chart_path: Path to the thematic groups chart
+        max_pages: Maximum number of pages (approximate)
+    
     Returns:
-        Dictionary with the research results
+        LaTeX document content as a string
     """
-    if model is None:
-        model = NPCSH_CHAT_MODEL
-    if provider is None:
-        provider = NPCSH_CHAT_PROVIDER
+    # Collect experiment images that might be available
+    figure_paths = {}
+    if chart_path:
+        # Use relative path instead of absolute path for figure
+        figure_paths["thematic_groups"] = os.path.basename(chart_path)
     
-    print(f"🦅 Alicanto: Beginning research on '{request}'")
+    # Check for experiment images in the current directory
+    # Ensure experiments is a dictionary before trying to get keys
+    if isinstance(experiments, dict):
+        for title in experiments.keys():
+            sanitized_title = title.replace(" ", "_")
+            potential_image = f"{sanitized_title}_experiment.png"
+            if os.path.exists(potential_image):
+                figure_paths[sanitized_title] = potential_image
     
-    # Generate diverse research NPCs
-    print(f"Generating {num_npcs} diverse researcher NPCs...")
-    npcs = generate_random_npcs(num_npcs, model, provider, request)
+    # Describe available figures to the LLM
+    figure_path_description_dict = {}
+    for name, path in figure_paths.items():
+        figure_path_description_dict[name] = path
     
-    # Generate research chains for each NPC
-    print("Generating research chains from multiple perspectives...")
-    chains = {}
-    for npc in npcs:
-        print(f"  Research chain from {npc.name}...")
-        chain = generate_research_chain(
-            request, npc, depth, memory, context, model, provider,
-            exploration_factor, creativity_factor
-        )
-        chains[npc.name] = chain
+    # Create the prompt for generating LaTeX content
+    prompt = f'''
+    Generate a LaTeX document for a research report on the topic: "{request}"
+    Here is the summary of the research: {research}
     
-    # Extract facts from each chain
-    print("Extracting key facts and insights from research chains...")
-    chain_facts = {}
-    for name, chain in chains.items():
-        print(f"  Extracting facts from {name}'s research...")
-        chain_text = "\n\n".join(chain)
-        facts = extract_facts(chain_text, model, provider)
-        chain_facts[name] = facts
+    Here is the summary of the experiments: {experiments}''' +"""
+    Write your response in a way that academically details the research, its motivation, and experiments
+    and ensure any place where a citation may be needed is indicated by including an empty '\\cite{citation_needed}' 
     
-    # Identify thematic groups across all facts
-    print("Identifying thematic groups across all research insights...")
-    fact_lists = list(chain_facts.values())
-    fact_groups = identify_groups(fact_lists, model, provider)
+    IMPORTANT INSTRUCTIONS FOR DOCUMENT PREPARATION:
+    1. DO NOT include \\bibliography{references} or any bibliography commands, as we don't have a references file
+    2. Instead, create a \\begin{thebibliography}{99} ... \\end{thebibliography} section with example references
+    3. For figures, use relative paths like 'figures/thematic_groups.pdf' rather than absolute paths
+    4. Make sure all LaTeX commands are properly formatted and do not use undefined packages
+    5. Keep the document structure simple and robust to avoid compilation errors
+    """+f"""    
+    The figures are located at the following paths: {figure_path_description_dict}
+    """
     
-    # Generate conceptual combinations
-    print("Generating conceptual combinations to spark novel insights...")
-    combinations = generate_conceptual_combinations(fact_lists)
     
-    # Analyze the combinations
-    print("Analyzing conceptual combinations for emergent insights...")
-    analyzed_combinations = analyze_conceptual_combinations(combinations, request, model, provider)
+    latex_response = get_llm_response(prompt=prompt, model=model, provider=provider )
+    latex_content = latex_response.get('response', '')
     
-    # Identify meta-patterns across research chains
-    print("Identifying meta-patterns across research approaches...")
-    meta_patterns = identify_patterns_across_chains(chains, model, provider)
+    # Post-process the LaTeX content to fix common issues
+    latex_content = latex_content.replace('\\bibliography{references}', '')
+    latex_content = latex_content.replace('\\bibliographystyle{plain}', '')
     
-    # Consolidate the research
-    print("Consolidating research into comprehensive synthesis...")
-    research = consolidate_research(
-        chains, chain_facts, fact_groups, meta_patterns, analyzed_combinations,
-        model, provider
-    )
+    # Replace absolute figure paths with relative paths
+    latex_content = latex_content.replace('/home/caug/npcww/npcsh/figures/', 'figures/')
     
-    # Generate simulated experiments if we want a full report
-    if output_format in ["full", "report"]:
-        experiments = generate_simulated_experiments(request, fact_groups, chain_facts, model, provider)
-        experiments = run_simulations(experiments)
-        research["experiments"] = experiments
-    else:
-        experiments = {}
-    
-    # Generate PDF report
-    if output_format in ["full", "report"]:
-        print("Generating PDF research report...")
-        pdf_path = generate_pdf_report(request, research, experiments, fast_mode=fast_mode)
-        research["pdf_path"] = pdf_path
-        print(f"PDF report generated: {pdf_path}")
-    
-    # Prepare output based on requested format
-    if output_format == "concise":
-        output = research["integration"]
-    elif output_format == "summary":
-        output = {
-            "integration": research["integration"],
-            "group_summaries": research["group_summaries"],
-            "meta_patterns": research["meta_patterns"]
-        }
-    elif output_format == "report":
-        # Format a text report
-        output = f"""# Alicanto Research Report: {request}
-
-## Executive Summary
-{research['integration']}
-
-## Thematic Findings
+    # Add a simple bibliography if none exists
+    if '\\begin{thebibliography}' not in latex_content and '\\end{document}' in latex_content:
+        bibliography = """
+\\begin{thebibliography}{9}
+\\bibitem{citation1} Author, A. (2023). Title of the work. Journal Name, 10(2), 123-456.
+\\bibitem{citation2} Researcher, B. (2022). Another relevant publication. Conference Proceedings, 789-012.
+\\end{thebibliography}
 """
-        for group_name, summary in research["group_summaries"].items():
-            eval_scores = research["group_evaluations"][group_name]
-            quality_score = (eval_scores.get("Novelty", 5) + eval_scores.get("Depth", 5) + 
-                            eval_scores.get("Practicality", 5) + eval_scores.get("Evidence", 5)) / 4
-            risk_score = eval_scores.get("Risk", 5)
-            
-            if quality_score > 7 and risk_score < 4:
-                indicator = "🌟 GOLD INSIGHT"
-            elif risk_score > 7:
-                indicator = "⚠️ CLIFF WARNING"
-            else:
-                indicator = "NEUTRAL"
-            
-            output += f"""### {group_name} ({indicator})
-{summary}
-
-Quality: {quality_score:.1f}/10 | Risk: {risk_score:.1f}/10
-
-"""
-        
-        output += """## Emergent Insights from Conceptual Combinations
-"""
-        for combo in research["conceptual_combinations"]:
-            output += f"""### Insight {combo['combination_id']}
-{combo['emergent_insight']}
-
-"""
-        
-        output += f"""## Meta-Analysis
-{research['meta_patterns']['meta_analysis']}
-
-## Innovative Research Directions
-{research['meta_patterns']['innovative_directions']}
-
-## PDF Report
-A detailed PDF report has been generated: {research.get('pdf_path', 'Not available')}
-"""
-    else:  # full format or default
-        output = research
+        latex_content = latex_content.replace('\\end{document}', f'{bibliography}\n\\end{{document}}')
     
-    return output
+    return latex_content
 
-def main():
-    """CLI interface for Alicanto research"""
-    import argparse
-    
-    parser = argparse.ArgumentParser(description="Alicanto: Deep thematic research with multiple perspectives")
-    parser.add_argument("request", help="Research question or topic to explore")
-    parser.add_argument("--num-npcs", type=int, default=5, help="Number of researcher NPCs to use")
-    parser.add_argument("--depth", type=int, default=3, help="Depth of research chains")
-    parser.add_argument("--memory", type=int, default=3, help="How many previous steps to remember")
-    parser.add_argument("--model", default=NPCSH_CHAT_MODEL, help="LLM model to use")
-    parser.add_argument("--provider", default=NPCSH_CHAT_PROVIDER, help="LLM provider to use")
-    parser.add_argument("--context", help="Additional context to include")
-    parser.add_argument("--exploration", type=float, default=0.3, help="Exploration vs exploitation factor (0-1)")
-    parser.add_argument("--creativity", type=float, default=0.5, help="Creativity factor (0-1)")
-    parser.add_argument("--format", choices=["full", "summary", "report", "concise"], default="report", 
-                        help="Output format")
-    parser.add_argument("--fast-pdf", action="store_true", help="Use fast PDF generation mode")
-    
-    args = parser.parse_args()
-    
-    result = alicanto(
-        request=args.request,
-        num_npcs=args.num_npcs,
-        depth=args.depth,
-        memory=args.memory,
-        context=args.context,
-        model=args.model,
-        provider=args.provider,
-        exploration_factor=args.exploration,
-        creativity_factor=args.creativity,
-        output_format=args.format
-    )
-    
-    if args.format == "report" or args.format == "concise":
-        print(result)
-    else:
-        import json
-        print(json.dumps(result, indent=2))
-    
-    # Generate PDF report
-    generate_pdf_report(
-        request=args.request,
-        research=result,
-        experiments={},
-        fast_mode=args.fast_pdf
-    )
-
-if __name__ == "__main__":
-    main()
