@@ -42,20 +42,46 @@ import textwrap
 import subprocess
 from termcolor import colored
 import sys
-import termios
-import tty
-import pty
-import select
-import signal
+# --- Platform-specific imports and guards ---
+import sys
 import platform
-import time
 
-import tempfile
+ON_WINDOWS = platform.system() == "Windows"
 
-from rich.console import Console
-from rich.markdown import Markdown
-from rich.syntax import Syntax
+# Try/except for termios, tty, pty, select, signal
+try:
+    if not ON_WINDOWS:
+        import termios
+        import tty
+        import pty
+        import select
+        import signal
+except ImportError:
+    termios = None
+    tty = None
+    pty = None
+    select = None
+    signal = None
+
+# Try/except for readline
+try:
+    import readline
+except ImportError:
+    readline = None
+    print('no readline support, some features may not work as desired.')
+
+# Try/except for rich imports
+try:
+    from rich.console import Console
+    from rich.markdown import Markdown
+    from rich.syntax import Syntax
+except ImportError:
+    Console = None
+    Markdown = None
+    Syntax = None
+
 import warnings
+import time
 
 # Global variables
 running = True
@@ -63,9 +89,8 @@ is_recording = False
 recording_data = []
 buffer_data = []
 last_speech_time = 0
-\
-warnings.filterwarnings("ignore", module="whisper.transcribe")
 
+warnings.filterwarnings("ignore", module="whisper.transcribe")
 warnings.filterwarnings("ignore", category=FutureWarning)
 warnings.filterwarnings("ignore", module="torch.serialization")
 os.environ["PYTHONWARNINGS"] = "ignore"
@@ -272,16 +297,11 @@ def log_action(action: str, detail: str = "") -> None:
 
 def start_interactive_session(command: list) -> int:
     """
-    Function Description:
-        Starts an interactive session.
-    Args:
-        command : list : Command to execute
-    Keyword Args:
-        None
-    Returns:
-        returncode : int : Return code
-
+    Starts an interactive session. Only works on Unix. On Windows, print a message and return 1.
     """
+    if ON_WINDOWS or termios is None or tty is None or pty is None or select is None or signal is None:
+        print("Interactive terminal sessions are not supported on Windows.")
+        return 1
     # Save the current terminal settings
     old_tty = termios.tcgetattr(sys.stdin)
     try:
@@ -1612,5 +1632,36 @@ NPCSH_REASONING_PROVIDER = os.environ.get("NPCSH_REASONING_PROVIDER", "ollama")
 NPCSH_STREAM_OUTPUT = eval(os.environ.get("NPCSH_STREAM_OUTPUT", "0")) == 1
 NPCSH_API_URL = os.environ.get("NPCSH_API_URL", None)
 NPCSH_SEARCH_PROVIDER = os.environ.get("NPCSH_SEARCH_PROVIDER", "duckduckgo")
+
+READLINE_HISTORY_FILE = os.path.expanduser("~/.npcsh_history")
+def setup_readline() -> str:
+    if readline is None:
+        return None
+    try:
+        readline.read_history_file(READLINE_HISTORY_FILE)
+        readline.set_history_length(1000)
+        readline.parse_and_bind("set enable-bracketed-paste on")
+        readline.parse_and_bind(r'"\e[A": history-search-backward')
+        readline.parse_and_bind(r'"\e[B": history-search-forward')
+        readline.parse_and_bind(r'"\C-r": reverse-search-history')
+        readline.parse_and_bind(r'\C-e: end-of-line')
+        readline.parse_and_bind(r'\C-a: beginning-of-line')
+        if sys.platform == "darwin":
+            readline.parse_and_bind("bind ^I rl_complete")
+        else:
+            readline.parse_and_bind("tab: complete")
+        return READLINE_HISTORY_FILE
+    except FileNotFoundError:
+        pass
+    except OSError as e:
+        print(f"Warning: Could not read readline history file {READLINE_HISTORY_FILE}: {e}")
+
+def save_readline_history():
+    if readline is None:
+        return
+    try:
+        readline.write_history_file(READLINE_HISTORY_FILE)
+    except OSError as e:
+        print(f"Warning: Could not write readline history file {READLINE_HISTORY_FILE}: {e}")
 
 
