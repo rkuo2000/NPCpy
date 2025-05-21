@@ -12,10 +12,12 @@ import textwrap
 from typing import Optional, List, Dict, Any, Tuple, Union
 from dataclasses import dataclass, field
 from inspect import isgenerator
-import shutil
+import platform
+try:
+    from termcolor import colored
+except: 
+    pass
 
-# Third-Party Imports
-from termcolor import colored, cprint
 try:
     import chromadb
 except ImportError:
@@ -131,7 +133,7 @@ def split_by_pipes(command: str) -> List[str]:
             in_single_quote = not in_single_quote
             current += char
         elif char == '"' and not in_single_quote:
-            in_double_quote = not in_double_quote
+            in_double_quote = not in_single_quote
             current += char
         elif char == '|' and not in_single_quote and not in_double_quote:
             parts.append(current.strip())
@@ -826,16 +828,40 @@ def run_repl(command_history: CommandHistory, initial_state: ShellState):
     state = initial_state
     print(f'Using {state.current_mode} mode. Use /agent, /cmd, or /chat to switch to other modes')
     print(f'To switch to a different NPC, type /<npc_name>')
+    is_windows = platform.system().lower().startswith("win")
+
+    def exit_shell(state):
+        print("\nGoodbye!")
+        print('beginning knowledge consolidation')
+        try:
+            breathe_result = breathe(state.messages, state.chat_model, state.chat_provider, state.npc)
+            print(breathe_result)
+        except KeyboardInterrupt:
+            print("Knowledge consolidation interrupted. Exiting immediately.")
+        sys.exit(0)
+
     while True:
         try:
-            cwd_colored = colored(os.path.basename(state.current_path), "blue")
-            if isinstance(state.npc, NPC):
-                prompt_end = f":{orange(state.npc.name)}> "
+            if is_windows:
+                cwd_part = os.path.basename(state.current_path)
+                if isinstance(state.npc, NPC):
+                    prompt_end = f":{state.npc.name}> "
+                else:
+                    prompt_end = ":npcsh> "
+                prompt = f"{cwd_part}{prompt_end}"
             else:
-                prompt_end = f":{colored('npc', 'blue', attrs=['bold'])}{colored('sh', 'yellow')}> "
-            prompt = readline_safe_prompt(f"{cwd_colored}{prompt_end}")
+                cwd_colored = colored(os.path.basename(state.current_path), "blue")
+                if isinstance(state.npc, NPC):
+                    prompt_end = f":{orange(state.npc.name)}> "
+                else:
+                    prompt_end = f":{colored('npc', 'blue', attrs=['bold'])}{colored('sh', 'yellow')}> "
+                prompt = readline_safe_prompt(f"{cwd_colored}{prompt_end}")
 
             user_input = get_multiline_input(prompt).strip()
+            # Handle Ctrl+Z (ASCII SUB, '\x1a') as exit (Windows and Unix)
+            if user_input == "\x1a":
+                exit_shell(state)
+
             if not user_input:
                 continue
 
@@ -843,33 +869,25 @@ def run_repl(command_history: CommandHistory, initial_state: ShellState):
                 if isinstance(state.npc, NPC):
                     print(f"Exiting {state.npc.name} mode.")
                     state.npc = None
-                    # Decide whether to clear messages or keep context
-                    # state.messages = []
                     continue
                 else:
-                    print("Goodbye!")
-                    print('beginning knowledge consolidation')
-                    
-                    breathe_result = breathe(state.messages, state.chat_model, state.chat_provider, state.npc)
-                    
-                    break
+                    exit_shell(state)
 
             state.current_path = os.getcwd()
-            
             state, output = execute_command(user_input, state)
-            #print(state, output)
             process_result(user_input, state, output, command_history)
 
-        except (KeyboardInterrupt):
-            print("\nUse 'exit' or 'quit' to leave.")
+        except KeyboardInterrupt:
+            if is_windows:
+                # On Windows, Ctrl+C cancels the current input line, show prompt again
+                print("^C")
+                continue
+            else:
+                # On Unix, Ctrl+C exits the shell as before
+                exit_shell(state)
         except EOFError:
-            print("\nGoodbye!")
-            print('beginning knowledge consolidation')
-            
-            breathe_result = breathe(state.messages, state.chat_model, state.chat_provider, state.npc)
-            
-            print(breathe_result)
-            break
+            # Ctrl+D: exit shell cleanly
+            exit_shell(state)
 
 def run_non_interactive(command_history: CommandHistory, initial_state: ShellState):
     state = initial_state
