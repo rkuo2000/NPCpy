@@ -12,9 +12,11 @@ import textwrap
 from typing import Optional, List, Dict, Any, Tuple, Union
 from dataclasses import dataclass, field
 from inspect import isgenerator
-import shutil
 import platform
-
+try:
+    from termcolor import colored
+except: 
+    pass
 
 try:
     import chromadb
