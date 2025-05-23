@@ -334,7 +334,8 @@ The following are the current programs in the NPC shell:
   <img src="https://raw.githubusercontent.com/cagostino/npcpy/main/npcpy/npc_team/frederic4.png" alt="npcpy logo of frederic the bear and the pti logo", width=250></a>
 </p>
 Speak frederic the bear who, once he's done thinking, asks you for input before trudging on so it can work with confidence.
-```
+
+```bash
 pti
 ```
 
@@ -354,6 +355,7 @@ pti
 </p>
 
 - an agentic voice control loop with a specified agent. 
+
 ```
 yap 
 ```
