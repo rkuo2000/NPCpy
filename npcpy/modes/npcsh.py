@@ -844,6 +844,7 @@ def run_repl(command_history: CommandHistory, initial_state: ShellState):
 
     while True:
         try:
+<<<<<<< HEAD
             if is_windows:
                 cwd_part = os.path.basename(state.current_path)
                 if isinstance(state.npc, NPC):
@@ -858,6 +859,14 @@ def run_repl(command_history: CommandHistory, initial_state: ShellState):
                 else:
                     prompt_end = f":🤖{colored('npc', 'blue', attrs=['bold'])}{colored('sh', 'yellow')}> "
                 prompt = readline_safe_prompt(f"{cwd_colored}{prompt_end}")
+=======
+            cwd_colored = colored(os.path.basename(state.current_path), "blue")
+            if isinstance(state.npc, NPC):
+                prompt_end = f":🤖{orange(state.npc.name)}> "
+            else:
+                prompt_end = f":🤖{colored('npc', 'blue', attrs=['bold'])}{colored('sh', 'yellow')}> "
+            prompt = readline_safe_prompt(f"{cwd_colored}{prompt_end}")
+>>>>>>> 9d8a71db5b2ffa9e488b3da9590407dc7b3f39bc
 
             user_input = get_multiline_input(prompt).strip()
             # Handle Ctrl+Z (ASCII SUB, '\x1a') as exit (Windows and Unix)
