@@ -1,6 +1,6 @@
 
 ## Installation
-`npcsh` is available on PyPI and can be installed using pip. Before installing, make sure you have the necessary dependencies installed on your system. Below are the instructions for installing such dependencies on Linux, Mac, and Windows. If you find any other dependencies that are needed, please let us know so we can update the installation instructions to be more accommodating.
+`npcpy` is available on PyPI and can be installed using pip. Before installing, make sure you have the necessary dependencies installed on your system. Below are the instructions for installing such dependencies on Linux, Mac, and Windows. If you find any other dependencies that are needed, please let us know so we can update the installation instructions to be more accommodating.
 
 ### Linux install
 ```bash
@@ -23,16 +23,16 @@ curl -fsSL https://ollama.com/install.sh | sh
 ollama pull llama3.2
 ollama pull llava:7b
 ollama pull nomic-embed-text
-pip install npcsh
+pip install npcpy
 # if you want to install with the API libraries
-pip install npcsh[lite]
+pip install npcpy[lite]
 # if you want the full local package set up (ollama, diffusers, transformers, cuda etc.)
-pip install npcsh[local]
+pip install npcpy[local]
 # if you want to use tts/stt
-pip install npcsh[whisper]
+pip install npcpy[yap]
 
 # if you want everything:
-pip install npcsh[all]
+pip install npcpy[all]
 
 
 
