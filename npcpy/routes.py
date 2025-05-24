@@ -22,7 +22,7 @@ from npcpy.data.load import load_file_contents
 from npcpy.llm_funcs import (
     get_llm_response,
     gen_image,
-    generate_video,
+    gen_video,
 )
 from npcpy.npc_compiler import NPC, Team, Jinx
 from npcpy.npc_compiler import initialize_npc_project
@@ -479,7 +479,7 @@ def roll_handler(command: str, **kwargs):
     if not prompt:
         return {"output": "Usage: /roll <your prompt>", "messages": messages}
     try:
-        result = generate_video(
+        result = gen_video(
             prompt=prompt,
             model=safe_get(kwargs, 'model', NPCSH_VISION_MODEL),
             provider=safe_get(kwargs, 'provider', NPCSH_VISION_PROVIDER),
