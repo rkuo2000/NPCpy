@@ -8,6 +8,8 @@ import shlex
 import time
 from datetime import datetime
 from sqlalchemy import create_engine
+import logging 
+
 from npcpy.npc_sysenv import (
     render_code_block, render_markdown,
     NPCSH_VISION_MODEL, NPCSH_VISION_PROVIDER, NPCSH_API_URL,
@@ -839,7 +841,7 @@ def alicanto_handler(command: str, **kwargs):
     parts = shlex.split(command)
     
     # Process arguments
-    request = ""
+    query = ""
     num_npcs = safe_get(kwargs, 'num_npcs', 5)
     depth = safe_get(kwargs, 'depth', 3)
     exploration_factor = safe_get(kwargs, 'exploration', 0.3)
@@ -886,10 +888,10 @@ def alicanto_handler(command: str, **kwargs):
                 i += 1
         else:
             # This is part of the request
-            request += parts[i] + " "
+            query += parts[i] + " "
             i += 1
     
-    request = request.strip()
+    query = query.strip()
     
     # Also apply any kwargs that were passed directly (these override command line args)
     if 'num_npcs' in kwargs:
@@ -916,13 +918,13 @@ def alicanto_handler(command: str, **kwargs):
         except ValueError:
             return {"output": "Error: creativity must be a float", "messages": messages}
     
-    if not request:
-        return {"output": "Usage: /alicanto <research request> [--num-npcs N] [--depth N] [--exploration 0.3] [--creativity 0.5] [--format report|summary|full]", "messages": messages}
+    if not query:
+        return {"output": "Usage: /alicanto <research query> [--num-npcs N] [--depth N] [--exploration 0.3] [--creativity 0.5] [--format report|summary|full]", "messages": messages}
     
     try:
-        print(f"Starting Alicanto research on: {request}")
+        logging.info(f"Starting Alicanto research on: {request}")
         result = alicanto(
-            request=request,
+            request=query,
             num_npcs=num_npcs,
             depth=depth,
             memory=3,
@@ -946,4 +948,5 @@ def alicanto_handler(command: str, **kwargs):
         return {"output": output, "messages": messages, "alicanto_result": result}
     except Exception as e:
         traceback.print_exc()
+        logging.error(f"Error during Alicanto research: {e}")
         return {"output": f"Error during Alicanto research: {e}", "messages": messages}
