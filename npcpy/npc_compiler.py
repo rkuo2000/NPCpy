@@ -526,7 +526,7 @@ class NPC:
                          request,
                          jinxs= None,
                          tools=None,
-                         messages=False,
+                         messages: Optional[List[Dict[str, str]]] = None,
                          **kwargs):
         """Get a response from the LLM"""
         
