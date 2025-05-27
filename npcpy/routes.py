@@ -922,7 +922,7 @@ def alicanto_handler(command: str, **kwargs):
         return {"output": "Usage: /alicanto <research query> [--num-npcs N] [--depth N] [--exploration 0.3] [--creativity 0.5] [--format report|summary|full]", "messages": messages}
     
     try:
-        logging.info(f"Starting Alicanto research on: {request}")
+        logging.info(f"Starting Alicanto research on: {query}")
         result = alicanto(
             request=query,
             num_npcs=num_npcs,
