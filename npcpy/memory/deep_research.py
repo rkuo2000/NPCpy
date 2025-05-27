@@ -67,7 +67,7 @@ def prune_chains():
 
 
 # search and ask will have a check llm command more or less. 
-def consolidate_research(chains, facts, groups, model=None, provider=None):
+def consolidate_research(chains, facts, groups, model, provider):
     prompt = f''' 
     You are a research advisor reviewing the notes of your research assisitants who have been working on a request.
     The results from their efforts are contained here:
