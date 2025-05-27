@@ -411,9 +411,26 @@ The following are the current programs in the NPC shell:
   <img src="https://raw.githubusercontent.com/cagostino/npcpy/main/npcpy/npc_team/alicanto.png" alt="logo for deep research", width=250></a>
 </p>
 
-  - start a sequence:
+  - Examples:
     ```
     npc alicanto "What are the implications of quantum computing for cybersecurity?"
+    ```
+
+    - With more researchers and deeper exploration
+    
+    ```
+    npc alicanto "How might climate change impact global food security?" --num-npcs 8 --depth 5
+
+    ```
+    - Control exploration vs. exploitation balance
+
+    ```
+    npc alicanto "What ethical considerations should guide AI development?" --exploration 0.5
+
+    ```
+    - Different output formats
+    ```    
+    npc alicanto "What is the future of remote work?" --format report
     ```
  
 ## `pti`
@@ -422,7 +439,7 @@ The following are the current programs in the NPC shell:
 <p align="center"><a href ="https://github.com/cagostino/npcpy/blob/main/docs/pti.md"> 
   <img src="https://raw.githubusercontent.com/cagostino/npcpy/main/npcpy/npc_team/frederic4.png" alt="npcpy logo of frederic the bear and the pti logo", width=250></a>
 </p>
-Speak frederic the bear who, once he's done thinking, asks you for input before trudging on so it can work with confidence.
+Speak with frederic the bear who, once he's done thinking, asks you for input before trudging on so it can work with confidence.
 
 ```bash
 pti
