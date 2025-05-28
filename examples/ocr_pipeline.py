@@ -9,6 +9,7 @@ import numpy as np
 import argparse
 from typing import List, Dict, Any, Optional, Union
 import time
+import sys
 
 def process_pdf(pdf_path: str, extract_images: bool = True, extract_tables: bool = False) -> Dict[str, Any]:
     """
