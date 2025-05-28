@@ -51,41 +51,105 @@ def handle_streaming_json(api_params):
         
         
 def get_ollama_response(
-    prompt: str = None,
-    model: str = None,
+    prompt: str,
+    model: str,
     images: List[str] = None,
-    npc: Any = None,
     tools: list = None,
     tool_choice: Dict = None,
     format: Union[str, BaseModel] = None,
     messages: List[Dict[str, str]] = None,
     stream: bool = False,
+    attachments: List[str] = None,
     **kwargs,
 ) -> Dict[str, Any]:
     """
     Generates a response using the Ollama API, supporting both streaming and non-streaming.
     """
     import ollama
-    
-    # Setup system message
-    system_message = get_system_message(npc) if npc else "You are a helpful assistant."
-    
-    # Setup messages
-    if messages is None or len(messages) == 0:
-        messages = [{"role": "system", "content": system_message}]
-        if prompt:
-            messages.append({"role": "user", "content": prompt})
-    elif prompt and messages[-1]["role"] == "user":
-        # If the last message is from user, append to it
-        if isinstance(messages[-1]["content"], str):
-            messages[-1]["content"] += "\n" + prompt
-    elif prompt:
-        # Add a new user message
-        messages.append({"role": "user", "content": prompt})
-    
-    # Handle images
+    image_paths = []
     if images:
-        messages[-1]["images"] = images  # Direct list of paths for Ollama
+        image_paths.extend(images)
+    
+    # Handle attachments - simply add them to images if they exist
+    if attachments:
+        for attachment in attachments:
+            # Check if file exists
+            if os.path.exists(attachment):
+                # Extract extension to determine file type
+                _, ext = os.path.splitext(attachment)
+                ext = ext.lower()
+                
+                # Handle image attachments
+                if ext in ['.jpg', '.jpeg', '.png', '.gif', '.bmp']:
+                    image_paths.append(attachment)
+                # Handle PDF attachments
+                elif ext == '.pdf':
+                    try:
+                        from npcpy.data.load import load_pdf
+                        pdf_data = load_pdf(attachment)
+                        if pdf_data is not None:
+                            # Extract text and add to prompt
+                            import json
+                            texts = json.loads(pdf_data['texts'].iloc[0])
+                            pdf_text = "\n\n".join([item.get('content', '') for item in texts])
+                            
+                            if prompt:
+                                prompt += f"\n\nContent from PDF: {os.path.basename(attachment)}\n{pdf_text[:2000]}..."
+                            else:
+                                prompt = f"Content from PDF: {os.path.basename(attachment)}\n{pdf_text[:2000]}..."
+                            
+                            # Add images from PDF if needed
+                            try:
+                                images_data = json.loads(pdf_data['images'].iloc[0])
+                                # We would need to save these images temporarily and add paths to image_paths
+                                # This would require more complex implementation
+                            except Exception as e:
+                                print(f"Error processing PDF images: {e}")
+                    except Exception as e:
+                        print(f"Error processing PDF attachment: {e}")
+                # Handle CSV attachments
+                elif ext == '.csv':
+                    try:
+                        from npcpy.data.load import load_csv
+                        csv_data = load_csv(attachment)
+                        if csv_data is not None:
+                            csv_sample = csv_data.head(10).to_string()
+                            if prompt:
+                                prompt += f"\n\nContent from CSV: {os.path.basename(attachment)} (first 10 rows):\n{csv_sample}"
+                            else:
+                                prompt = f"Content from CSV: {os.path.basename(attachment)} (first 10 rows):\n{csv_sample}"
+                    except Exception as e:
+                        print(f"Error processing CSV attachment: {e}")
+    
+    # Update the user message with processed prompt content
+    if prompt:
+        if messages and messages[-1]["role"] == "user":
+            if isinstance(messages[-1]["content"], str):
+                messages[-1]["content"] = prompt
+            elif isinstance(messages[-1]["content"], list):
+                for i, item in enumerate(messages[-1]["content"]):
+                    if item.get("type") == "text":
+                        messages[-1]["content"][i]["text"] = prompt
+                        break
+                else:
+                    messages[-1]["content"].append({"type": "text", "text": prompt})
+        else:
+            messages.append({"role": "user", "content": prompt})
+    
+    # Add images to the last user message for Ollama
+    if image_paths:
+        # Find the last user message or create one
+        last_user_idx = None
+        for i, msg in enumerate(messages):
+            if msg["role"] == "user":
+                last_user_idx = i
+        
+        if last_user_idx is None:
+            messages.append({"role": "user", "content": ""})
+            last_user_idx = len(messages) - 1
+            
+        # For Ollama, we directly attach the images to the message
+        messages[last_user_idx]["images"] = image_paths
     
     # Prepare API parameters
     api_params = {
@@ -176,8 +240,6 @@ def get_litellm_response(
     model: str = None,
     provider: str = None,
     images: List[str] = None,
-    npc: Any = None,
-    team: Any = None, 
     tools: list = None,
     tool_choice: Dict = None,
     tool_map: Dict = None,
@@ -186,47 +248,12 @@ def get_litellm_response(
     api_key: str = None,
     api_url: str = None,
     stream: bool = False,
+    attachments: List[str] = None,
     **kwargs,
 ) -> Dict[str, Any]:
     """
     Unified function for generating responses using litellm, supporting both streaming and non-streaming.
     """
-    # Determine provider and model
-    if model is not None and provider is not None:
-        pass
-    elif provider is None and model is not None:
-        provider = lookup_provider(model)
-    elif npc is not None:
-        if npc.provider is not None:
-            provider = npc.provider
-        if npc.model is not None:
-            model = npc.model
-        if npc.api_url is not None:
-            api_url = npc.api_url
-    else:
-        provider = "ollama"
-        if images is not None:
-            model = "llava:7b"
-        else:
-            model = "llama3.2"
-    #print(model, provider   )
-    
-    # Handle Ollama separately
-    if provider == "ollama":
-
-        return get_ollama_response(
-            prompt=prompt, 
-            model=model, 
-            images=images, 
-            npc=npc, 
-            tools=tools, 
-            tool_choice=tool_choice,
-            format=format, 
-            messages=messages, 
-            stream=stream, 
-            **kwargs
-        )
-    
     # Create standardized response structure
     result = {
         "response": None,
@@ -235,27 +262,20 @@ def get_litellm_response(
         "tool_calls": []
     }
     
-    # Set up system message
-    system_message = get_system_message(npc) if npc else "You are a helpful assistant."
-    
-    # Set up messages
-    if not result["messages"]:
-        result["messages"] = [{"role": "system", "content": system_message}]
-        if prompt:
-            result["messages"].append({"role": "user", "content": [{"type": "text", "text": prompt}]})
-    elif prompt and result["messages"][-1]["role"] == "user":
-        # If the last message is from user, append to it
-        if isinstance(result["messages"][-1]["content"], list):
-            result["messages"][-1]["content"].append({"type": "text", "text": prompt})
-        elif isinstance(result["messages"][-1]["content"], str):
-            # Convert string content to list
-            result["messages"][-1]["content"] = [
-                {"type": "text", "text": result["messages"][-1]["content"]},
-                {"type": "text", "text": prompt}
-            ]
-    elif prompt:
-        # Add a new user message
-        result["messages"].append({"role": "user", "content": [{"type": "text", "text": prompt}]})
+    # Handle Ollama separately
+    if provider == "ollama":
+        return get_ollama_response(
+            prompt, 
+            model, 
+            images=images,
+            tools=tools, 
+            tool_choice=tool_choice,
+            format=format, 
+            messages=messages, 
+            stream=stream, 
+            attachments=attachments,
+            **kwargs
+        )
     
     # Handle JSON format instructions
     if format == "json" and not stream:
