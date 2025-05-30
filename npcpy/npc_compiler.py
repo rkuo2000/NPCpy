@@ -25,7 +25,8 @@ from npcpy.npc_sysenv import (
     ensure_dirs_exist, 
     get_npc_path,
     init_db_tables,
-    print_and_process_stream_with_markdown
+    print_and_process_stream_with_markdown, 
+    get_system_message
     )
 from npcpy.memory.command_history import CommandHistory
 
@@ -315,6 +316,7 @@ class NPC:
         api_url: str = None,
         api_key: str = None,
         db_conn=None,
+        use_global_jinxs=False,
         **kwargs
     ):
         """
@@ -352,6 +354,8 @@ class NPC:
 
             self.npc_directory = None # only makes sense when the input is also a file 
             # keep the jinxs tho to enable easieros.path.abspath('./npc_team/')
+
+        self.use_global_jinxs = use_global_jinxs
         
         self.memory_length = 20
         self.memory_strategy = 'recent'
@@ -442,7 +446,11 @@ class NPC:
         
         # Set NPC-specific jinxs directory path
         self.npc_jinxs_directory = os.path.join(os.path.dirname(file), "jinxs")
-            
+    def get_system_prompt(self, simple=False):
+        if simple:
+            return self.primary_directive
+        else:
+            return get_system_message(self)
     def _setup_db(self):
         """Set up database tables and determine type"""
         try:

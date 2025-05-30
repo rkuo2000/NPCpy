@@ -146,22 +146,18 @@ def get_locally_available_models(project_directory):
 
     if "GEMINI_API_KEY" in env_vars or os.environ.get("GEMINI_API_KEY"):
         try:
-            import google.generativeai as gemini
+            from google import genai
 
-            gemini.configure(api_key=env_vars.get("GEMINI_API_KEY", None) or os.environ.get("GEMINI_API_KEY"))
-            models = gemini.list_models()
-            # available_models_providers.append(
-            #    {
-            #        "model": "gemini-2.5-pro",
-            #        "provider": "gemini",
-            #    }
-            # )
-            available_models["gemini-1.5-flash"] = "gemini"
-            available_models["gemini-2.0-flash"] = "gemini"
-            available_models["gemini-2.0-flash-lite"] = "gemini"
-            available_models["gemini-2.0-flash-lite-preview"] = "gemini"
-            available_models["gemini-2.5-pro"] = "gemini"
-            
+            client = genai.Client(api_key = env_vars.get("GEMINI_API_KEY") or os.environ.get("GEMINI_API_KEY"))
+
+            models= []
+            for m in client.models.list():
+                for action in m.supported_actions:
+                    if action == "generateContent":
+                        models.append(m.name)
+            for model in models:
+                if "gemini" in model:
+                    available_models[model] = "gemini"
         except Exception as e:
             print(f"gemini models not indexed: {e}")
     if "DEEPSEEK_API_KEY" in env_vars or os.environ.get("DEEPSEEK_API_KEY"):
@@ -1468,7 +1464,7 @@ def print_and_process_stream(response, model, provider):
                 
     return conversation_result   
                  
-def get_system_message(npc: Any) -> str:
+def get_system_message(npc) -> str:
     """
     Function Description:
         This function generates a system message for the NPC.

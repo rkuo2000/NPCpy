@@ -38,7 +38,23 @@ SETTINGS_FILE = Path(os.path.expanduser("~/.npcshrc"))
 # Configuration
 db_path = os.path.expanduser("~/npcsh_history.db")
 user_npc_directory = os.path.expanduser("~/.npcsh/npc_team")
-project_npc_directory = os.path.abspath("./npc_team")
+# Make project_npc_directory a function that updates based on current path
+# instead of a static path relative to server launch directory
+def get_project_npc_directory(current_path=None):
+    """
+    Get the project NPC directory based on the current path
+    
+    Args:
+        current_path: The current path where project NPCs should be looked for
+        
+    Returns:
+        Path to the project's npc_team directory
+    """
+    if current_path:
+        return os.path.join(current_path, "npc_team")
+    else:
+        # Fallback to the old behavior if no path provided
+        return os.path.abspath("./npc_team")
 
 # Initialize components
 
@@ -94,14 +110,50 @@ extension_map = {
     "BZ2": "archives",
     "ISO": "archives",
 }
-
+def load_npc_by_name_and_source(name, source, db_conn=None, current_path=None):
+    """
+    Loads an NPC from either project or global directory based on source
+    
+    Args:
+        name: The name of the NPC to load
+        source: Either 'project' or 'global' indicating where to look for the NPC
+        db_conn: Optional database connection
+        current_path: The current path where project NPCs should be looked for
+    
+    Returns:
+        NPC object or None if not found
+    """
+    if not db_conn:
+        db_conn = get_db_connection()
+    
+    # Determine which directory to search
+    if source == 'project':
+        npc_directory = get_project_npc_directory(current_path)
+        print(f"Looking for project NPC in: {npc_directory}")
+    else:  # Default to global if not specified or unknown
+        npc_directory = user_npc_directory
+        print(f"Looking for global NPC in: {npc_directory}")
+    
+    # Look for the NPC file in the appropriate directory
+    npc_path = os.path.join(npc_directory, f"{name}.npc")
+    
+    if os.path.exists(npc_path):
+        try:
+            npc = NPC(file=npc_path, db_conn=db_conn)
+            return npc
+        except Exception as e:
+            print(f"Error loading NPC {name} from {source}: {str(e)}")
+            return None
+    else:
+        print(f"NPC file not found: {npc_path}")
+        return None
 
 def fetch_messages_for_conversation(conversation_id):
     conn = get_db_connection()
     cursor = conn.cursor()
 
     query = """
-        SELECT role, content
+        SELECT role, content, timestamp
         FROM conversation_history
         WHERE conversation_id = ?
         ORDER BY timestamp ASC
@@ -114,6 +166,7 @@ def fetch_messages_for_conversation(conversation_id):
         {
             "role": message["role"],
             "content": message["content"],
+            "timestamp": message["timestamp"],
         }
         for message in messages
     ]
@@ -428,7 +481,6 @@ def api_command(command):
         return jsonify({"error": str(e)})
 @app.route("/api/stream", methods=["POST"])
 def stream():
-
     data = request.json
     print(data)
     commandstr = data.get("commandstr")
@@ -438,11 +490,29 @@ def stream():
     if provider is None:
         provider = available_models.get(model)
         
-    npc = data.get("npc", None)
+    npc_name = data.get("npc", None)
+    npc_source = data.get("npcSource", "global")  # Default to global if not specified
     team = data.get("team", None)
-    
-    attachments = data.get("attachments", [])
     current_path = data.get("currentPath")
+    
+    # Load the NPC if a name was provided
+    npc_object = None
+    if npc_name:
+        db_conn = get_db_connection()
+        # Pass the current_path parameter when loading project NPCs
+        npc_object = load_npc_by_name_and_source(npc_name, npc_source, db_conn, current_path)
+        
+        if not npc_object and npc_source == 'project':
+            # Try global as fallback
+            print(f"NPC {npc_name} not found in project directory, trying global...")
+            npc_object = load_npc_by_name_and_source(npc_name, 'global', db_conn)
+            
+        if npc_object:
+            print(f"Successfully loaded NPC {npc_name} from {npc_source} directory")
+        else:
+            print(f"Warning: Could not load NPC {npc_name}")
+    print(npc_object, type(npc_object))
+    attachments = data.get("attachments", [])
 
     command_history = CommandHistory(db_path)
 
@@ -490,7 +560,17 @@ def stream():
                 )
 
     messages = fetch_messages_for_conversation(conversation_id)
-
+    if len(messages) == 0 and npc_object is not None:
+        messages = [{'role': 'system', 'content': npc_object.get_system_prompt()}]
+    elif len(messages)>0 and messages[0]['role'] != 'system' and npc_object is not None:
+        # If the first message is not a system prompt, we need to add it
+        messages.insert(0, {'role': 'system', 'content': npc_object.get_system_prompt()})
+    elif len(messages) > 0 and npc_object is not None:
+        messages[0]['content'] = npc_object.get_system_prompt() 
+    # if we switch between npcs mid conversation, need to change the system prompt
+    if npc_object is not None and messages and messages[0]['role'] == 'system':
+        messages[0]['content'] = npc_object.get_system_prompt()
+    print("messages ", messages)
     print("commandstr ", commandstr)
     message_id = command_history.generate_message_id()
 
@@ -502,21 +582,20 @@ def stream():
         wd=current_path,
         model=model,
         provider=provider,
-        npc=npc,
+        npc=npc_name,
         team=team,
         attachments=attachments_loaded,
         message_id=message_id,
-        
     )
     message_id = command_history.generate_message_id()
 
     stream_response = get_llm_response(
         commandstr,
-        messages = messages,
+        messages=messages,
         images=images,
         model=model,
         provider=provider,
-        npc=npc if isinstance(npc, NPC) else None,
+        npc=npc_object,  # Pass the NPC object instead of just the name
         stream=True,
     )
 
@@ -630,7 +709,7 @@ def stream():
                     wd=current_path,
                     model=model,
                     provider=provider,
-                    npc=npc,
+                    npc = npc_object.name or '',
                     team=team,
                     message_id=message_id,  # Save with the same message_id
                 )
@@ -661,9 +740,9 @@ def get_npc_team_global():
         for file in os.listdir(global_npc_directory):
             if file.endswith(".npc"):
                 npc_path = os.path.join(global_npc_directory, file)
-                npc = NPC(file=npc_path, db_conn= db_conn)
+                npc = NPC(file=npc_path, db_conn=db_conn)
 
-                # Serialize the NPC data
+                # Serialize the NPC data - updated for the new Jinx structure
                 serialized_npc = {
                     "name": npc.name,
                     "primary_directive": npc.primary_directive,
@@ -675,9 +754,14 @@ def get_npc_team_global():
                         {
                             "jinx_name": jinx.jinx_name,
                             "inputs": jinx.inputs,
-                            "preprocess": jinx.preprocess,
-                            "prompt": jinx.prompt,
-                            "postprocess": jinx.postprocess,
+                            "steps": [
+                                {
+                                    "name": step.get("name", f"step_{i}"),
+                                    "engine": step.get("engine", "natural"),
+                                    "code": step.get("code", "")
+                                }
+                                for i, step in enumerate(jinx.steps)
+                            ]
                         }
                         for jinx in npc.jinxs
                     ],
@@ -703,6 +787,8 @@ def get_global_jinxs():
                 with open(os.path.join(jinxs_dir, file), "r") as f:
                     jinx_data = yaml.safe_load(f)
                     jinxs.append(jinx_data)
+            print("file", file)
+
     return jsonify({"jinxs": jinxs})
 
 
@@ -827,9 +913,9 @@ def get_npc_team_project():
             print(file)
             if file.endswith(".npc"):
                 npc_path = os.path.join(project_npc_directory, file)
-                npc = NPC(file=npc_path, db_conn= db_conn)
+                npc = NPC(file=npc_path, db_conn=db_conn)
 
-                # Serialize the NPC data, including jinxs
+                # Serialize the NPC data, updated for new Jinx structure
                 serialized_npc = {
                     "name": npc.name,
                     "primary_directive": npc.primary_directive,
@@ -841,9 +927,14 @@ def get_npc_team_project():
                         {
                             "jinx_name": jinx.jinx_name,
                             "inputs": jinx.inputs,
-                            "preprocess": jinx.preprocess,
-                            "prompt": jinx.prompt,
-                            "postprocess": jinx.postprocess,
+                            "steps": [
+                                {
+                                    "name": step.get("name", f"step_{i}"),
+                                    "engine": step.get("engine", "natural"),
+                                    "code": step.get("code", "")
+                                }
+                                for i, step in enumerate(jinx.steps)
+                            ]
                         }
                         for jinx in npc.jinxs
                     ],
@@ -867,14 +958,29 @@ def get_attachment_response():
     current_path = data.get("currentPath")
     command_history = CommandHistory(db_path)
     model = data.get("model")
-    npc = data.get("npc")
+    npc_name = data.get("npc")
+    npc_source = data.get("npcSource", "global")
     team = data.get("team")
     provider = data.get("provider")
     message_id = data.get("messageId")
-    # load the npc properly
-    # try global /porject
-
-    # Process each attachment
+    
+    # Load the NPC if a name was provided
+    npc_object = None
+    if npc_name:
+        db_conn = get_db_connection()
+        # Pass the current_path parameter when loading project NPCs
+        npc_object = load_npc_by_name_and_source(npc_name, npc_source, db_conn, current_path)
+        
+        if not npc_object and npc_source == 'project':
+            # Try global as fallback
+            print(f"NPC {npc_name} not found in project directory, trying global...")
+            npc_object = load_npc_by_name_and_source(npc_name, 'global', db_conn)
+            
+        if npc_object:
+            print(f"Successfully loaded NPC {npc_name} from {npc_source} directory")
+        else:
+            print(f"Warning: Could not load NPC {npc_name}")
+    
     images = []
     for attachment in attachments:
         extension = attachment["name"].split(".")[-1]
@@ -895,6 +1001,7 @@ def get_attachment_response():
         images=images,
         messages=messages,
         model=model,
+        npc=npc_object,  # Pass the NPC object instead of just the name
     )
     messages = response["messages"]
     response = response["response"]
@@ -937,13 +1044,28 @@ def execute():
         conversation_id = data.get("conversationId")
         model = data.get("model")
         print("model", model)
-        npc = data.get("npc")
+        npc_name = data.get("npc")
+        npc_source = data.get("npcSource", "global")
         team = data.get("team")
-        print("npc", npc)
-        # have to add something to actually load the npc, try project first then global , if  none proceed
-        # with the command as is but notify.
-        # also inthefrontend need to make it so that it wiwll just list the npcs properly.
-
+        print("npc", npc_name)
+        
+        # Load the NPC if a name was provided
+        npc_object = None
+        if npc_name:
+            db_conn = get_db_connection()
+            # Pass the current_path parameter when loading project NPCs
+            npc_object = load_npc_by_name_and_source(npc_name, npc_source, db_conn, current_path)
+            
+            if not npc_object and npc_source == 'project':
+                # Try global as fallback
+                print(f"NPC {npc_name} not found in project directory, trying global...")
+                npc_object = load_npc_by_name_and_source(npc_name, 'global', db_conn)
+                
+            if npc_object:
+                print(f"Successfully loaded NPC {npc_name} from {npc_source} directory")
+            else:
+                print(f"Warning: Could not load NPC {npc_name}")
+                
         # Clean command
         command = command.strip().replace('"', "").replace("'", "").replace("`", "")
 
@@ -999,9 +1121,11 @@ def execute():
             db_path=db_path,
             npc_compiler=npc_compiler,
             conversation_id=conversation_id,
-            messages=messages,  # Pass the conversation history,
+            messages=messages,
             model=model,
+            npc=npc_object,  # Pass the NPC object instead of just the name
         )
+
 
         # Save new messages
         save_conversation_message(
@@ -1309,8 +1433,8 @@ def stream_raw():
                 print("streaming from hf model through ollama")
                 chunk_content = response_chunk["message"]["content"]
                 
-                # Extract tool call info
-                if "tool_calls" in response_chunk["message"]:
+                # Extract tool call info for Ollama
+                if "message" in response_chunk and "tool_calls" in response_chunk["message"]:
                     for tool_call in response_chunk["message"]["tool_calls"]:
                         if "id" in tool_call:
                             tool_call_data["id"] = tool_call["id"]
@@ -1319,9 +1443,35 @@ def stream_raw():
                                 tool_call_data["function_name"] = tool_call["function"]["name"]
                             if "arguments" in tool_call["function"]:
                                 tool_call_data["arguments"] += tool_call["function"]["arguments"]
+                
+                if chunk_content:
+                    complete_response.append(chunk_content)
                     
+                # Keep original structure but add tool calls data
+                chunk_data = {
+                    "id": None,
+                    "object": None,
+                    "created": response_chunk["created_at"],
+                    "model": response_chunk["model"],
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {
+                                "content": chunk_content,
+                                "role": response_chunk["message"]["role"],
+                            },
+                            "finish_reason": response_chunk.get("done_reason"),
+                        }
+                    ],
+                }
+                yield f"data: {json.dumps(chunk_data)}\n\n"
+
             else:
-                # Non-Ollama provider processing
+                # For LiteLLM format
+                chunk_content = ""
+                reasoning_content = ""
+                
+                # Extract tool call info for LiteLLM
                 for choice in response_chunk.choices:
                     if hasattr(choice.delta, "tool_calls") and choice.delta.tool_calls:
                         for tool_call in choice.delta.tool_calls:
@@ -1333,31 +1483,53 @@ def stream_raw():
                                 if hasattr(tool_call.function, "arguments") and tool_call.function.arguments:
                                     tool_call_data["arguments"] += tool_call.function.arguments
                 
-                    if hasattr(choice.delta, "content") and choice.delta.content:
-                        chunk_content += choice.delta.content
-
-            if chunk_content:
-                complete_response.append(chunk_content)
-                str_output += chunk_content
-
+                # Check for reasoning content (thoughts)
+                for choice in response_chunk.choices:
+                    if hasattr(choice.delta, "reasoning_content"):
+                        reasoning_content += choice.delta.reasoning_content
+                
+                # Get regular content
+                chunk_content = "".join(
+                    choice.delta.content
+                    for choice in response_chunk.choices
+                    if choice.delta.content is not None
+                )
+                
+                if chunk_content:
+                    complete_response.append(chunk_content)
+                    
+                # Keep original structure but add reasoning content
                 chunk_data = {
-                    "id": response_chunk.get("id"),
-                    "object": response_chunk.get("object"),
-                    "created": response_chunk.get("created") or response_chunk["created_at"],
-                    "model": response_chunk.get("model"),
+                    "id": response_chunk.id,
+                    "object": response_chunk.object,
+                    "created": response_chunk.created,
+                    "model": response_chunk.model,
                     "choices": [
                         {
-                            "index": choice.index if provider != 'ollama' else 0,
+                            "index": choice.index,
                             "delta": {
-                                "content": choice.delta.content if provider != 'ollama' else chunk_content,
-                                "role": response_chunk["message"]["role"] if provider == 'ollama' else choice.delta.role,
+                                "content": choice.delta.content,
+                                "role": choice.delta.role,
+                                "reasoning_content": reasoning_content if hasattr(choice.delta, "reasoning_content") else None,
                             },
-                            "finish_reason": choice.finish_reason if provider != 'ollama' else response_chunk.get("done_reason"),
+                            "finish_reason": choice.finish_reason,
                         }
-                        for choice in response_chunk.choices if provider != 'ollama'
-                    ]
+                        for choice in response_chunk.choices
+                    ],
                 }
                 yield f"data: {json.dumps(chunk_data)}\n\n"
+                save_conversation_message(
+                    command_history,
+                    conversation_id,
+                    "assistant",
+                    chunk_content,
+                    wd=current_path,
+                    model=model,
+                    provider=provider,
+                    npc = npc_object.name or '',
+                    team=team,
+                    message_id=message_id,  # Save with the same message_id
+                )
 
         # Clear and render markdown
         if tool_call_data["id"] or tool_call_data["function_name"] or tool_call_data["arguments"]:
