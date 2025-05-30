@@ -1481,7 +1481,7 @@ def stream_raw():
                                 if hasattr(tool_call.function, "name") and tool_call.function.name:
                                     tool_call_data["function_name"] = tool_call.function.name
                                 if hasattr(tool_call.function, "arguments") and tool_call.function.arguments:
-                                    tool_call_data["arguments"] += jinx_call.function.arguments
+                                    tool_call_data["arguments"] += tool_call.function.arguments
                 
                 # Check for reasoning content (thoughts)
                 for choice in response_chunk.choices:
