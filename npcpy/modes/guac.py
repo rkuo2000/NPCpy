@@ -554,9 +554,8 @@ def execute_guac_command(command: str, state: GuacState) -> Tuple[GuacState, Any
     elif state.current_mode == "cmd":
         prompt_cmd = (
             f"User input for Python CMD mode: '{nl_input_for_llm}'.\n"
-            f"Generate ONLY the executable Python code required to fulfill this.\n"
-            f"Do not include any explanations, markdown, or any text other than the Python code itself.\n"
-            f"If you cannot generate Python code, respond with '# Error: Cannot generate Python code.'"
+            f"Generate ONLY executable Python code required to fulfill this.\n"
+            f"Do not include any explanations, leading markdown like ```python, or any text other than the Python code itself.\n"
         )
         llm_response = get_llm_response(
             prompt_cmd,
@@ -566,6 +565,9 @@ def execute_guac_command(command: str, state: GuacState) -> Tuple[GuacState, Any
             stream=False, 
             messages=state.messages # Pass messages for context if LLM uses them
         )
+        if llm_response.get('response').startswith('```python'):
+            generated_code = llm_response.get("response", "").strip()[len('```python'):].strip()
+            generated_code = generated_code.rsplit('```', 1)[0].strip()
         state.messages = llm_response.get("messages", state.messages) 
         generated_code = llm_response.get("response", "").strip()
         
