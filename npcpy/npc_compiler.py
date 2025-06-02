@@ -641,7 +641,7 @@ class NPC:
         return target_npc.check_llm_command(
             updated_command,
             messages=messages,
-            shared_context=self.shared_context,
+            context=self.shared_context,
             stream = stream
             
             
