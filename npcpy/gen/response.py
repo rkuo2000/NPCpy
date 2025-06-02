@@ -484,7 +484,6 @@ def process_tool_calls(response_dict, tool_map, model, provider, messages, strea
     Returns:
         dict: Updated response dictionary with tool results and final response
     """
-    import uuid
     
     result = response_dict.copy()
     result["tool_results"] = []
