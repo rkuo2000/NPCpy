@@ -89,7 +89,6 @@ def get_ollama_response(
                         pdf_data = load_pdf(attachment)
                         if pdf_data is not None:
                             # Extract text and add to prompt
-                            import json
                             texts = json.loads(pdf_data['texts'].iloc[0])
                             pdf_text = "\n\n".join([item.get('content', '') for item in texts])
                             
@@ -468,8 +467,7 @@ def handle_streaming_json(api_params):
         # Handle case where stream ended but JSON is invalid
         print(f"Warning: Complete stream did not produce valid JSON: {json_buffer}")
 
-import uuid
-import json
+
 
 def process_tool_calls(response_dict, tool_map, model, provider, messages, stream=False):
     """
