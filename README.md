@@ -8,7 +8,7 @@
 Welcome to `npcpy`, the python library for the NPC Toolkit and the home of the core command-line programs that make up the NPC Shell (`npcsh`). 
 
 
-`npcpy` is an agent-based framework designed to easily integrate AI models into one's daily workflow and it does this by providing users with a variety of interfaces through which they can use, test, and explore the capabilities of AI models, agents, and agent systems. 
+`npcpy` is an AI framework for AI response handling and agent orchestration, designed to easily integrate AI models into one's daily workflow and it does this by providing users with a variety of interfaces through which they can use, test, and explore the capabilities of AI models, agents, and agent systems. 
 
 <p align="center">
   <a href= "https://github.com/cagostino/npcpy/blob/main/docs/npcpy.md"> 
@@ -129,10 +129,10 @@ simon = NPC(
 response = get_llm_response("Who was the mythological chilean bird that guides lucky visitors to gold?", npc=simon)
 print(response['response'])
 ```
+Users are not required to pass agents to get_llm_response, so you can work with LLMs without requiring agents in each case.
 
 
-
-`npcpy` also supports streaming responses, with the `response` key containing a generator in such cases which can be printed and processed through the print_and
+`npcpy` also supports streaming responses, with the `response` key containing a generator in such cases which can be printed and processed through the print_and_process_stream method.
 
 
 ```
@@ -188,7 +188,7 @@ Likewise, generate videos :
 
 ```
 from npcpy.llm_funcs import gen_video
-image = gen_video("make a video of the moon in the summer of marco polo", model='runwayml/stable-diffusion-v1-5', provider='diffusers')
+video = gen_video("make a video of the moon in the summer of marco polo", model='runwayml/stable-diffusion-v1-5', provider='diffusers')
 ```
 
 
