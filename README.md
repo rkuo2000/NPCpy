@@ -405,7 +405,7 @@ The following are the current programs in the NPC shell:
 
 
 
-## `alicanto` : a deep research focused agent flow. 
+## `alicanto` : a research exploration agent flow. 
 
 <p align="center"><a href ="https://github.com/cagostino/npcpy/blob/main/docs/deep.md"> 
   <img src="https://raw.githubusercontent.com/cagostino/npcpy/main/npcpy/npc_team/alicanto.png" alt="logo for deep research", width=250></a>
@@ -509,6 +509,7 @@ yap
 <details>  <summary> Toggle </summary>
   
 ```bash
+
 # these are for audio primarily, skip if you dont need tts
 sudo apt-get install espeak
 sudo apt-get install portaudio19-dev python3-pyaudio
@@ -536,12 +537,16 @@ pip install 'npcpy[local]'
 pip install 'npcpy[yap]'
 # if you want everything:
 pip install 'npcpy[all]'
+
 ```
+
 </details>
 
 
 ### Mac install
+
 <details>  <summary> Toggle </summary>
+
 ```bash
 #mainly for audio
 brew install portaudio
