@@ -234,15 +234,15 @@ def setup_readline() -> str:
 
         readline.set_history_length(1000)
         readline.parse_and_bind("set enable-bracketed-paste on")
-        readline.parse_and_bind(r'"\e[A": history-search-backward')
-        readline.parse_and_bind(r'"\e[B": history-search-forward')
+        #readline.parse_and_bind('"\e[A": history-search-backward')
+        #readline.parse_and_bind('"\e[B": history-search-forward')
         readline.parse_and_bind(r'"\C-r": reverse-search-history')
-        readline.parse_and_bind(r'\C-e: end-of-line')
-        readline.parse_and_bind(r'\C-a: beginning-of-line')
-        if sys.platform == "darwin":
-            readline.parse_and_bind("bind ^I rl_complete")
-        else:
-            readline.parse_and_bind("tab: complete")
+        readline.parse_and_bind(r'"\C-e": end-of-line')
+        readline.parse_and_bind(r'"\C-a": beginning-of-line')
+        #if sys.platform == "darwin":
+        #    readline.parse_and_bind("bind ^I rl_complete")
+        #else:
+        #    readline.parse_and_bind("tab: complete")
 
         return READLINE_HISTORY_FILE
 

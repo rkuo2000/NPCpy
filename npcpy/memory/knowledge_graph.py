@@ -168,7 +168,7 @@ def extract_mistakes(
     """
 
     response = get_llm_response(
-        prompt + f"\n\nText: {text}",
+        prompt + f"\n\nHERE BEGINS THE TEXT TO INVESTIGATE:\nText: {text}",
         model=model,
         provider=provider,
         format="json",
@@ -234,7 +234,7 @@ def extract_lessons_learned(
     """
 
     response = get_llm_response(
-        prompt + f"\n\nText: {text}",
+        prompt + f"\n\nHERE BEGINS THE TEXT TO INVESTIGATE\n\nText: {text}",
         model=model,
         provider=provider,
         format="json",
@@ -388,7 +388,7 @@ def extract_facts(
     """
 
     response = get_llm_response(
-        prompt + f"\n\nText: {text}",
+        prompt + f"HERE BEGINS THE TEXT TO INVESTIGATE:\n\nText: {text}",
         model=model,
         provider=provider,
         format="json",
@@ -413,6 +413,8 @@ def breathe(
     Returns:
         Dict[str, Any]: The response from the LLM.
     """
+    if len(messages) == 0:
+        return {"output": {}, "messages": []}
 
     facts = extract_facts(
         str(messages),
@@ -433,7 +435,8 @@ def breathe(
         provider=provider,
         )
     # execute slash command will handle updating database     
-    return {"output": {'facts': facts, 'mistakes': mistakes, 'lessons': lessons}, "messages": []}
+    return {"output": {'facts': facts, 'mistakes': mistakes, 'lessons': lessons}, 
+            "messages": []}
     
 
 def find_similar_groups(
