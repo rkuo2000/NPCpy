@@ -168,7 +168,7 @@ def extract_mistakes(
     """
 
     response = get_llm_response(
-        prompt + f"\n\n HERE BEGINS THE TEXT TO INVESTIGATE Text: {text}",
+        prompt + f"\n\nHERE BEGINS THE TEXT TO INVESTIGATE:\nText: {text}",
         model=model,
         provider=provider,
         format="json",
