@@ -234,7 +234,7 @@ def extract_lessons_learned(
     """
 
     response = get_llm_response(
-        prompt + f" HERE BEGINS THE TEXT TO INVESTIGATE \n\nText: {text}",
+        prompt + f"\n\nHERE BEGINS THE TEXT TO INVESTIGATE\n\nText: {text}",
         model=model,
         provider=provider,
         format="json",
