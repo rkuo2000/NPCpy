@@ -9,8 +9,8 @@ import sqlite3
 from datetime import datetime
 import json
 from pathlib import Path
-
 import yaml
+from dotenv import load_dotenv
 
 from PIL import Image
 from PIL import ImageFile
@@ -55,6 +55,42 @@ def get_project_npc_directory(current_path=None):
     else:
         # Fallback to the old behavior if no path provided
         return os.path.abspath("./npc_team")
+
+def load_project_env(current_path):
+    """
+    Load environment variables from a project's .env file
+    
+    Args:
+        current_path: The current project directory path
+    
+    Returns:
+        Dictionary of environment variables that were loaded
+    """
+    if not current_path:
+        return {}
+    
+    env_path = os.path.join(current_path, ".env")
+    loaded_vars = {}
+    
+    if os.path.exists(env_path):
+        print(f"Loading project environment from {env_path}")
+        # Load the environment variables into the current process
+        loaded_vars = load_dotenv(env_path, override=True)
+        
+        # Also load them into a dictionary to return for logging/debugging
+        with open(env_path, "r") as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#"):
+                    if "=" in line:
+                        key, value = line.split("=", 1)
+                        loaded_vars[key.strip()] = value.strip().strip("\"'")
+        
+        print(f"Loaded {len(loaded_vars)} variables from project .env file")
+    else:
+        print(f"No .env file found at {env_path}")
+    
+    return loaded_vars
 
 # Initialize components
 
@@ -495,6 +531,11 @@ def stream():
     team = data.get("team", None)
     current_path = data.get("currentPath")
     
+    # Load project-specific environment variables if currentPath is provided
+    if current_path:
+        loaded_vars = load_project_env(current_path)
+        print(f"Loaded project env variables for stream request: {list(loaded_vars.keys())}")
+    
     # Load the NPC if a name was provided
     npc_object = None
     if npc_name:
@@ -664,7 +705,7 @@ def stream():
                                 if hasattr(tool_call.function, "name") and tool_call.function.name:
                                     tool_call_data["function_name"] = tool_call.function.name
                                 if hasattr(tool_call.function, "arguments") and tool_call.function.arguments:
-                                    tool_call_data["arguments"] += jinx_call.function.arguments
+                                    tool_call_data["arguments"] += tool_call.function.arguments
                 
                 # Check for reasoning content (thoughts)
                 for choice in response_chunk.choices:
@@ -964,6 +1005,11 @@ def get_attachment_response():
     provider = data.get("provider")
     message_id = data.get("messageId")
     
+    # Load project-specific environment variables if currentPath is provided
+    if current_path:
+        loaded_vars = load_project_env(current_path)
+        print(f"Loaded project env variables for attachment response: {list(loaded_vars.keys())}")
+    
     # Load the NPC if a name was provided
     npc_object = None
     if npc_name:
@@ -1048,6 +1094,11 @@ def execute():
         npc_source = data.get("npcSource", "global")
         team = data.get("team")
         print("npc", npc_name)
+        
+        # Load project-specific environment variables if currentPath is provided
+        if current_path:
+            loaded_vars = load_project_env(current_path)
+            print(f"Loaded project env variables for execute request: {list(loaded_vars.keys())}")
         
         # Load the NPC if a name was provided
         npc_object = None
