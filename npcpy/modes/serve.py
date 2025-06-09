@@ -75,18 +75,22 @@ def load_project_env(current_path):
     if os.path.exists(env_path):
         print(f"Loading project environment from {env_path}")
         # Load the environment variables into the current process
-        loaded_vars = load_dotenv(env_path, override=True)
+        # Note: load_dotenv returns a boolean, not a dictionary
+        success = load_dotenv(env_path, override=True)
         
-        # Also load them into a dictionary to return for logging/debugging
-        with open(env_path, "r") as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith("#"):
-                    if "=" in line:
-                        key, value = line.split("=", 1)
-                        loaded_vars[key.strip()] = value.strip().strip("\"'")
-        
-        print(f"Loaded {len(loaded_vars)} variables from project .env file")
+        if success:
+            # Manually build a dictionary of loaded variables
+            with open(env_path, "r") as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith("#"):
+                        if "=" in line:
+                            key, value = line.split("=", 1)
+                            loaded_vars[key.strip()] = value.strip().strip("\"'")
+            
+            print(f"Loaded {len(loaded_vars)} variables from project .env file")
+        else:
+            print(f"Failed to load environment variables from {env_path}")
     else:
         print(f"No .env file found at {env_path}")
     
