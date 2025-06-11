@@ -689,7 +689,6 @@ def vixynt_handler(command: str, **kwargs):
     messages = safe_get(kwargs, 'messages', [])
 
     filename = None
-    attachments = None  # For image editing
 
     prompt_parts = []
     try:
@@ -703,16 +702,20 @@ def vixynt_handler(command: str, **kwargs):
                 except ValueError:
                     pass
             elif part.startswith("width="):
-                try: width = int(part.split("=", 1)[1])
-                except ValueError: pass
-            elif part.startswith("input="):  # New parameter for image editing
-                input_image = part.split("=", 1)[1]
-                # Pass the input image as a list to maintain consistency
-                attachments = [input_image]
+                try: 
+                    width = int(part.split("=", 1)[1])
+                except ValueError: 
+                    pass
+            elif part.startswith("attachments="):  # New parameter for image editing
+                # split at comma
+                attachments = part.split("=", 1)[1].split(",")
+
             else:
                 prompt_parts.append(part)
     except Exception as parse_err:
         return {"output": f"Error parsing arguments: {parse_err}. Usage: /vixynt <prompt> [filename=...] [height=...] [width=...] [input=...for editing]", "messages": messages}
+    print(attachments, type(attachments))
+
 
     user_prompt = " ".join(prompt_parts)
     if not user_prompt:
@@ -726,7 +729,7 @@ def vixynt_handler(command: str, **kwargs):
             npc=npc,
             height=height,
             width=width,
-            input_images=attachments  # Pass the input image as a list
+            input_images=attachments  
         )
         if filename is None:
             # Generate a filename based on the prompt and the date time
