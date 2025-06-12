@@ -164,7 +164,11 @@ def _load_guac_helpers_into_state(state: GuacState):
             except Exception as e:
                 print(f"Warning: Could not load helpers from {main_module_path}: {e}", file=sys.stderr)
 
-def setup_guac_mode(config_dir=None, plots_dir=None, npc_team_dir=None):
+def setup_guac_mode(config_dir=None, 
+                    plots_dir=None, 
+                    npc_team_dir=None, 
+                    lang='python',
+                    ):
     home_dir = Path.home()
     config_dir = Path(config_dir) if config_dir else home_dir / ".npcsh" / "guac"
     plots_dir = Path(plots_dir) if plots_dir else config_dir / "plots"
@@ -179,7 +183,6 @@ def setup_guac_mode(config_dir=None, plots_dir=None, npc_team_dir=None):
 
     config_file = config_dir / "config.json"
     default_mode_val = "cmd"
-    lang = "python"
     current_config = {}
 
     if config_file.exists():
@@ -646,19 +649,25 @@ def run_guac_repl(initial_guac_state: GuacState):
             print("An unexpected error occurred in the REPL:")
             traceback.print_exc()
 
-def enter_guac_mode(npc_obj=None, team_obj=None, config_dir_str=None, plots_dir_str=None, npc_team_dir_str=None,
-                    refresh_period_val=None, lang_choice=None, default_mode_choice=None): 
+def enter_guac_mode(npc=None,
+                    team=None, 
+                    config_dir=None,
+                    plots_dir=None, 
+                    npc_team_dir=None,
+                    refresh_period=None, 
+                    lang=None, 
+                    default_mode_choice=None): 
     
-    if refresh_period_val is not None:
+    if refresh_period is not None:
         try:
-            npcsh_initial_state.GUAC_REFRESH_PERIOD = int(refresh_period_val)
+            npcsh_initial_state.GUAC_REFRESH_PERIOD = int(refresh_period)
         except ValueError:
             pass
 
     setup_result = setup_guac_mode(
-        config_dir=config_dir_str,
-        plots_dir=plots_dir_str,
-        npc_team_dir=npc_team_dir_str
+        config_dir=config_dir,
+        plots_dir=plots_dir,
+        npc_team_dir=npc_team_dir
     )
     guac_config_dir = setup_result["config_dir"]
     guac_src_dir = setup_result["src_dir"]
@@ -666,8 +675,8 @@ def enter_guac_mode(npc_obj=None, team_obj=None, config_dir_str=None, plots_dir_
     guac_default_mode = default_mode_choice or setup_result.get("default_mode", "cmd")
 
     cmd_history = CommandHistory() 
-    current_npc = npc_obj
-    current_team = team_obj
+    current_npc = npc
+    current_team = team
 
     if current_npc is None and current_team is None: 
         try:
@@ -713,10 +722,10 @@ def main():
     args = parser.parse_args()
 
     enter_guac_mode(
-        config_dir_str=args.config_dir,
-        plots_dir_str=args.plots_dir,
-        npc_team_dir_str=args.npc_team_dir,
-        refresh_period_val=args.refresh_period,
+        config_dir=args.config_dir,
+        plots_dir=args.plots_dir,
+        npc_team_dir=args.npc_team_dir,
+        refresh_period=args.refresh_period,
         default_mode_choice=args.default_mode
     )
 

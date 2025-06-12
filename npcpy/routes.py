@@ -199,7 +199,7 @@ def flush_handler(command: str, **kwargs):
     return {"output": output, "messages": final_messages}
 
 @router.route("guac", "Enter guac mode")
-def guac_handler( **kwargs):
+def guac_handler(command,  **kwargs):
     '''
     Guac ignores input npc and npc_team dirs and manually sets them to be at ~/.npcsh/guac/
     
