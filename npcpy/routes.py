@@ -683,6 +683,7 @@ def vixynt_handler(command: str, **kwargs):
     height = safe_get(kwargs, 'height', 1024)
     width = safe_get(kwargs, 'width', 1024)
     filename = safe_get(kwargs, 'output_filename', None)
+    attachments = None
     if model == NPCSH_CHAT_MODEL: model = NPCSH_IMAGE_GEN_MODEL
     if provider == NPCSH_CHAT_PROVIDER: provider = NPCSH_IMAGE_GEN_PROVIDER
 
@@ -714,9 +715,6 @@ def vixynt_handler(command: str, **kwargs):
                 prompt_parts.append(part)
     except Exception as parse_err:
         return {"output": f"Error parsing arguments: {parse_err}. Usage: /vixynt <prompt> [filename=...] [height=...] [width=...] [input=...for editing]", "messages": messages}
-    print(attachments, type(attachments))
-
-
     user_prompt = " ".join(prompt_parts)
     if not user_prompt:
         return {"output": "Usage: /vixynt <prompt> [filename=...] [height=...] [width=...] [input=...for editing]", "messages": messages}
