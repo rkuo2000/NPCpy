@@ -285,7 +285,7 @@ def setup_npc_team(npc_team_dir, lang):
         with open(npc_team_dir / f"{npc_data['name']}.npc", "w") as f:
             yaml.dump(npc_data, f, default_flow_style=False)
 
-    team_ctx_model = os.environ.get("NPCSH_CHAT_MODEL", npcsh_initial_state.chat_model or "llama3")
+    team_ctx_model = os.environ.get("NPCSH_CHAT_MODEL", npcsh_initial_state.chat_model or "llama3.2")
     team_ctx_provider = os.environ.get("NPCSH_CHAT_PROVIDER", npcsh_initial_state.chat_provider or "ollama")
     team_ctx = {
         "team_name": "guac_team", "description": f"A team for {lang} analysis", "foreman": "guac",
