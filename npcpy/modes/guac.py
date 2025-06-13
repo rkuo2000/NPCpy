@@ -531,68 +531,7 @@ def execute_guac_command(command: str, state: GuacState) -> Tuple[GuacState, Any
             else:
                 temp_output_list.append("  (empty)")
             output = "\n".join(temp_output_list)
-        elif cmd_name == "/cd": 
-            target_dir = args.strip() if args.strip() else str(Path.home())
-            try:
-                os.chdir(target_dir)
-                state.current_path = os.getcwd()
-                output = f"Changed directory to {state.current_path}"
-            except FileNotFoundError:
-                output = f"Error: Directory not found: {target_dir}"
-            except Exception as e:
-                output = f"Error changing directory: {e}"
-        elif cmd_name == "/ls":
-            try:
-                ls_path = args.strip() if args.strip() else state.current_path
-                output = "\n".join(os.listdir(ls_path))
-            except Exception as e:
-                output = f"Error listing directory: {e}"
-        elif cmd_name == "/pwd":
-            output = state.current_path
-        elif cmd_name == "/run" and args.strip().endswith(".py"):
-            script_path = Path(args.strip())
-            if script_path.exists():
-                try:
-                    with open(script_path, "r") as f:
-                        script_code = f.read()
-                    _, script_exec_output = execute_python_code(script_code, state) 
-                    output = (f"Executed script '{script_path}'.\n"
-                              f"Output from script:\n{script_exec_output if script_exec_output else '(No direct output)'}")
-                except Exception as e:
-                    output = f"Error running script {script_path}: {e}"
-            else:
-                output = f"Error: Script not found: {script_path}"
-        elif cmd_name == "/cd":
-            target_dir = args.strip() if args.strip() else str(Path.home())
-            try:
-                os.chdir(target_dir)
-                state.current_path = os.getcwd()
-                output = f"Changed directory to {state.current_path}"
-            except FileNotFoundError:
-                output = f"Error: Directory not found: {target_dir}"
-            except Exception as e:
-                output = f"Error changing directory: {e}"
-        elif cmd_name == "/ls":
-            try:
-                ls_path = args.strip() if args.strip() else state.current_path
-                output = "\n".join(os.listdir(ls_path))
-            except Exception as e:
-                output = f"Error listing directory: {e}"
-        elif cmd_name == "/pwd":
-            output = state.current_path
-        elif cmd_name == "/run" and args.strip().endswith(".py"):
-            script_path = Path(args.strip())
-            if script_path.exists():
-                try:
-                    with open(script_path, "r") as f:
-                        script_code = f.read()
-                    _, script_exec_output = execute_python_code(script_code, state) 
-                    output = (f"Executed script '{script_path}'.\n"
-                              f"Output from script:\n{script_exec_output if script_exec_output else '(No direct output)'}")
-                except Exception as e:
-                    output = f"Error running script {script_path}: {e}"
-            else:
-                output = f"Error: Script not found: {script_path}"
+
         else:
             is_core_cmd = False 
         
