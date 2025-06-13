@@ -199,7 +199,7 @@ def flush_handler(command: str, **kwargs):
     return {"output": output, "messages": final_messages}
 
 @router.route("guac", "Enter guac mode")
-def guac_handler( **kwargs):
+def guac_handler(command,  **kwargs):
     '''
     Guac ignores input npc and npc_team dirs and manually sets them to be at ~/.npcsh/guac/
     
@@ -683,13 +683,13 @@ def vixynt_handler(command: str, **kwargs):
     height = safe_get(kwargs, 'height', 1024)
     width = safe_get(kwargs, 'width', 1024)
     filename = safe_get(kwargs, 'output_filename', None)
+    attachments = None
     if model == NPCSH_CHAT_MODEL: model = NPCSH_IMAGE_GEN_MODEL
     if provider == NPCSH_CHAT_PROVIDER: provider = NPCSH_IMAGE_GEN_PROVIDER
 
     messages = safe_get(kwargs, 'messages', [])
 
     filename = None
-    attachments = None  # For image editing
 
     prompt_parts = []
     try:
@@ -703,17 +703,18 @@ def vixynt_handler(command: str, **kwargs):
                 except ValueError:
                     pass
             elif part.startswith("width="):
-                try: width = int(part.split("=", 1)[1])
-                except ValueError: pass
-            elif part.startswith("input="):  # New parameter for image editing
-                input_image = part.split("=", 1)[1]
-                # Pass the input image as a list to maintain consistency
-                attachments = [input_image]
+                try: 
+                    width = int(part.split("=", 1)[1])
+                except ValueError: 
+                    pass
+            elif part.startswith("attachments="):  # New parameter for image editing
+                # split at comma
+                attachments = part.split("=", 1)[1].split(",")
+
             else:
                 prompt_parts.append(part)
     except Exception as parse_err:
         return {"output": f"Error parsing arguments: {parse_err}. Usage: /vixynt <prompt> [filename=...] [height=...] [width=...] [input=...for editing]", "messages": messages}
-
     user_prompt = " ".join(prompt_parts)
     if not user_prompt:
         return {"output": "Usage: /vixynt <prompt> [filename=...] [height=...] [width=...] [input=...for editing]", "messages": messages}
@@ -726,7 +727,7 @@ def vixynt_handler(command: str, **kwargs):
             npc=npc,
             height=height,
             width=width,
-            input_images=attachments  # Pass the input image as a list
+            input_images=attachments  
         )
         if filename is None:
             # Generate a filename based on the prompt and the date time

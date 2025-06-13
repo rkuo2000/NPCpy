@@ -19,7 +19,6 @@ from npcpy.llm_funcs import (get_llm_response,)
 from npcpy.npc_compiler import NPC
 from typing import Any, List, Dict, Union
 from npcpy.modes.yap import enter_yap_mode
-# replace with the shell state  for the kwargs.
 
 
 def enter_spool_mode(
@@ -46,7 +45,6 @@ def enter_spool_mode(
         Dict : The messages and output.
     """
 
-    command_history = CommandHistory()
     npc_info = f" (NPC: {npc.name})" if npc else ""
     print(f"Entering spool mode{npc_info}. Type '/sq' to exit spool mode.")
 
@@ -161,7 +159,8 @@ def enter_spool_mode(
                 # Process the request with our unified approach
                 response = get_llm_response(
                     user_prompt, 
-                    model, provider,
+                    model=vision_model,
+                    provider=provider,
                     messages=spool_context,
                     images=image_paths,
                     stream=stream, 
@@ -242,8 +241,8 @@ def enter_spool_mode(
             
             response = get_llm_response(
                 user_input, 
-                provider, 
-                model, 
+                model=model, 
+                provider=provider,
                 messages=spool_context, 
                 stream=stream,
                 **kwargs_to_pass

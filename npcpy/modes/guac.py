@@ -164,7 +164,11 @@ def _load_guac_helpers_into_state(state: GuacState):
             except Exception as e:
                 print(f"Warning: Could not load helpers from {main_module_path}: {e}", file=sys.stderr)
 
-def setup_guac_mode(config_dir=None, plots_dir=None, npc_team_dir=None):
+def setup_guac_mode(config_dir=None, 
+                    plots_dir=None, 
+                    npc_team_dir=None, 
+                    lang='python',
+                    ):
     home_dir = Path.home()
     config_dir = Path(config_dir) if config_dir else home_dir / ".npcsh" / "guac"
     plots_dir = Path(plots_dir) if plots_dir else config_dir / "plots"
@@ -179,7 +183,6 @@ def setup_guac_mode(config_dir=None, plots_dir=None, npc_team_dir=None):
 
     config_file = config_dir / "config.json"
     default_mode_val = "cmd"
-    lang = "python"
     current_config = {}
 
     if config_file.exists():
@@ -282,7 +285,7 @@ def setup_npc_team(npc_team_dir, lang):
         with open(npc_team_dir / f"{npc_data['name']}.npc", "w") as f:
             yaml.dump(npc_data, f, default_flow_style=False)
 
-    team_ctx_model = os.environ.get("NPCSH_CHAT_MODEL", npcsh_initial_state.chat_model or "llama3")
+    team_ctx_model = os.environ.get("NPCSH_CHAT_MODEL", npcsh_initial_state.chat_model or "llama3.2")
     team_ctx_provider = os.environ.get("NPCSH_CHAT_PROVIDER", npcsh_initial_state.chat_provider or "ollama")
     team_ctx = {
         "team_name": "guac_team", "description": f"A team for {lang} analysis", "foreman": "guac",
@@ -436,10 +439,62 @@ def execute_guac_command(command: str, state: GuacState) -> Tuple[GuacState, Any
     if stripped_command.lower() in ["exit", "quit", "exit()", "quit()"]:
         raise SystemExit("Exiting Guac Mode.")
 
+    # Check for shell-like commands first, before Python code detection
+    parts = stripped_command.split(maxsplit=1)
+    cmd_name = parts[0].lower()
+    args = parts[1] if len(parts) > 1 else ""
+    
+    # Handle shell-like commands without / prefix
+    if cmd_name == "ls":
+        try:
+            ls_path = args.strip() if args.strip() else state.current_path
+            output = "\n".join(os.listdir(ls_path))
+        except Exception as e:
+            output = f"Error listing directory: {e}"
+        if state.command_history:
+            state.command_history.add_command(command, [str(output)], "", state.current_path)
+        return state, output
+    elif cmd_name == "pwd":
+        output = state.current_path
+        if state.command_history:
+            state.command_history.add_command(command, [str(output)], "", state.current_path)
+        return state, output
+    elif cmd_name == "cd":
+        target_dir = args.strip() if args.strip() else str(Path.home())
+        try:
+            os.chdir(target_dir)
+            state.current_path = os.getcwd()
+            output = f"Changed directory to {state.current_path}"
+        except FileNotFoundError:
+            output = f"Error: Directory not found: {target_dir}"
+        except Exception as e:
+            output = f"Error changing directory: {e}"
+        if state.command_history:
+            state.command_history.add_command(command, [str(output)], "", state.current_path)
+        return state, output
+    elif cmd_name == "run" and args.strip().endswith(".py"):
+        script_path = Path(args.strip())
+        if script_path.exists():
+            try:
+                with open(script_path, "r") as f:
+                    script_code = f.read()
+                _, script_exec_output = execute_python_code(script_code, state) 
+                output = (f"Executed script '{script_path}'.\n"
+                          f"Output from script:\n{script_exec_output if script_exec_output else '(No direct output)'}")
+            except Exception as e:
+                output = f"Error running script {script_path}: {e}"
+        else:
+            output = f"Error: Script not found: {script_path}"
+        if state.command_history:
+            state.command_history.add_command(command, [str(output)], "", state.current_path)
+        return state, output
+
+    # Now check if it's Python code
     if is_python_code(stripped_command):
         state, output = execute_python_code(stripped_command, state)
         return state, output
 
+    # Handle / prefixed commands
     if stripped_command.startswith("/"):
         parts = stripped_command.split(maxsplit=1)
         cmd_name = parts[0].lower()
@@ -476,37 +531,7 @@ def execute_guac_command(command: str, state: GuacState) -> Tuple[GuacState, Any
             else:
                 temp_output_list.append("  (empty)")
             output = "\n".join(temp_output_list)
-        elif cmd_name == "cd": 
-            target_dir = args.strip() if args.strip() else str(Path.home())
-            try:
-                os.chdir(target_dir)
-                state.current_path = os.getcwd()
-                output = f"Changed directory to {state.current_path}"
-            except FileNotFoundError:
-                output = f"Error: Directory not found: {target_dir}"
-            except Exception as e:
-                output = f"Error changing directory: {e}"
-        elif cmd_name == "ls":
-            try:
-                ls_path = args.strip() if args.strip() else state.current_path
-                output = "\n".join(os.listdir(ls_path))
-            except Exception as e:
-                output = f"Error listing directory: {e}"
-        elif cmd_name == "pwd":
-            output = state.current_path
-        elif cmd_name == "run" and args.strip().endswith(".py"):
-            script_path = Path(args.strip())
-            if script_path.exists():
-                try:
-                    with open(script_path, "r") as f:
-                        script_code = f.read()
-                    _, script_exec_output = execute_python_code(script_code, state) 
-                    output = (f"Executed script '{script_path}'.\n"
-                              f"Output from script:\n{script_exec_output if script_exec_output else '(No direct output)'}")
-                except Exception as e:
-                    output = f"Error running script {script_path}: {e}"
-            else:
-                output = f"Error: Script not found: {script_path}"
+
         else:
             is_core_cmd = False 
         
@@ -646,19 +671,25 @@ def run_guac_repl(initial_guac_state: GuacState):
             print("An unexpected error occurred in the REPL:")
             traceback.print_exc()
 
-def enter_guac_mode(npc_obj=None, team_obj=None, config_dir_str=None, plots_dir_str=None, npc_team_dir_str=None,
-                    refresh_period_val=None, lang_choice=None, default_mode_choice=None): 
+def enter_guac_mode(npc=None,
+                    team=None, 
+                    config_dir=None,
+                    plots_dir=None, 
+                    npc_team_dir=None,
+                    refresh_period=None, 
+                    lang=None, 
+                    default_mode_choice=None): 
     
-    if refresh_period_val is not None:
+    if refresh_period is not None:
         try:
-            npcsh_initial_state.GUAC_REFRESH_PERIOD = int(refresh_period_val)
+            npcsh_initial_state.GUAC_REFRESH_PERIOD = int(refresh_period)
         except ValueError:
             pass
 
     setup_result = setup_guac_mode(
-        config_dir=config_dir_str,
-        plots_dir=plots_dir_str,
-        npc_team_dir=npc_team_dir_str
+        config_dir=config_dir,
+        plots_dir=plots_dir,
+        npc_team_dir=npc_team_dir
     )
     guac_config_dir = setup_result["config_dir"]
     guac_src_dir = setup_result["src_dir"]
@@ -666,8 +697,8 @@ def enter_guac_mode(npc_obj=None, team_obj=None, config_dir_str=None, plots_dir_
     guac_default_mode = default_mode_choice or setup_result.get("default_mode", "cmd")
 
     cmd_history = CommandHistory() 
-    current_npc = npc_obj
-    current_team = team_obj
+    current_npc = npc
+    current_team = team
 
     if current_npc is None and current_team is None: 
         try:
@@ -713,10 +744,10 @@ def main():
     args = parser.parse_args()
 
     enter_guac_mode(
-        config_dir_str=args.config_dir,
-        plots_dir_str=args.plots_dir,
-        npc_team_dir_str=args.npc_team_dir,
-        refresh_period_val=args.refresh_period,
+        config_dir=args.config_dir,
+        plots_dir=args.plots_dir,
+        npc_team_dir=args.npc_team_dir,
+        refresh_period=args.refresh_period,
         default_mode_choice=args.default_mode
     )
 

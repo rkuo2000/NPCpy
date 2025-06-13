@@ -396,6 +396,8 @@ def extract_facts(
     response = response["response"]
     print(response)
     return response["fact_list"]
+
+
 def breathe(
             messages: Optional[List[Dict[str, str]]],
             model: str,
@@ -435,8 +437,10 @@ def breathe(
         provider=provider,
         )
     # execute slash command will handle updating database     
-    return {"output": {'facts': facts, 'mistakes': mistakes, 'lessons': lessons}, 
-            "messages": []}
+    return {"output": {'facts': facts,
+                       'mistakes': mistakes, 
+                       'lessons': lessons}, 
+                        "messages": []}
     
 
 def find_similar_groups(
@@ -1785,3 +1789,402 @@ def retrieve_relevant_memory(query: str, chroma_path: str, top_k: int = 5) -> Li
     except Exception as e:
         print(f"Error retrieving from vector DB: {str(e)}")
         return []
+
+
+
+def check_fact_distinctness(
+    new_fact: str,
+    existing_facts: List[str],
+    model: str = "llama3.2", 
+    provider: str = "ollama",
+    npc: NPC = None,
+    threshold: float = 0.8
+) -> Dict[str, Any]:
+    """Check if a new fact is distinct enough from existing facts"""
+    
+    prompt = f"""Compare this new fact against existing facts to determine if it's 
+    distinct enough to store separately.
+
+    New fact: {new_fact}
+
+    Existing facts:
+    {json.dumps(existing_facts, indent=2)}
+
+    A fact is considered distinct if:
+    1. It contains genuinely new information
+    2. It's not just a rephrasing of an existing fact
+    3. It adds meaningful context or detail
+    4. It comes from a different context that might create valid contradictions
+
+    Return a JSON object:
+    {{
+        "is_distinct": true/false,
+        "reason": "explanation of why it is or isn't distinct",
+        "similar_to": "existing fact it's most similar to, if any",
+        "merge_suggestion": "how to merge if not distinct, or null"
+    }}
+    """
+    
+    response = get_llm_response(
+        prompt, model=model, provider=provider, format="json", npc=npc
+    )
+    return response["response"]
+
+
+def check_group_distinctness(
+    new_group: str,
+    existing_groups: List[str],
+    model: str = "llama3.2",
+    provider: str = "ollama", 
+    npc: NPC = None
+) -> Dict[str, Any]:
+    """Check if a new group is distinct enough from existing groups"""
+    
+    prompt = f"""Compare this new group against existing groups to determine if it's
+    distinct enough to create separately.
+
+    New group: {new_group}
+
+    Existing groups:
+    {json.dumps(existing_groups, indent=2)}
+
+    A group is considered distinct if:
+    1. It represents a genuinely different semantic category
+    2. It's not just a synonym or minor variation of an existing group
+    3. It would organize facts in a meaningfully different way
+
+    Return a JSON object:
+    {{
+        "is_distinct": true/false,
+        "reason": "explanation of why it is or isn't distinct", 
+        "similar_to": "existing group it's most similar to, if any",
+        "merge_suggestion": "suggested name if merging, or null"
+    }}
+    """
+    
+    response = get_llm_response(
+        prompt, model=model, provider=provider, format="json", npc=npc
+    )
+    return response["response"]
+
+
+def analyze_group_for_subgrouping(
+    conn,
+    group_name: str,
+    max_size: int = 20,
+    model: str = "llama3.2",
+    provider: str = "ollama",
+    npc: NPC = None
+) -> Dict[str, Any]:
+    """Analyze if a group should be split into subgroups"""
+    
+    # Get all facts in this group
+    escaped_group = group_name.replace('"', '\\"')
+    result = conn.execute(f"""
+        MATCH (g:Groups)-[:Contains]->(f:Fact)
+        WHERE g.name = "{escaped_group}"
+        RETURN f.content
+    """).get_as_df()
+    
+    facts = [row["f.content"] for _, row in result.iterrows()]
+    
+    if len(facts) < max_size:
+        return {"should_split": False, "reason": "Group is not large enough"}
+    
+    prompt = f"""This group has {len(facts)} facts and may be getting too large.
+    Analyze if it should be split into subgroups.
+
+    Group: {group_name}
+
+    Facts in group:
+    {json.dumps(facts, indent=2)}
+
+    Return a JSON object:
+    {{
+        "should_split": true/false,
+        "reason": "explanation of decision",
+        "suggested_subgroups": [
+            {{
+                "name": "subgroup name",
+                "facts": ["list of facts that belong in this subgroup"]
+            }}
+        ]
+    }}
+    """
+    
+    response = get_llm_response(
+        prompt, model=model, provider=provider, format="json", npc=npc
+    )
+    return response["response"]
+
+
+def suggest_fact_reassignments(
+    conn,
+    model: str = "llama3.2",
+    provider: str = "ollama", 
+    npc: NPC = None,
+    batch_size: int = 50
+) -> List[Dict[str, Any]]:
+    """Suggest reassignments for facts based on current group structure"""
+    
+    # Get all facts and their current groups
+    result = conn.execute("""
+        MATCH (g:Groups)-[:Contains]->(f:Fact)
+        RETURN f.content, collect(g.name) as current_groups
+    """).get_as_df()
+    
+    # Get all available groups
+    groups_result = conn.execute("MATCH (g:Groups) RETURN g.name").get_as_df()
+    all_groups = [row["g.name"] for _, row in groups_result.iterrows()]
+    
+    suggestions = []
+    
+    # Process facts in batches
+    for i in range(0, len(result), batch_size):
+        batch = result.iloc[i:i+batch_size]
+        
+        for _, row in batch.iterrows():
+            fact = row["f.content"]
+            current_groups = row["current_groups"]
+            
+            prompt = f"""Review this fact's current group assignments and suggest 
+            if it should be reassigned to different groups.
+
+            Fact: {fact}
+            Current groups: {current_groups}
+            All available groups: {all_groups}
+
+            Consider:
+            1. Does the fact fit better in other groups?
+            2. Should it be in additional groups?
+            3. Should it be removed from any current groups?
+
+            Return a JSON object:
+            {{
+                "needs_reassignment": true/false,
+                "reason": "explanation of suggested changes",
+                "suggested_groups": ["list of groups this fact should be in"],
+                "confidence": 0.0-1.0
+            }}
+            """
+            
+            response = get_llm_response(
+                prompt, model=model, provider=provider, format="json", npc=npc
+            )
+            
+            suggestion = response["response"]
+            suggestion["fact"] = fact
+            suggestion["current_groups"] = current_groups
+            suggestions.append(suggestion)
+    
+    return suggestions
+
+
+def create_evolution_history_tables(conn):
+    """Create tables to track evolution history"""
+    
+    # Evolution log table
+    safe_kuzu_execute(conn, """
+        CREATE NODE TABLE IF NOT EXISTS EvolutionLog(
+            id STRING,
+            timestamp STRING,
+            operation_type STRING,
+            description STRING,
+            details STRING,
+            PRIMARY KEY (id)
+        );
+    """)
+    
+    # Fact evolution history
+    safe_kuzu_execute(conn, """
+        CREATE NODE TABLE IF NOT EXISTS FactHistory(
+            fact_content STRING,
+            operation STRING,
+            timestamp STRING,
+            old_groups STRING,
+            new_groups STRING,
+            reason STRING,
+            PRIMARY KEY (fact_content, timestamp)
+        );
+    """)
+    
+    # Group evolution history  
+    safe_kuzu_execute(conn, """
+        CREATE NODE TABLE IF NOT EXISTS GroupHistory(
+            group_name STRING,
+            operation STRING,
+            timestamp STRING,
+            details STRING,
+            reason STRING,
+            PRIMARY KEY (group_name, timestamp)
+        );
+    """)
+
+
+def log_evolution_event(
+    conn,
+    operation_type: str,
+    description: str,
+    details: Dict = None
+):
+    """Log an evolution event for historical tracking"""
+    
+    import uuid
+    event_id = str(uuid.uuid4())
+    timestamp = datetime.datetime.now().isoformat()
+    details_json = json.dumps(details) if details else "{}"
+    
+    # Escape strings for Kuzu
+    escaped_desc = description.replace('"', '\\"')
+    escaped_details = details_json.replace('"', '\\"')
+    escaped_op = operation_type.replace('"', '\\"')
+    
+    safe_kuzu_execute(conn, f"""
+        CREATE (e:EvolutionLog {{
+            id: "{event_id}",
+            timestamp: "{timestamp}",
+            operation_type: "{escaped_op}",
+            description: "{escaped_desc}",
+            details: "{escaped_details}"
+        }});
+    """)
+
+
+def semantic_evolution_pipeline(
+    conn,
+    model: str = "llama3.2",
+    provider: str = "ollama",
+    npc: NPC = None,
+    max_group_size: int = 20,
+    distinctness_threshold: float = 0.8
+) -> Dict[str, Any]:
+    """Main semantic evolution pipeline - the /sleep function"""
+    
+    print("🧠 Starting semantic evolution pipeline...")
+    
+    evolution_stats = {
+        "facts_processed": 0,
+        "groups_processed": 0,
+        "facts_reassigned": 0,
+        "groups_split": 0,
+        "groups_merged": 0,
+        "new_facts_added": 0,
+        "new_groups_created": 0
+    }
+    
+    # Ensure evolution history tables exist
+    create_evolution_history_tables(conn)
+    
+    # 1. Analyze group sizes and suggest splits
+    print("📊 Analyzing group sizes...")
+    groups_result = conn.execute("MATCH (g:Groups) RETURN g.name").get_as_df()
+    
+    for _, row in groups_result.iterrows():
+        group_name = row["g.name"]
+        analysis = analyze_group_for_subgrouping(
+            conn, group_name, max_group_size, model, provider, npc
+        )
+        
+        if analysis["should_split"]:
+            print(f"🔄 Splitting group: {group_name}")
+            
+            # Create subgroups
+            for subgroup in analysis["suggested_subgroups"]:
+                subgroup_name = subgroup["name"]
+                
+                # Create new subgroup
+                if create_group(conn, subgroup_name, f"Subgroup of {group_name}"):
+                    
+                    # Move facts to subgroup
+                    for fact in subgroup["facts"]:
+                        # Remove from old group
+                        escaped_fact = fact.replace('"', '\\"')
+                        escaped_old = group_name.replace('"', '\\"')
+                        escaped_new = subgroup_name.replace('"', '\\"')
+                        
+                        safe_kuzu_execute(conn, f"""
+                            MATCH (g:Groups)-[r:Contains]->(f:Fact)
+                            WHERE g.name = "{escaped_old}" AND f.content = "{escaped_fact}"
+                            DELETE r
+                        """)
+                        
+                        # Add to new group
+                        assign_fact_to_group_graph(conn, fact, subgroup_name)
+                    
+                    evolution_stats["groups_split"] += 1
+                    log_evolution_event(conn, "group_split", 
+                        f"Split {group_name} -> {subgroup_name}", analysis)
+    
+    # 2. Suggest and apply fact reassignments
+    print("🔄 Analyzing fact assignments...")
+    reassignment_suggestions = suggest_fact_reassignments(conn, model, provider, npc)
+    
+    for suggestion in reassignment_suggestions:
+        if suggestion["needs_reassignment"] and suggestion["confidence"] > 0.7:
+            fact = suggestion["fact"]
+            current_groups = suggestion["current_groups"]
+            suggested_groups = suggestion["suggested_groups"]
+            
+            print(f"📝 Reassigning fact: {fact[:50]}...")
+            
+            # Remove from current groups
+            escaped_fact = fact.replace('"', '\\"')
+            for group in current_groups:
+                escaped_group = group.replace('"', '\\"')
+                safe_kuzu_execute(conn, f"""
+                    MATCH (g:Groups)-[r:Contains]->(f:Fact)
+                    WHERE g.name = "{escaped_group}" AND f.content = "{escaped_fact}"
+                    DELETE r
+                """)
+            
+            # Add to suggested groups
+            for group in suggested_groups:
+                assign_fact_to_group_graph(conn, fact, group)
+            
+            evolution_stats["facts_reassigned"] += 1
+            log_evolution_event(conn, "fact_reassignment",
+                f"Reassigned fact from {current_groups} to {suggested_groups}",
+                suggestion)
+    
+    print(f"✅ Evolution complete! Stats: {evolution_stats}")
+    return evolution_stats
+
+
+def sleep_command(
+    db_path: str,
+    model: str = "llama3.2", 
+    provider: str = "ollama",
+    npc: NPC = None
+) -> Dict[str, Any]:
+    """The /sleep command that triggers semantic evolution"""
+    
+    print("💤 Entering sleep mode - semantic evolution starting...")
+    
+    # Initialize database connection
+    conn = init_db(db_path, drop=False)
+    if not conn:
+        return {"error": "Failed to connect to database"}
+    
+    try:
+        # Run the evolution pipeline
+        stats = semantic_evolution_pipeline(
+            conn, model, provider, npc
+        )
+        
+        # Log the sleep event
+        log_evolution_event(conn, "sleep_cycle", 
+            "Completed full semantic evolution cycle", stats)
+        
+        return {
+            "success": True,
+            "message": "Semantic evolution completed",
+            "stats": stats
+        }
+        
+    except Exception as e:
+        print(f"Error during evolution: {str(e)}")
+        return {"error": str(e)}
+    finally:
+        # Close connection
+        if conn:
+            conn.close()

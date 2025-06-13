@@ -794,7 +794,9 @@ def process_result(
     result_state.attachments = None # Clear attachments after logging user message
 
     final_output_str = None
-    if result_state.stream_output:
+    if user_input =='/help':
+        render_markdown(output)
+    elif result_state.stream_output:
         try:
             final_output_str = print_and_process_stream_with_markdown(output, result_state.chat_model, result_state.chat_provider)
         except AttributeError as e:

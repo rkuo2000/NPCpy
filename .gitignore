@@ -9,6 +9,9 @@ build/
 *.pdf
 .venv
 *.log
+*.tex
+*.bbl
+*.aux
 *.out
 *.safetensors
 node_modules/

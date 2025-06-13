@@ -736,7 +736,7 @@ def ensure_npcshrc_exists() -> str:
         with open(npcshrc_path, "w") as npcshrc:
             npcshrc.write("# NPCSH Configuration File\n")
             npcshrc.write("export NPCSH_INITIALIZED=0\n")
-            npcshrc.write("export NPCSH_DEFAULT_MODE='chat'\n")
+            npcshrc.write("export NPCSH_DEFAULT_MODE='agent'\n")
             npcshrc.write("export NPCSH_CHAT_PROVIDER='ollama'\n")
             npcshrc.write("export NPCSH_CHAT_MODEL='llama3.2'\n")
             npcshrc.write("export NPCSH_REASONING_PROVIDER='ollama'\n")
