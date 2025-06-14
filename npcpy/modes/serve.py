@@ -763,8 +763,6 @@ def stream():
 
         # Send completion message
         yield f"data: {json.dumps({'type': 'message_stop'})}\n\n"
-        full_content = command_history.get_full_message_content(message_id)
-        command_history.update_message_content(message_id, full_content)
         save_conversation_message(
             command_history,
             conversation_id,
@@ -1591,7 +1589,7 @@ def stream_raw():
                     wd=current_path,
                     model=model,
                     provider=provider,
-                    npc = npc_object.name or '',
+                    npc = npc.name or '',
                     team=team,
                     message_id=message_id,  # Save with the same message_id
                 )
