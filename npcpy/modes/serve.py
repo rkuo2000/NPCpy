@@ -644,9 +644,7 @@ def stream():
         stream=True,
     )
 
-    final_response = ""  # To accumulate the assistant's response
 
-    complete_response = []  # List to store all chunks
     def event_stream():
         complete_response = []
         dot_count = 0
@@ -750,7 +748,7 @@ def stream():
                     command_history,
                     conversation_id,
                     "assistant",
-                    chunk_content,
+                    ''.join(complete_response),
                     wd=current_path,
                     model=model,
                     provider=provider,
@@ -765,8 +763,18 @@ def stream():
 
         # Send completion message
         yield f"data: {json.dumps({'type': 'message_stop'})}\n\n"
-        full_content = command_history.get_full_message_content(message_id)
-        command_history.update_message_content(message_id, full_content)
+        save_conversation_message(
+            command_history,
+            conversation_id,
+            "assistant",
+            ''.join(complete_response),
+            wd=current_path,
+            model=model,
+            provider=provider,
+            npc=npc_object.name or '',
+            team=team,
+            message_id=message_id,
+        )
         
     response = Response(event_stream(), mimetype="text/event-stream")
 
@@ -1269,6 +1277,7 @@ def get_conversation_history(conversation_id):
 def get_conversations():
     try:
         path = request.args.get("path")
+
         if not path:
             return jsonify({"error": "No path provided", "conversations": []}), 400
 
@@ -1281,12 +1290,16 @@ def get_conversations():
                    MIN(timestamp) as start_time,
                    GROUP_CONCAT(content) as preview
             FROM conversation_history
-            WHERE directory_path = ?
+            WHERE directory_path = ? OR directory_path = ?
             GROUP BY conversation_id
             ORDER BY start_time DESC
             """
 
-            cursor.execute(query, [path])
+            # Check both with and without trailing slash
+            path_without_slash = path.rstrip('/')
+            path_with_slash = path_without_slash + '/'
+            
+            cursor.execute(query, [path_without_slash, path_with_slash])
             conversations = cursor.fetchall()
 
             return jsonify(
@@ -1313,7 +1326,6 @@ def get_conversations():
     except Exception as e:
         print(f"Error getting conversations: {str(e)}")
         return jsonify({"error": str(e), "conversations": []}), 500
-
 
 @app.route("/api/conversation/<conversation_id>/messages", methods=["GET"])
 def get_conversation_messages(conversation_id):
@@ -1581,7 +1593,7 @@ def stream_raw():
                     wd=current_path,
                     model=model,
                     provider=provider,
-                    npc = npc_object.name or '',
+                    npc = npc.name or '',
                     team=team,
                     message_id=message_id,  # Save with the same message_id
                 )
@@ -1687,7 +1699,8 @@ def health_check():
 def start_flask_server(
     port=5337,
     cors_origins=None,
-    static_files=None
+    static_files=None, 
+    debug = False
 ):
     try:
         # Ensure the database tables exist
@@ -1711,7 +1724,7 @@ def start_flask_server(
 
         # Run the Flask app on all interfaces
         print(f"Starting Flask server on http://0.0.0.0:{port}")
-        app.run(host="0.0.0.0", port=port, debug=True, static_files=static_files)
+        app.run(host="0.0.0.0", port=port, debug=debug)
     except Exception as e:
         print(f"Error starting server: {str(e)}")
 
