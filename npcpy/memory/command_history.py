@@ -388,9 +388,8 @@ class CommandHistory:
         )
 
         if existing_row:
-            new_content = existing_row['content'] + content
             sql = "UPDATE conversation_history SET content = ?, timestamp = ? WHERE message_id = ?"
-            params = (new_content, timestamp, message_id)
+            params = (content, timestamp, message_id)
             self._execute(sql, params)
         else:
             sql = """INSERT INTO conversation_history

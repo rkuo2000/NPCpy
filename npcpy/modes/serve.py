@@ -1277,6 +1277,7 @@ def get_conversation_history(conversation_id):
 def get_conversations():
     try:
         path = request.args.get("path")
+
         if not path:
             return jsonify({"error": "No path provided", "conversations": []}), 400
 
@@ -1289,12 +1290,16 @@ def get_conversations():
                    MIN(timestamp) as start_time,
                    GROUP_CONCAT(content) as preview
             FROM conversation_history
-            WHERE directory_path = ?
+            WHERE directory_path = ? OR directory_path = ?
             GROUP BY conversation_id
             ORDER BY start_time DESC
             """
 
-            cursor.execute(query, [path])
+            # Check both with and without trailing slash
+            path_without_slash = path.rstrip('/')
+            path_with_slash = path_without_slash + '/'
+            
+            cursor.execute(query, [path_without_slash, path_with_slash])
             conversations = cursor.fetchall()
 
             return jsonify(
@@ -1321,7 +1326,6 @@ def get_conversations():
     except Exception as e:
         print(f"Error getting conversations: {str(e)}")
         return jsonify({"error": str(e), "conversations": []}), 500
-
 
 @app.route("/api/conversation/<conversation_id>/messages", methods=["GET"])
 def get_conversation_messages(conversation_id):
