@@ -22,7 +22,9 @@ try:
     import chromadb
 except ImportError:
     chromadb = None
+import shutil
 
+import yaml
 # Local Application Imports
 from npcpy.npc_sysenv import (
     print_and_process_stream_with_markdown,
@@ -663,22 +665,50 @@ def execute_command(
 
         # Return the final state and the final output
         return current_state, final_output
+
+
     elif state.current_mode == 'chat':
+        # Only treat as bash if it looks like a shell command (starts with known command or is a slash command)
+        cmd_parts = parse_command_safely(command)
+        is_probably_bash = (
+            cmd_parts
+            and (
+                cmd_parts[0] in interactive_commands
+                or cmd_parts[0] in BASH_COMMANDS
+                or command.strip().startswith("./")
+                or command.strip().startswith("/")
+            )
+        )
+        if is_probably_bash:
+            try:
+                command_name = cmd_parts[0]
+                if command_name in interactive_commands:
+                    return handle_interactive_command(cmd_parts, state)
+                elif command_name == "cd":
+                    return handle_cd_command(cmd_parts, state)
+                else:
+                    try:
+                        bash_state, bash_output = handle_bash_command(cmd_parts, command, None, state)
+                        return bash_state, bash_output
+                    except CommandNotFoundError:
+                        pass  # Fall through to LLM
+                    except Exception as bash_err:
+                        return state, colored(f"Bash execution failed: {bash_err}", "red")
+            except Exception:
+                pass  # Fall through to LLM
 
-
-
+        # Otherwise, treat as chat (LLM)
         response = get_llm_response(
             command, 
-            model = state.chat_model, 
-            provider = state.chat_provider, 
-            npc= state.npc ,
-            stream = state.stream_output,
-            messages = state.messages
+            model=state.chat_model, 
+            provider=state.chat_provider, 
+            npc=state.npc,
+            stream=state.stream_output,
+            messages=state.messages
         )
-        
-        state.messages = response['messages']     
-        
+        state.messages = response['messages']
         return state, response['response']
+
     elif state.current_mode == 'cmd':
 
         response = execute_llm_command(command, 
@@ -690,11 +720,122 @@ def execute_command(
         state.messages = response['messages']     
         return state, response['response']
 
-    elif state.current_mode == 'ride':     
-        print('To be implemented soon')   
-        return state, final_output
-    
+    elif state.current_mode == 'ride':
+        # Allow bash commands in /ride mode
+        cmd_parts = parse_command_safely(command)
+        is_probably_bash = (
+            cmd_parts
+            and (
+                cmd_parts[0] in interactive_commands
+                or cmd_parts[0] in BASH_COMMANDS
+                or command.strip().startswith("./")
+                or command.strip().startswith("/")
+            )
+        )
+        if is_probably_bash:
+            try:
+                command_name = cmd_parts[0]
+                if command_name in interactive_commands:
+                    return handle_interactive_command(cmd_parts, state)
+                elif command_name == "cd":
+                    return handle_cd_command(cmd_parts, state)
+                else:
+                    try:
+                        bash_state, bash_output = handle_bash_command(cmd_parts, command, None, state)
+                        return bash_state, bash_output
+                    except CommandNotFoundError:
+                        return state, colored(f"Command not found: {command_name}", "red")
+                    except Exception as bash_err:
+                        return state, colored(f"Bash execution failed: {bash_err}", "red")
+            except Exception:
+                return state, colored("Failed to parse or execute bash command.", "red")
 
+        # Otherwise, run the agentic ride loop
+        return agentic_ride_loop(command, state)
+
+
+def agentic_ride_loop(user_goal: str, state: ShellState) -> tuple:
+    """
+    /ride mode: orchestrate via team, then LLM suggests 3 next steps, user picks or provides alternative input
+    repeat until quit.
+
+    """
+    if not hasattr(state, "team") or state.team is None:
+        raise ValueError("No team found in shell state for orchestration.")
+
+    request = user_goal
+    all_results = []
+
+    while True:
+        # 1. Orchestrate the current request
+        result = state.team.orchestrate(request)
+        all_results.append(result)
+        render_markdown("# Orchestration Result")
+        render_markdown(f"-  Request: {request}")
+        render_markdown(f"- Final response: {result.get('output')}")
+
+        render_markdown('- Summary: '+result['debrief']['summary'])
+
+        render_markdown(f'- Recommendations: {result['debrief']['recommendations']})' )
+
+
+        # 2. Ask LLM for three next possible steps
+        suggestion_prompt = f"""
+        Given the following user goal and orchestration result, suggest three new 
+        avenues to go down that are related but distinct from the original goal and from each other.
+                
+        Be concise. Each step should be a single actionable instruction or question.
+
+User goal: {user_goal}
+Orchestration result: {result}
+
+Return a JSON object with a "steps" key, whose value is a list of three strings, each string being a next step.
+Return only the JSON object.
+"""
+        suggestions = get_llm_response(
+            suggestion_prompt,
+            model=state.chat_model,
+            provider=state.chat_provider,
+            api_url=state.api_url,
+            api_key=state.api_key,
+            npc=state.npc,
+            format="json"
+        )
+        # No custom parsing: just use the parsed output
+        steps = suggestions.get("response", {}).get("steps", [])
+        if not steps or len(steps) < 1:
+            print("No further steps suggested by LLM. Exiting.")
+            break
+
+        print("\nNext possible steps:")
+        for idx, step in enumerate(steps, 1):
+            print(f"{idx}. {step}")
+
+        user_input = input("\nChoose next step (1/2/3) or q to quit: ").strip().lower()
+        if user_input in ("q", "quit", "exit"):
+            print("Exiting /ride agentic loop.")
+            break
+        try:
+
+            choice = int(user_input)
+            if 1 <= choice <= len(steps):
+                request = f"""
+                My initial goal was: {user_goal}
+                The orchestration result was: {result.get('output')}
+                I have chosen to pursue the next step: {steps[choice - 1]}
+                Now work on this next problem.
+"""
+            else:
+                print("Invalid choice, please enter 1, 2, 3, or q.")
+                continue
+        except Exception:
+            # assume it is natural language input from the user on what to do next, not a number,
+            
+            request = user_input 
+            print("Invalid input, please enter 1, 2, 3, or q.")
+            continue
+
+    return state, all_results
 
 # --- Main Application Logic ---
 
@@ -714,7 +855,7 @@ Welcome to \033[1;94mnpc\033[0m\033[1;38;5;202msh\033[0m!
 \033[1;94m| '_ \ | '_ \  / __|\033[0m\033[1;38;5;202m/ __/ | |_ _|    \\\\
 \033[1;94m| | | || |_) |( |__ \033[0m\033[1;38;5;202m\_  \ | | | |    //
 \033[1;94m|_| |_|| .__/  \___|\033[0m\033[1;38;5;202m|___/ |_| |_|   //
-       \033[1;94m| |          \033[0m\033[1;38;5;202m              //
+       \033[1;94m| |          \033[0m\033[1;38;5;202m               //
        \033[1;94m| |
        \033[1;94m|_|
 
@@ -722,7 +863,6 @@ Begin by asking a question, issuing a bash command, or typing '/help' for more i
 
             """
         )
-
 
 def setup_shell() -> Tuple[CommandHistory, Team, Optional[NPC]]:
     check_deprecation_warnings()
@@ -735,41 +875,89 @@ def setup_shell() -> Tuple[CommandHistory, Team, Optional[NPC]]:
 
     try:
         readline.set_completer(complete)
-   
         history_file = setup_readline()
         atexit.register(save_readline_history)
-        atexit.register(command_history.close)        
+        atexit.register(command_history.close)
     except:
         pass
 
-    npc_directory = PROJECT_NPC_TEAM_PATH if os.path.exists(PROJECT_NPC_TEAM_PATH) else DEFAULT_NPC_TEAM_PATH
-    os.makedirs(npc_directory, exist_ok=True)
+    project_team_path = os.path.abspath(PROJECT_NPC_TEAM_PATH)
+    global_team_path = os.path.expanduser(DEFAULT_NPC_TEAM_PATH)
+    team_dir = None
+    forenpc_obj = None
 
-    if not is_npcsh_initialized():
-        print("Initializing NPCSH...")
-        initialize_base_npcs_if_needed(db_path)
-        print("NPCSH initialization complete. Restart or source ~/.npcshrc.")
+    # --- Always prefer local/project team first ---
+    if os.path.exists(project_team_path):
+        team_dir = project_team_path
+        forenpc_name = "forenpc"
+    elif sys.stdin.isatty():
+        resp = input(f"No npc_team found in {os.getcwd()}. Create a new team here? [Y/n]: ").strip().lower()
+        if resp in ("", "y", "yes"):
+            team_dir = project_team_path
+            os.makedirs(team_dir, exist_ok=True)
+            forenpc_name = "forenpc"
+            forenpc_directive = input(
+                f"Enter a primary directive for {forenpc_name} (default: 'You are the forenpc of the team, coordinating activities between NPCs on the team, verifying that results from NPCs are high quality and can help to adequately answer user requests.'): "
+            ).strip() or "You are the forenpc of the team, coordinating activities between NPCs on the team, verifying that results from NPCs are high quality and can help to adequately answer user requests."
+            forenpc_model = input("Enter a model for your forenpc (default: llama3.2): ").strip() or "llama3.2"
+            forenpc_provider = input("Enter a provider for your forenpc (default: ollama): ").strip() or "ollama"
+            forenpc_path = os.path.join(team_dir, f"{forenpc_name}.npc")
+            if not os.path.exists(forenpc_path):
+                with open(forenpc_path, "w") as f:
+                    yaml.dump({
+                        "name": forenpc_name,
+                        "primary_directive": forenpc_directive,
+                        "model": forenpc_model,
+                        "provider": forenpc_provider
+                    }, f)
+            ctx_path = os.path.join(team_dir, "team.ctx")
+            # Ask for project/folder context
+            folder_context = input("Enter a short description or context for this project/team (optional): ").strip()
+            team_ctx = {
+                "forenpc": forenpc_name,
+                "model": forenpc_model,
+                "provider": forenpc_provider,
+                "api_key": None,
+                "api_url": None,
+                "context": folder_context if folder_context else None
+            }
+            # Ask about jinxs
+            use_jinxs = input("Do you want to copy jinxs from the global folder to this project (c), or use them from the global folder (g)? [c/g, default: g]: ").strip().lower()
+            global_jinxs_dir = os.path.expanduser("~/.npcsh/npc_team/jinxs")
+            project_jinxs_dir = os.path.join(team_dir, "jinxs")
+            if use_jinxs == "c":
+                if os.path.exists(global_jinxs_dir):
+                    shutil.copytree(global_jinxs_dir, project_jinxs_dir, dirs_exist_ok=True)
+                    print(f"Copied jinxs from {global_jinxs_dir} to {project_jinxs_dir}")
+                else:
+                    print(f"No global jinxs found at {global_jinxs_dir}")
+            else:
+                team_ctx["use_global_jinxs"] = True
 
-    team = Team(team_path=npc_directory)
-    sibiji_path = os.path.join(DEFAULT_NPC_TEAM_PATH, "sibiji.npc")
-    default_npc = None
-    if os.path.exists(sibiji_path):
-         try:
-             default_npc = NPC(file=sibiji_path)
-         except Exception as e:
-              print(f"Warning: Could not load default NPC 'sibiji': {e}", file=sys.stderr)
+            with open(ctx_path, "w") as f:
+                yaml.dump(team_ctx, f)
+        elif os.path.exists(global_team_path):
+            team_dir = global_team_path
+            forenpc_name = "sibiji"
+        else:
+            print("No global npc_team found. Please run 'npcpy init' or create a team first.")
+            sys.exit(1)
+    elif os.path.exists(global_team_path):
+        team_dir = global_team_path
+        forenpc_name = "sibiji"
     else:
-         print(f"Warning: Default NPC file not found: {sibiji_path}", file=sys.stderr)
-         if team.npcs:
-              default_npc = next(iter(team.npcs.values()))
-              print(f"Using '{default_npc.name}' as default NPC.")
+        print("No npc_team found in project or global. Please run 'npcpy init' or create a team first.")
+        sys.exit(1)
 
-    if sys.stdin.isatty():
-        print_welcome_message()
+    # --- Load the forenpc_obj ---
+    forenpc_path = os.path.join(team_dir, f"{forenpc_name}.npc")
+    if os.path.exists(forenpc_path):
+        forenpc_obj = NPC(forenpc_path)
+    else:
+        forenpc_obj = None
 
-    return command_history, team, default_npc
-
-
+    team = Team(team_path=team_dir, forenpc=forenpc_obj)
+    return command_history, team, forenpc_obj
 def process_result(
     user_input: str,
     result_state: ShellState,
@@ -830,7 +1018,8 @@ def process_result(
 
 def run_repl(command_history: CommandHistory, initial_state: ShellState):
     state = initial_state
-    print(f'Using {state.current_mode} mode. Use /agent, /cmd, or /chat to switch to other modes')
+    print_welcome_message()
+    print(f'Using {state.current_mode} mode. Use /agent, /cmd, /chat, or /ride to switch to other modes')
     print(f'To switch to a different NPC, type /<npc_name>')
     is_windows = platform.system().lower().startswith("win")
 
@@ -856,7 +1045,7 @@ def run_repl(command_history: CommandHistory, initial_state: ShellState):
             else:
                 cwd_colored = colored(os.path.basename(state.current_path), "blue")
                 if isinstance(state.npc, NPC):
-                    prompt_end = f":🤖{orange(state.npc.name)}> "
+                    prompt_end = f":🤖{orange(state.npc.name)}:{state.chat_model}> "
                 else:
                     prompt_end = f":🤖{colored('npc', 'blue', attrs=['bold'])}{colored('sh', 'yellow')}> "
                 prompt = readline_safe_prompt(f"{cwd_colored}{prompt_end}")
