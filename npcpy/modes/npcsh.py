@@ -49,7 +49,7 @@ from npcpy.memory.command_history import (
 from npcpy.memory.knowledge_graph import breathe
 from npcpy.memory.sleep import sleep, forget
 from npcpy.memory.memory_integration import register_memory_commands, execute_breathe, execute_sleep, execute_forget
-from npcpy.npc_compiler import NPC, Team
+from npcpy.npc_compiler import NPC, Team, load_jinxs_from_directory
 from npcpy.llm_funcs import check_llm_command, get_llm_response, execute_llm_command
 from npcpy.gen.embeddings import get_embeddings
 try:
@@ -864,6 +864,7 @@ Begin by asking a question, issuing a bash command, or typing '/help' for more i
             """
         )
 
+
 def setup_shell() -> Tuple[CommandHistory, Team, Optional[NPC]]:
     check_deprecation_warnings()
     setup_npcsh_config()
@@ -885,12 +886,13 @@ def setup_shell() -> Tuple[CommandHistory, Team, Optional[NPC]]:
     global_team_path = os.path.expanduser(DEFAULT_NPC_TEAM_PATH)
     team_dir = None
     forenpc_obj = None
+    team_ctx = {}
 
     # --- Always prefer local/project team first ---
     if os.path.exists(project_team_path):
         team_dir = project_team_path
         forenpc_name = "forenpc"
-    elif sys.stdin.isatty():
+    else:
         resp = input(f"No npc_team found in {os.getcwd()}. Create a new team here? [Y/n]: ").strip().lower()
         if resp in ("", "y", "yes"):
             team_dir = project_team_path
@@ -911,7 +913,6 @@ def setup_shell() -> Tuple[CommandHistory, Team, Optional[NPC]]:
                         "provider": forenpc_provider
                     }, f)
             ctx_path = os.path.join(team_dir, "team.ctx")
-            # Ask for project/folder context
             folder_context = input("Enter a short description or context for this project/team (optional): ").strip()
             team_ctx = {
                 "forenpc": forenpc_name,
@@ -921,7 +922,6 @@ def setup_shell() -> Tuple[CommandHistory, Team, Optional[NPC]]:
                 "api_url": None,
                 "context": folder_context if folder_context else None
             }
-            # Ask about jinxs
             use_jinxs = input("Do you want to copy jinxs from the global folder to this project (c), or use them from the global folder (g)? [c/g, default: g]: ").strip().lower()
             global_jinxs_dir = os.path.expanduser("~/.npcsh/npc_team/jinxs")
             project_jinxs_dir = os.path.join(team_dir, "jinxs")
@@ -942,12 +942,12 @@ def setup_shell() -> Tuple[CommandHistory, Team, Optional[NPC]]:
         else:
             print("No global npc_team found. Please run 'npcpy init' or create a team first.")
             sys.exit(1)
-    elif os.path.exists(global_team_path):
-        team_dir = global_team_path
-        forenpc_name = "sibiji"
-    else:
-        print("No npc_team found in project or global. Please run 'npcpy init' or create a team first.")
-        sys.exit(1)
+
+    # --- Load team context if it exists ---
+    ctx_path = os.path.join(team_dir, "team.ctx")
+    if os.path.exists(ctx_path):
+        with open(ctx_path, "r") as f:
+            team_ctx = yaml.safe_load(f) or team_ctx
 
     # --- Load the forenpc_obj ---
     forenpc_path = os.path.join(team_dir, f"{forenpc_name}.npc")
@@ -956,8 +956,18 @@ def setup_shell() -> Tuple[CommandHistory, Team, Optional[NPC]]:
     else:
         forenpc_obj = None
 
-    team = Team(team_path=team_dir, forenpc=forenpc_obj)
+    # --- Decide which jinxs directory to use ---
+    if team_ctx.get("use_global_jinxs", False):
+        jinxs_dir = os.path.expanduser("~/.npcsh/npc_team/jinxs")
+    else:
+        jinxs_dir = os.path.join(team_dir, "jinxs")
+    from npcpy.npc_compiler import load_jinxs_from_directory
+    jinxs_list = load_jinxs_from_directory(jinxs_dir)
+    jinxs_dict = {jinx.jinx_name: jinx for jinx in jinxs_list}
+
+    team = Team(team_path=team_dir, forenpc=forenpc_obj, jinxs=jinxs_dict)
     return command_history, team, forenpc_obj
+    
 def process_result(
     user_input: str,
     result_state: ShellState,
