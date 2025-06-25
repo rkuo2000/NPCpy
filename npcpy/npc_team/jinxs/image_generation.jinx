@@ -24,7 +24,6 @@ steps:
       # save the image 
       output_name = '{{output_name}}'
       pil_image.save(f'{output_name}.png')
-      pil_image.save()
       # open the image to display it
       pil_image.show()
       output = output_name
