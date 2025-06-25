@@ -191,7 +191,8 @@ class Jinx:
                 "fnmatch": fnmatch,
                 "pathlib": pathlib,
                 "subprocess": subprocess,
-                "get_llm_response": npy.llm_funcs.get_llm_response
+                "get_llm_response": npy.llm_funcs.get_llm_response, 
+                
                 }
             
             
@@ -779,8 +780,7 @@ class Team:
                         self.mcp_servers = ctx_data['mcp_servers']
                     if 'databases' in ctx_data:
                         self.databases = ctx_data['databases']
-                    if 'context' in ctx_data:
-                        self.context = ctx_data['context']
+
                     # check other potential keys
                     for key, item in ctx_data.items():
                         if key not in ['name', 'mcp_servers', 'databases', 'context']:
@@ -828,7 +828,7 @@ class Team:
                 return self.npcs[forenpc_ref]
         else:
             forenpc_model=self.context.get('model', 'llama3.2'),
-            forenpc_provider=self.context.get('model', 'ollama'),
+            forenpc_provider=self.context.get('provider', 'ollama'),
             forenpc_api_key=self.context.get('api_key', None),
             forenpc_api_url=self.context.get('api_url', None)
             
@@ -874,19 +874,16 @@ class Team:
         )
         
         # Initial request goes to forenpc
-        result = forenpc.check_llm_command(            ''' KEEP IN MIND YOU ARE THE ORCHESTRATOR OF THE NPC TEAM.  IF THERE IS A REASON 
-            TO PASS TO AN NPC SO THAT THEY CAN ANSWER THE QUESTION FOR EXAMPLE IF A USER ASKS
-            FOR SOMETHING ABOUT EACH MEMBER OF THE TEAM, IT IS BEST TO PASS TO EACH OF THE TEAM MEMBERS.''' +             request,
+        result = forenpc.check_llm_command(request,
             context=getattr(self, 'context', {}),
-            shared_context=self.shared_context,
+            #shared_context=self.shared_context,
             team = self, 
-            stream = False
         )
         
-        print(result)
         # Track execution until complete
         while True:
             # Save the result
+            completion_prompt= "" 
             if isinstance(result, dict):
                 self.shared_context["execution_history"].append(result)
                 
@@ -897,38 +894,62 @@ class Team:
                     self.shared_context["npc_messages"][result["npc_name"]].extend(
                         result["messages"]
                     )
-            
-            # Check if the result is complete
-            completion_check = npy.llm_funcs.get_llm_response(
-                f"""Context: User request '{request}' returned:
-                {result}
+                
+                completion_prompt += f"""Context:
+                    User request '{request}', previous agent
+                    
+                    previous agent returned:
+                    {result.get('output')}
 
+                    
                 Instructions:
 
-                Check whether there is enough information to respond to the
-                user with. 
+                    Check whether the response is relevant to the user's request.
 
-                If a partially complete answer can be provided with the current information, do not 
-                hold up a response as a faster back and forth with 
-                users is more important than getting the perfect answer.
+                """
+                if self.npcs is None or len(self.npcs) == 0:
+                    completion_prompt += f"""
+                    The team has no members, so the forenpc must handle the request alone.
+                    """
+                else:
+                    completion_prompt += f"""
+                    
+                    These are all the members of the team: {', '.join(self.npcs.keys())}
 
-                These are all the members of the team: {', '.join(self.npcs.keys())}
-                Therefore, if you are trying to evaluate whether a request was fulfilled,
-                consider that requests are made to the forenpc: {forenpc.name}
-                and that the forenpc must pass those along to the other npcs. 
-                Do not over-concern yourself with the depths fo the request or on
-                making sure all of it is fulfilled, just mainly concern yourself
-                with glaring errors and fundamental mishaps rather than
-                stylistic hiccups that users can resolve by prompting more clearly.
+                    Therefore, if you are trying to evaluate whether a request was fulfilled relevantly,
+                    consider that requests are made to the forenpc: {forenpc.name}
+                    and that the forenpc must pass those along to the other npcs. 
+                    """
+                completion_prompt += f"""
+
+                Mainly concern yourself with ensuring there are no
+                glaring errors nor fundamental mishaps in the response.
+                Do not consider stylistic hiccups as the answers being
+                irrelevant. By providing responses back to for the user to
+                comment on, they can can more efficiently iterate and resolve any issues by 
+                prompting more clearly.
+                natural language itself is very fuzzy so there will always be some level
+                of misunderstanding, but as long as the response is clearly relevant 
+                to the input request and along the user's intended direction,
+                it is considered relevant.
                                
 
-                If there is enough information fore the forenpc to proceed, please let them 
-                otherwise you will stall business unnecessarily.
-            
+                If there is enough information to begin a fruitful conversation with the user, 
+                please consider the request relevant so that we do not
+                arbritarily stall business logic which is more efficiently
+                determined by iterations than through unnecessary pedantry.
+
+                It is more important to get a response to the user
+                than to account for all edge cases, so as long as the response more or less tackles the
+                initial problem to first order, consider it relevant.
+
                 Return a JSON object with:
-                    -'complete' with boolean value
-                    -'explanation' for incompleteness
-                Return only the JSON object.""",
+                    -'relevant' with boolean value
+                    -'explanation' for irrelevance with quoted citations in your explanation noting why it is irrelevant to user input must be a single string.
+                Return only the JSON object."""
+            # Check if the result is complete
+            completion_check = npy.llm_funcs.get_llm_response(
+                completion_prompt, 
                 model=forenpc.model,
                 provider=forenpc.provider,
                 api_key=forenpc.api_key,
@@ -936,18 +957,19 @@ class Team:
                 npc=forenpc,
                 format="json"
             )
-            
             # Extract completion status
             if isinstance(completion_check.get("response"), dict):
-                complete = completion_check["response"].get("complete", False)
+                complete = completion_check["response"].get("relevant", False)
                 explanation = completion_check["response"].get("explanation", "")
             else:
                 # Default to incomplete if format is wrong
                 complete = False
                 explanation = "Could not determine completion status"
             
+            #import pdb 
+            #pdb.set_trace()
             if complete:
-                # Generate summary
+                
                 debrief = npy.llm_funcs.get_llm_response(
                     f"""Context:
                     Original request: {request}
@@ -970,6 +992,7 @@ class Team:
                 
                 return {
                     "debrief": debrief.get("response"),
+                    "output": result.get("output"),
                     "execution_history": self.shared_context["execution_history"],
                 }
             else:
@@ -980,7 +1003,8 @@ class Team:
                     + explanation
                     + "\nPlease address only the remaining parts of the request."
                 )
-                print(f'response was not complete.. {explanation}')
+                print('updating request', updated_request)
+
                 
                 # Call forenpc again
                 result = forenpc.check_llm_command(

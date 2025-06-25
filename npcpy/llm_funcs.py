@@ -821,11 +821,15 @@ def check_llm_command(
     if team is None:
         prompt += "No NPCs available for alternative answers."
     else:
-        prompt += f"""
-        Available NPCs for alternative answers:
+        # team.npcs is a dict , need to check if it is empty
+        if team.npcs is None or len(team.npcs) == 0:
+            prompt += "No NPCs available for alternative answers."
+        else:
+            prompt += f"""
+            Available NPCs for alternative answers:
 
-            {team.npcs}
-        """
+                {team.npcs}
+            """
         if team.context:
             prompt += f"""
             Relevant shared context for the team:
@@ -833,14 +837,16 @@ def check_llm_command(
             """
 
 
-    action_space = ["invoke_jinx", "answer_question", "pass_to_npc", "execute_sequence", ]
+    action_space = ["invoke_jinx",
+                     "answer_question", 
+                     "pass_to_npc", 
+                     "execute_sequence", ]
     if human_in_the_loop:
         action_space.append("request_input")
     prompt += f"""
     In considering how to answer this, consider:
 
     - Whether a jinx should be used.
-
 
     Excluding time-sensitive phenomena or ones that require external data inputs /information,
     most general questions can be answered without any extra jinxs or agent passes.
@@ -925,8 +931,9 @@ def check_llm_command(
     #print(prompt)
     action = response_content_parsed.get("action")
     explanation = response_content_parsed.get("explanation")
-
-    render_markdown(f"- Action chosen: {action}\n")
+    jinx_out = response_content_parsed.get('jinx_name', '')
+    jinx_out = '\n Jinx: ' + jinx_out if jinx_out else ''
+    render_markdown(f"- Action chosen: {action + jinx_out}\n")
     render_markdown(f"- Explanation given: {explanation}\n")
 
     if action == "execute_command":
