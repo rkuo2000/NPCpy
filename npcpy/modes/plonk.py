@@ -1,129 +1,157 @@
-
 from npcpy.data.image import capture_screenshot
 from typing import Any, Dict
 import json     
 import time
+import platform
 from npcpy.llm_funcs import get_llm_response
-def execute_plonk_command(request, action_space, model=None, provider=None, npc=None):
-    """
-    Main interaction loop with LLM for action determination
+from npcpy.work.desktop import perform_action, action_space
+import pyautogui
+import subprocess
 
-    Args:
-        request (str): The task to be performed
-        action_space (dict): Available action types and the inputs they require
-        npc (optional): NPC object for context and screenshot
-        **kwargs: Additional arguments for LLM response
-    """
-    prompt = f"""
-    Here is a request from a user:
-    {request}
+def get_system_examples():
+    system = platform.system()
+    if system == "Windows":
+        return "Examples: start firefox, notepad, calc, explorer"
+    elif system == "Darwin":
+        return "Examples: open -a Firefox, open -a TextEdit, open -a Calculator"
+    else:
+        return "Examples: firefox &, gedit &, gnome-calculator &"
 
-    Your job is to choose certain actions, take screenshots,
-    and evaluate what the next step is to complete the task.
+def execute_plonk_command(request, action_space, model, provider, npc=None, max_iterations=10, debug=False):
+    system = platform.system()
+    system_examples = get_system_examples()
+    
+    messages = []
+    last_action_feedback = "None" 
 
-    You can choose from the following action types:
-    {json.dumps(action_space)}
+    iteration_count = 0
+    while iteration_count < max_iterations:
+        if debug:
+            print(f"Iteration {iteration_count + 1}/{max_iterations}")
 
+        prompt_template = f"""
+        Goal: {request}
+        Feedback from last action: {last_action_feedback}
 
+        Your task is to control the computer to achieve the goal.
+        
+        THOUGHT PROCESS:
+        1. Analyze the screen. Is the application I need (e.g., a web browser) already open?
+        2. If YES, `click` it. If NO, use `bash` to launch it. Use the examples: {system_examples}.
+        
+        CRITICAL COMPLETION RULE:
+        Once the goal is visually complete on the screen, your ONLY next action is to use the 'quit' action.
 
-    Attached to the message is a screenshot of the current screen.
-
-    Please use that information to determine the next steps.
-    Your response must be a JSON with an 'actions' key containing a list of actions.
-    Each action should have a 'type' and any necessary parameters.https://www.reddit.com
-
-
-    For example:
-        Your response should look like:
-
+        Your response MUST be a JSON object with an "actions" key.
+        
+        ---
+        EXAMPLE 1: Task "Create and save a file named 'memo.txt' with the text 'Meeting at 3pm'"
         {{
-            "actions": [
-                {{"type":"bash", "command":"firefox &"}},
-                {{"type": "click", "x": 5, "y": 5}},
-                {{'type': 'type', 'text': 'https://www.google.com'}}
-                ]
-                }}
+          "actions": [
+            {{ "type": "bash", "command": "gedit &" }},
+            {{ "type": "wait", "duration": 2 }},
+            {{ "type": "type", "text": "Meeting at 3pm" }},
+            {{ "type": "hotkey", "keys": ["ctrl", "s"] }},
+            {{ "type": "wait", "duration": 1 }},
+            {{ "type": "type", "text": "memo.txt" }},
+            {{ "type": "key", "keys": ["enter"] }},
+            {{ "type": "quit" }}
+          ]
+        }}
+        ---
+        EXAMPLE 2: Task "Search for news about space exploration"
+        {{
+          "actions": [
+            {{ "type": "bash", "command": "firefox &" }},
+            {{ "type": "wait", "duration": 3 }},
+            {{ "type": "type", "text": "news about space exploration" }},
+            {{ "type": "key", "keys": ["enter"] }},
+            {{ "type": "quit" }}
+          ]
+        }}
+        ---
+        """
 
-    IF you have to type something, ensure that it iis first opened and selected. Do not
-    begin with typing immediately.
-    If you have to click, the numbers should range from 0 to 100 in x and y  with 0,0 being in the upper left.
 
-
-    IF you have accomplished the task, return an empty list.
-    Do not include any additional markdown formatting.
-    """
-
-    while True:
-        # Capture screenshot using NPC-based method
         screenshot = capture_screenshot(npc=npc, full=True)
-
-        # Ensure screenshot was captured successfully
         if not screenshot:
-            print("Screenshot capture failed")
-            return None
-
-        # Get LLM response
+            time.sleep(2)
+            continue
+        
         response = get_llm_response(
-            prompt,
-            images=[screenshot],
+            prompt=prompt_template,
             model=model,
             provider=provider,
             npc=npc,
+            images=[screenshot.get('file_path')],
+            messages=messages,
             format="json",
         )
-        # print("LLM Response:", response, type(response))
-        # Check if task is complete
-        print(response["response"])
-        if not response["response"].get("actions", []):
-            return response
 
-        # Execute actions
-        for action in response["response"]["actions"]:
-            print("Performing action:", action)
-            action_result = perform_action(action)
-            perform_action({"type": "wait", "duration": 5})
+        if "messages" in response:
+            messages = response["messages"]
+        
+        response_data = response.get('response')
 
-            # Optional: Add error handling or logging
-            if action_result.get("status") == "error":
-                print(f"Error performing action: {action_result.get('message')}")
+        if not isinstance(response_data, dict) or "actions" not in response_data:
+            last_action_feedback = f"Invalid JSON response from model: {response_data}"
+            continue
 
-        # Small delay between action batches
-        time.sleep(1)
+        actions_list = response_data.get("actions", [])
+        
+        if not isinstance(actions_list, list):
+            last_action_feedback = "Model did not return a list in the 'actions' key."
+            continue
+
+        if not actions_list:
+            last_action_feedback = "No actions were returned. The task is likely not complete. Re-evaluating."
+            print(last_action_feedback)
+            continue
+        
+        for action in actions_list:
+            if debug:
+                print(f"Executing action: {action}")
+            if action.get("type") == "quit":
+                print("Task complete: Model returned 'quit' action.")
+                return "SUCCESS"
+                
+            result = perform_action(action)
+            last_action_feedback = result.get("message") or result.get("output")
+            if result.get("status") == "error":
+                print(f"Action failed, providing feedback to model: {last_action_feedback}")
+                break 
+            time.sleep(1)
+        
+        iteration_count += 1
+    
+    return None
 
 
-def test_open_reddit(npc: Any = None):
-    """
-    Test function to open a web browser and navigate to Reddit using plonk
-    """
-    # Define the action space for web navigation
 
-    # Request to navigate to Reddit
-    request = "Open a web browser and go to reddit.com"
 
-    # Determine the browser launch hotkey based on the operating system
-    import platform
 
-    system = platform.system()
+def main():
+    
+    tests = [
+        "Open a web browser and go to reddit.com",
+        "Open calculator and calculate 25 * 43", 
+        "Open a text editor and write 'Hello World'",
+    ]
+    
+    for i, test in enumerate(tests, 1):
+        print(f"Test {i}: {test}")
+        print("-" * 50)
+        
+        execute_plonk_command(
+            request=test,
+            action_space=action_space,
+            model="gpt-4o-mini",
+            provider="openai",
+            max_iterations=8,
+            debug=True
+        )
+        
+        time.sleep(5)
 
-    if system == "Darwin":  # macOS
-        browser_launch_keys = ["command", "space"]
-        browser_search = "chrome"
-    elif system == "Windows":
-        browser_launch_keys = ["win", "r"]
-        browser_search = "chrome"
-    else:  # Linux or other
-        browser_launch_keys = ["alt", "f2"]
-        browser_search = "firefox"
-
-    # Perform the task using plonk
-    result = plonk(
-        request,
-        action_space,
-        model="gpt-4o-mini",
-        provider="openai",
-    )
-
-    # Optionally, you can add assertions or print results
-    print("Reddit navigation test result:", result)
-
-    return result
+if __name__ == "__main__":
+    main()
