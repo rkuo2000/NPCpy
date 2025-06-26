@@ -238,48 +238,51 @@ class Jinx:
     def from_mcp(cls, mcp_tool):
         """Convert an MCP tool to NPC jinx format"""
         # Extract function info from MCP tool
-        import inspect
-        
-        # Get basic info
-        doc = mcp_tool.__doc__ or ""
-        name = mcp_tool.__name__
-        signature = inspect.signature(mcp_tool)
-        
-        # Extract inputs from signature
-        inputs = []
-        for param_name, param in signature.parameters.items():
-            if param_name != 'self':  # Skip self for methods
-                param_type = param.annotation if param.annotation != inspect.Parameter.empty else None
-                param_default = None if param.default == inspect.Parameter.empty else param.default
-                
-                inputs.append({
-                    "name": param_name,
-                    "type": str(param_type),
-                    "default": param_default
-                })
-        
-        # Create tool data
-        jinx_data = {
-            "jinx_name": name,
-            "description": doc.strip(),
-            "inputs": inputs,
-            "steps": [
-                {
-                    "name": "mcp_function_call",
-                    "engine": "python",
-                    "code": f"""
+        try:
+            import inspect
+
+            # Get basic info
+            doc = mcp_tool.__doc__ or ""
+            name = mcp_tool.__name__
+            signature = inspect.signature(mcp_tool)
+            
+            # Extract inputs from signature
+            inputs = []
+            for param_name, param in signature.parameters.items():
+                if param_name != 'self':  # Skip self for methods
+                    param_type = param.annotation if param.annotation != inspect.Parameter.empty else None
+                    param_default = None if param.default == inspect.Parameter.empty else param.default
+                    
+                    inputs.append({
+                        "name": param_name,
+                        "type": str(param_type),
+                        "default": param_default
+                    })
+            
+            # Create tool data
+            jinx_data = {
+                "jinx_name": name,
+                "description": doc.strip(),
+                "inputs": inputs,
+                "steps": [
+                    {
+                        "name": "mcp_function_call",
+                        "engine": "python",
+                        "code": f"""
 # Call the MCP function
 import {mcp_tool.__module__}
 output = {mcp_tool.__module__}.{name}(
     {', '.join([f'{inp["name"]}=context.get("{inp["name"]}")' for inp in inputs])}
 )
 """
-                }
-            ]
-        }
-        
-        return cls(jinx_data=jinx_data)
-
+                    }
+                ]
+            }
+            
+            return cls(jinx_data=jinx_data)
+            
+        except: 
+            pass    
 def load_jinxs_from_directory(directory):
     """Load all jinxs from a directory"""
     jinxs = []
