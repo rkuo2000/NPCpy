@@ -133,7 +133,7 @@ def execute_plonk_command(request, action_space, model, provider, npc=None, max_
 def main():
     
     tests = [
-        "Open a web browser and go to reddit.com",
+        "Open a web browser and find a stock price for apple inc ",
         "Open calculator and calculate 25 * 43", 
         "Open a text editor and write 'Hello World'",
     ]

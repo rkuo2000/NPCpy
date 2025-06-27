@@ -778,8 +778,8 @@ def agentic_ride_loop(user_goal: str, state: ShellState) -> tuple:
         render_markdown(f"- Final response: {result.get('output')}")
 
         render_markdown('- Summary: '+result['debrief']['summary'])
-
-        render_markdown(f'- Recommendations: {result['debrief']['recommendations']})' )
+        recommendations = result['debrief']['recommendations']
+        render_markdown(f'- Recommendations: {recommendations}')
 
 
         # 2. Ask LLM for three next possible steps
