@@ -146,16 +146,25 @@ def get_locally_available_models(project_directory):
 
     if "GEMINI_API_KEY" in env_vars or os.environ.get("GEMINI_API_KEY"):
         try:
+
             from google import genai
+        
+            #print('GEMINI_API_KEY', genai)
 
             client = genai.Client(api_key = env_vars.get("GEMINI_API_KEY") or os.environ.get("GEMINI_API_KEY"))
-
+            print(client)
             models= []
+            #import pdb 
+            #pdb.set_trace()
+            
             for m in client.models.list():
+                print('sd',m)
                 for action in m.supported_actions:
                     if action == "generateContent":
-                        models.append(m.name)
-            for model in models:
+                        if 'models/' in m.name:
+                            
+                            models.append(m.name.split('/')[1])
+            for model in set(models):
                 if "gemini" in model:
                     available_models[model] = "gemini"
         except Exception as e:
