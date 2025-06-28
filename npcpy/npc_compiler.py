@@ -763,7 +763,7 @@ class Team:
         
         # Load sub-teams (subfolders)
         self._load_sub_teams()
-        
+        print(self.jinxs_dict)
     def _load_team_context(self):
         """Load team context from .ctx file"""
 

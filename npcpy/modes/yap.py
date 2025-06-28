@@ -39,7 +39,8 @@ from npcpy.npc_sysenv import (
     NPCSH_API_URL,
     NPCSH_STREAM_OUTPUT,
     get_system_message,
-    print_and_process_stream_with_markdown
+    print_and_process_stream_with_markdown, 
+    render_markdown
     
 
 )
@@ -52,10 +53,11 @@ from npcpy.npc_compiler import (
 from npcpy.memory.command_history import CommandHistory, save_conversation_message,start_new_conversation
 from typing import Dict, Any, List
 def enter_yap_mode(
+    
+    model: str ,
+    provider: str ,
     messages: list = None,
-    npc = None,
-    model: str = NPCSH_CHAT_MODEL,
-    provider: str = NPCSH_CHAT_PROVIDER,
+    npc = None,    
     team=  None,
     tts_model="kokoro",
     voice="af_heart", 
@@ -253,10 +255,6 @@ def enter_yap_mode(
     def process_input(user_input):
         nonlocal messages
 
-        # Add user message
-        messages.append({"role": "user", "content": user_input})
-
-        # Process with LLM and collect the ENTIRE response first
         #try:
         full_response = ""
 
@@ -273,10 +271,15 @@ def enter_yap_mode(
         #mport pdb 
         #pdb.set_trace()
         assistant_reply = check["output"]
-        
-        if stream:
+        messages = check['messages']
+        #import pdb 
+        #pdb.set_trace()
+        if stream and not isinstance(assistant_reply,str) and not isinstance(assistant_reply, dict):
             assistant_reply = print_and_process_stream_with_markdown(assistant_reply, model, provider)
-
+        elif isinstance(assistant_reply,dict):
+            # assume its a jinx output, to fix later
+            assistant_reply = assistant_reply.get('output')
+            render_markdown(assistant_reply)
         full_response += assistant_reply
 
         print("\n")  # End the progress display
@@ -560,11 +563,11 @@ def main():
         provider = sibiji.provider        
     # Enter spool mode
     enter_yap_mode(
+        model,
+        provider,
         messages=None,
         npc=sibiji,
         team = team,
-        model=model,
-        provider=provider,
         files=args.files,
         stream= args.stream.lower() == "true",
     )
