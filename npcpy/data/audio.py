@@ -189,7 +189,7 @@ def run_transcription(audio_np):
             wf.setsampwidth(2)
             wf.setframerate(RATE)
             wf.writeframes((audio_np * 32768).astype(np.int16).tobytes())
-
+        whisper_model = WhisperModel("large-v3", device="cuda" if torch.cuda.is_available() else "cpu")
         segments, info = whisper_model.transcribe(temp_file, language="en", beam_size=5)
         transcription = " ".join([segment.text for segment in segments])
 

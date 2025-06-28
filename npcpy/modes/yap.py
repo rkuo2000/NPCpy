@@ -547,7 +547,7 @@ def main():
     
     sibiji = NPC(file=args.npc, db_conn=npc_db_conn)
     
-    team = Team(team_path = '~/.npcsh/npc_team/', db_conn=npc_db_conn, foreman= sibiji)
+    team = Team(team_path = '~/.npcsh/npc_team/', db_conn=npc_db_conn, forenpc= sibiji)
     if sibiji.model is None:
         sibiji.model = args.model
         model = args.model
