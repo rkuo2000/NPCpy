@@ -101,10 +101,7 @@ def enter_yap_mode(
 
     if messages is None:
         messages = [{"role": "system", "content": system_message}]
-    elif messages and messages[0]["role"] == "system":
-        # Update the existing system message
-        messages[0]["content"] = messages[0]["content"] + " " + concise_instruction
-    else:
+    elif messages is not None and messages[0]['role'] != 'system':
         messages.insert(0, {"role": "system", "content": system_message})
 
     kokoro_pipeline = None
@@ -252,9 +249,7 @@ def enter_yap_mode(
     def speak_text(text):
         speech_queue.put(text)
 
-    def process_input(user_input):
-        nonlocal messages
-
+    def process_input(user_input, messages):
         #try:
         full_response = ""
 
@@ -266,12 +261,13 @@ def enter_yap_mode(
             messages=messages,
             model=model,
             provider=provider,
-            stream=stream,
+            stream=False,
         )
         #mport pdb 
         #pdb.set_trace()
         assistant_reply = check["output"]
         messages = check['messages']
+        #print(messages)
         #import pdb 
         #pdb.set_trace()
         if stream and not isinstance(assistant_reply,str) and not isinstance(assistant_reply, dict):
@@ -291,7 +287,7 @@ def enter_yap_mode(
 
         # Add assistant's response to messages
         messages.append({"role": "assistant", "content": full_response})
-
+        return messages 
         #except Exception as e:
         #    print(f"Error in LLM response: {e}")
         #    speak_text("I'm sorry, there was an error processing your request.")
@@ -482,7 +478,7 @@ def enter_yap_mode(
                     )
 
                             
-                    process_input(user_input)
+                    messages= process_input(user_input, messages)
 
                     message_id = save_conversation_message(
                         command_history,
@@ -507,7 +503,7 @@ def enter_yap_mode(
                     try:
                         transcription = transcription_queue.get_nowait()
                         print(f"\nYou (spoke): {transcription}")
-                        process_input(transcription)
+                        messages = process_input(transcription, messages)
                     except queue.Empty:
                         pass
             else:

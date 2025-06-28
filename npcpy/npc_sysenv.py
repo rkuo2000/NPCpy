@@ -1521,6 +1521,12 @@ def get_system_message(npc) -> str:
                         They understand that you can view them multimodally.
                         You only need to answer the user's request based on the attached image(s).
                         """
+    if npc.tables is not None:
+        system_message += f'''
+        
+            Here is information abuot the attached npcsh_history database that you can use to write queries if needed
+            {npc.tables}
+        '''
     return system_message
 
 

@@ -17,7 +17,7 @@ import traceback
 import subprocess
 from typing import Any, Dict, List, Optional, Union
 from jinja2 import Environment, FileSystemLoader, Template, Undefined
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 import npcpy as npy 
 
 
@@ -174,7 +174,7 @@ class Jinx:
                 context["llm_response"] = response_text
                 context["results"] = response_text
                 context[step_name] = response_text
-                
+                context['messages'] = response.get('messages')
         elif rendered_engine == "python":
             # Setup execution environment
             exec_globals = {
@@ -385,6 +385,7 @@ class NPC:
         else:   
             self.command_history = None
             self.memory = None
+            self.tables = None
             
             
         # Load jinxs
@@ -458,32 +459,35 @@ class NPC:
     def _setup_db(self):
         """Set up database tables and determine type"""
         try:
-            if "psycopg2" in self.db_conn.__class__.__module__:
-                # PostgreSQL connection
-                cursor = self.db_conn.cursor()
-                cursor.execute(
-                    """
-                    SELECT table_name, obj_description((quote_ident(table_name))::regclass, 'pg_class')
-                    FROM information_schema.tables
-                    WHERE table_schema='public';
-                    """
-                )
-                self.tables = cursor.fetchall()
-                self.db_type = "postgres"
-            elif "sqlite3" in self.db_conn.__class__.__module__:
-                # SQLite connection
-                self.tables = self.db_conn.execute(
-                    "SELECT name, sql FROM sqlite_master WHERE type='table';"
-                ).fetchall()
-                self.db_type = "sqlite"
-            else:
-                self.tables = None
-                self.db_type = None
+
+            dialect = self.db_conn.dialect.name
+
+            with self.db_conn.connect() as conn:
+                if dialect == "postgresql":
+                    result = conn.execute(text("""
+                        SELECT table_name, obj_description((quote_ident(table_name))::regclass, 'pg_class')
+                        FROM information_schema.tables
+                        WHERE table_schema='public';
+                    """))
+                    self.tables = result.fetchall()
+                    self.db_type = "postgres"
+
+                elif dialect == "sqlite":
+                    result = conn.execute(text(
+                        "SELECT name, sql FROM sqlite_master WHERE type='table';"
+                    ))
+                    self.tables = result.fetchall()
+                    self.db_type = "sqlite"
+
+                else:
+                    print(f"Unsupported DB dialect: {dialect}")
+                    self.tables = None
+                    self.db_type = None
+
         except Exception as e:
             print(f"Error setting up database: {e}")
             self.tables = None
-            self.db_type = None
-    
+            self.db_type = None    
     def _load_npc_jinxs(self, jinxs):
         """Load and process NPC-specific jinxs"""
         npc_jinxs = []
