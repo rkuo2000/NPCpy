@@ -182,11 +182,10 @@ if __name__ == "__main__":
         {"role": "assistant", "content": "You are correct; relying solely on lightcurves for classifying TDEs or inferring black hole properties is often insufficient due to inherent degeneracies. Distinct combinations of stellar and black hole parameters can produce remarkably similar lightcurve shapes. Spectroscopic observations are crucial for providing definitive evidence of a TDE by revealing broad emission lines from the stellar debris, which also allow for estimates of the gas composition, temperature, and velocity. Multi-wavelength data, encompassing radio, optical, UV, and X-ray observations, are essential as they probe different physical regions and emission mechanisms within the accretion flow and potential outflowing material, offering a more comprehensive view that helps break these degeneracies and constrain theoretical models more effectively than a lightcurve alone. Rare detections of high-energy phenomena like neutrinos or gamma rays from some events suggest the presence of powerful relativistic jets, adding another dimension to the complex picture of TDE phenomenology."},
     ]
 
-    all_messages.extend(messages_2_snippet)
 
 
     print("Running breathe() on cumulative conversation...")
-    breathe_output_2 = breathe(all_messages, model, provider, npc)
+    breathe_output_2 = breathe(messages_2_snippet, model, provider, npc)
     print_breathe_output(breathe_output_2["output"])
 
     extracted_facts_2 = breathe_output_2["output"].get("facts", [])

@@ -61,29 +61,22 @@ def create_group(conn, name: str, metadata: str = ""):
 
 
 import traceback
-
-
 def init_db(db_path: str, drop=False):
-    """Initialize Kùzu database and create schema with robust error handling"""
+    """Initialize Kùzu database and create schema with generational tracking."""
     try:
-        # Ensure the directory exists
         os.makedirs(os.path.dirname(os.path.abspath(db_path)), exist_ok=True)
-
-        try:
-            db = kuzu.Database(db_path)
-            conn = kuzu.Connection(db)
-            print("Database connection established successfully")
-        except Exception as e:
-            print(f"Failed to connect to database: {str(e)}")
-            traceback.print_exc()
-            return None
-        # Drop tables if requested
+        db = kuzu.Database(db_path)
+        conn = kuzu.Connection(db)
+        print("Database connection established successfully")
+        
         if drop:
+            # Drop tables in reverse order of dependency
             safe_kuzu_execute(conn, "DROP TABLE IF EXISTS Contains")
+            safe_kuzu_execute(conn, "DROP TABLE IF EXISTS EvolvedFrom") # New
             safe_kuzu_execute(conn, "DROP TABLE IF EXISTS Fact")
             safe_kuzu_execute(conn, "DROP TABLE IF EXISTS Groups")
 
-        # Create tables with proper error handling
+        # Fact table remains the same
         safe_kuzu_execute(
             conn,
             """
@@ -96,38 +89,50 @@ def init_db(db_path: str, drop=False):
             """,
             "Failed to create Fact table",
         )
-        print("Fact table created or already exists.")
 
+        # UPDATED Groups table with generational properties
         safe_kuzu_execute(
             conn,
             """
             CREATE NODE TABLE IF NOT EXISTS Groups(
               name STRING,
               metadata STRING,
+              generation_created INT64,
+              is_active BOOLEAN,
               PRIMARY KEY (name)
             );
             """,
             "Failed to create Groups table",
         )
-        print("Groups table created or already exists.")
-
+        print("Groups table (with generation tracking) created or already exists.")
+        
+        # Contains relationship remains the same
+        safe_kuzu_execute(
+            conn,
+            "CREATE REL TABLE IF NOT EXISTS Contains(FROM Groups TO Fact);",
+            "Failed to create Contains relationship table",
+        )
+        
+        # NEW EvolvedFrom relationship table
         safe_kuzu_execute(
             conn,
             """
-            CREATE REL TABLE IF NOT EXISTS Contains(
-              FROM Groups TO Fact
+            CREATE REL TABLE IF NOT EXISTS EvolvedFrom(
+                FROM Groups TO Groups,
+                event_type STRING,
+                generation INT64,
+                reason STRING
             );
             """,
-            "Failed to create Contains relationship table",
+            "Failed to create EvolvedFrom relationship table",
         )
-        print("Contains relationship table created or already exists.")
+        print("EvolvedFrom relationship table created or already exists.")
 
         return conn
     except Exception as e:
         print(f"Fatal error initializing database: {str(e)}")
         traceback.print_exc()
         return None
-
 def extract_facts(
     text: str,
     model: str,
