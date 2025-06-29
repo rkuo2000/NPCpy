@@ -847,6 +847,7 @@ def check_llm_command(
                      "answer_question", 
                      "pass_to_npc", 
                      ]
+
     if human_in_the_loop:
         action_space.append("request_input")
     prompt += f"""
@@ -938,6 +939,7 @@ def check_llm_command(
     explanation = response_content_parsed.get("explanation")
     jinx_out = response_content_parsed.get('jinx_name', '')
     jinx_out = '\n Jinx: ' + str(jinx_out) if jinx_out else ''
+
     render_markdown(f"- Action chosen: {action + jinx_out}\n")
     render_markdown(f"- Explanation given: {explanation}\n")
 
