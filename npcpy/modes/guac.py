@@ -175,6 +175,18 @@ def setup_guac_mode(config_dir=None,
     npc_team_dir = Path(npc_team_dir) if npc_team_dir else config_dir / "npc_team"
     src_dir = config_dir / "src"
 
+    team_ctx = {
+        "team_name": "guac_team",
+        "description": f"A team of NPCs specialized in {lang} analysis",
+        "forenpc": "guac",
+        "model": os.environ.get("NPCSH_CHAT_MODEL", "llama3.2"),
+        "provider": os.environ.get("NPCSH_CHAT_PROVIDER", "ollama")
+    }
+
+    with open(npc_team_dir / "team.ctx", "w") as f:
+        yaml.dump(team_ctx, f, default_flow_style=False)
+
+
     for p in [src_dir, plots_dir, npc_team_dir]:
         p.mkdir(parents=True, exist_ok=True)
 
@@ -271,7 +283,7 @@ def read_img(img_path):
     }
 
 def setup_npc_team(npc_team_dir, lang):
-    npc_data_list = [{
+    guac_npc = {
         "name": "guac", 
         "primary_directive": (
             f"You are guac, an AI assistant operating in a Python environment. "
@@ -280,10 +292,27 @@ def setup_npc_team(npc_team_dir, lang):
             f"When routing tasks (agent mode), consider Python-based tools or direct Python code generation if appropriate. "
             f"If generating code directly (cmd mode), ensure it's Python."
         )
-    }]
-    for npc_data in npc_data_list:
-        with open(npc_team_dir / f"{npc_data['name']}.npc", "w") as f:
+    }
+    caug_npc = {
+        "name": "caug",
+        "primary_directive": f"You are caug, a specialist in big data statistical methods in {lang}."
+    }
+
+    parsely_npc = {
+        "name": "parsely",
+        "primary_directive": f"You are parsely, a specialist in mathematical methods in {lang}."
+    }
+
+    toon_npc = {
+        "name": "toon",
+        "primary_directive": f"You are toon, a specialist in brute force methods in {lang}."
+    }
+
+    for npc_data in [guac_npc, caug_npc, parsely_npc, toon_npc]:
+        npc_file = npc_team_dir / f"{npc_data['name']}.npc"
+        with open(npc_file, "w") as f:
             yaml.dump(npc_data, f, default_flow_style=False)
+
 
     team_ctx_model = os.environ.get("NPCSH_CHAT_MODEL", npcsh_initial_state.chat_model or "llama3.2")
     team_ctx_provider = os.environ.get("NPCSH_CHAT_PROVIDER", npcsh_initial_state.chat_provider or "ollama")
