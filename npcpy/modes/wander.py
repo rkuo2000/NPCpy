@@ -268,7 +268,7 @@ def perform_single_wandering(problem,
     events_to_use = events.copy() if events else []
     
     for n in range(n_high_temp_streams):
-        print(f'Stream #{n+1}')
+        print(f'\nStream #{n+1}')
         
         # Occasionally inject an event
         if events_to_use and random.random() < 0.1:  
@@ -294,6 +294,8 @@ def perform_single_wandering(problem,
         
         for chunk in high_temp_response['response']:
             interruption = np.random.random_sample() < interruption_likelihood/100
+
+
             if interruption:
                 high_temp_streams.append(stream_result)
                 
