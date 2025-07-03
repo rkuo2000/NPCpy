@@ -189,7 +189,7 @@ def get_ollama_response(
         ]:
             options[key] = value
     
-    print(options)
+
     # Handle formatting
     if isinstance(format, type) and not stream:
         schema = format.model_json_schema()
