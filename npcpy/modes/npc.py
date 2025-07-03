@@ -63,6 +63,8 @@ def main():
 
     # First, get any arguments without parsing commands
     args, all_args = parser.parse_known_args()
+    global_model = args.model
+    global_provider = args.provider
 
     # Check if the first argument is a known command
     is_valid_command = False
@@ -95,10 +97,17 @@ def main():
         command_args = []
         unknown_args = all_args
 
+    if args.model is None:
+        args.model = global_model
+    if args.provider is None:
+        args.provider = global_provider
+    # --- END OF FIX ---
     npc_instance = load_npc_by_name(args.npc, NPCSH_DB_PATH)
 
     effective_model = args.model or NPCSH_CHAT_MODEL
     effective_provider = args.provider or NPCSH_CHAT_PROVIDER
+
+
 
     extras = {}
 

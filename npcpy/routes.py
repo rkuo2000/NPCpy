@@ -748,72 +748,76 @@ def vixynt_handler(command: str, **kwargs):
         output = f"Error {'editing' if attachments else 'generating'} image: {e}"
 
     return {"output": output, "messages": messages}
-
+# --- THIS IS THE FINAL, CORRECTED wander_handler in routes.py ---
 @router.route("wander", "Enter wander mode (experimental)")
 def wander_handler(command: str, **kwargs):
     messages = safe_get(kwargs, "messages", [])
-    command_parts = shlex.split(command)
     
-    # Extract main parameters
-    if len(command_parts) > 1:
-        problem = " ".join(command_parts[1:])
-    else:
-        problem = ""
-    
-    # Get environment from kwargs if present
-    environment = safe_get(kwargs, 'environment')
-    include_events = not safe_get(kwargs, 'no_events', False)
-    num_events = safe_get(kwargs, 'num_events', 3)
-    
+    # General parser for key=value arguments
+    try:
+        parts = shlex.split(command)
+        problem_parts = []
+        wander_params = {}
+        
+        i = 1  # Start after the 'wander' command name
+        while i < len(parts):
+            part = parts[i]
+            
+            if '=' in part:
+                # This is the start of a key=value pair
+                key, initial_value = part.split('=', 1)
+                
+                # Consume all subsequent parts that do NOT contain '=' as part of this value
+                value_parts = [initial_value]
+                j = i + 1
+                while j < len(parts) and '=' not in parts[j]:
+                    value_parts.append(parts[j])
+                    j += 1
+                
+                # Join the reconstructed value and store it
+                wander_params[key] = " ".join(value_parts)
+                # Advance the main loop index past the consumed parts
+                i = j
+            else:
+                # This part belongs to the problem string
+                problem_parts.append(part)
+                i += 1
+        
+        problem = " ".join(problem_parts)
+    except Exception as e:
+        return {"output": f"Error parsing arguments: {e}", "messages": messages}
+        
     if not problem:
-        return {"output": "Usage: /wander <problem or topic to explore> [--environment 'description'] [--no-events] [--num-events N]", "messages": messages}
+        return {"output": "Usage: /wander <problem> [key=value...]", "messages": messages}
 
     try:
-        # Get conversation history from the messages if it exists
-        previous_insights = ""
-        if messages and len(messages) > 1:
-            # Extract the recent conversation history to provide context
-            recent_messages = messages[-3:] if len(messages) > 3 else messages
-            previous_insights = "\n\n".join([msg.get("content", "") for msg in recent_messages if msg.get("role") != "system"])
-            
-            if previous_insights:
-                problem = f"{problem}\n\nPrevious insights to build upon:\n{previous_insights}"
+        # Build the argument list for enter_wander_mode
+        mode_args = {
+            'problem': problem,
+            'npc': safe_get(kwargs, 'npc'),
+            'model': safe_get(kwargs, 'model'),
+            'provider': safe_get(kwargs, 'provider'),
+            # Use parsed params with defaults
+            'environment': wander_params.get('environment'),
+            'low_temp': float(wander_params.get('low-temp', 0.5)),
+            'high_temp': float(wander_params.get('high-temp', 1.9)),
+            'interruption_likelihood': float(wander_params.get('interruption-likelihood', 1)),
+            'sample_rate': float(wander_params.get('sample-rate', 0.4)),
+            'n_high_temp_streams': int(wander_params.get('n-high-temp-streams', 5)),
+            'include_events': bool(wander_params.get('include-events', False)),
+            'num_events': int(wander_params.get('num-events', 3))
+        }
         
-        result = enter_wander_mode(
-            problem=problem,
-            npc=safe_get(kwargs, 'npc'),
-            model=safe_get(kwargs, 'model', NPCSH_CHAT_MODEL),
-            provider=safe_get(kwargs, 'provider', NPCSH_CHAT_PROVIDER),
-            environment=environment,
-            include_events=include_events,
-            num_events=num_events,
-            **safe_get(kwargs, 'api_kwargs', {})
-        )
+        result = enter_wander_mode(**mode_args)
         
-        # Convert the result to a string or extract the last insight
         if isinstance(result, list) and result:
-            # Get the last session's insight
-            last_session = result[-1]
-            output = last_session.get("insight", "Wander mode completed.")
-        elif isinstance(result, dict):
-            output = result.get("insight", "Wander mode completed.")
-        elif isinstance(result, tuple) and len(result) > 0:
-            output = str(result[-1])
-        elif result is not None:
-            output = str(result)
+            output = result[-1].get("insight", "Wander mode session complete.")
         else:
-            output = "Wander mode completed."
-        
-        # Add this insight to the message history
-        if messages is not None:
-            messages.append({
-                "role": "assistant",
-                "content": output
-            })
+            output = str(result) if result else "Wander mode session complete."
             
+        messages.append({"role": "assistant", "content": output})
         return {"output": output, "messages": messages}
-    except NameError:
-        return {"output": "Wander function (enter_wander_mode) not available.", "messages": messages}
+        
     except Exception as e:
         traceback.print_exc()
         return {"output": f"Error during wander mode: {e}", "messages": messages}

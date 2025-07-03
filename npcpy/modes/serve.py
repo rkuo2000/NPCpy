@@ -467,7 +467,7 @@ def get_models():
             elif "claude-3-5-sonnet-latest" in m:
                 display_model = "claude-3.5-sonnet"
             elif "gemini-1.5-flash" in m:
-                display_model = "gemini-1.5-flash"  # Handle multiple versions if needed
+                display_model = "gemini-1.5-flash"  # Handle multiple versions if neede
             elif "gemini-2.0-flash-lite-preview-02-05" in m:
                 display_model = "gemini-2.0-flash-lite-preview"
 
@@ -480,7 +480,7 @@ def get_models():
                     "display_name": display_name,
                 }
             )
-
+            print(m, p)
         return jsonify({"models": formatted_models, "error": None})
 
     except Exception as e:
@@ -656,7 +656,7 @@ def stream():
             dot_count += 1
             
             if "hf.co" in model or provider == 'ollama':
-                print("streaming from hf model through ollama")
+                #print("streaming from hf model through ollama")
                 chunk_content = response_chunk["message"]["content"] if "message" in response_chunk and "content" in response_chunk["message"] else ""
                 
                 # Extract tool call info for Ollama
@@ -1497,7 +1497,7 @@ def stream_raw():
             chunk_content = ""
             
             if "hf.co" in model or provider == 'ollama':
-                print("streaming from hf model through ollama")
+                #print("streaming from hf model through ollama")
                 chunk_content = response_chunk["message"]["content"]
                 
                 # Extract tool call info for Ollama

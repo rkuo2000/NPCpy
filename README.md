@@ -472,19 +472,42 @@ yap
 <p align="center"><a href ="https://github.com/cagostino/npcpy/blob/main/docs/wander.md">
   <img src="https://raw.githubusercontent.com/cagostino/npcpy/main/npcpy/npc_team/kadiefa.png" alt="logo for wander", width=250></a>
 </p>
-  A system for thinking outside of the box.  
+  A system for thinking outside of the box. From our testing, it appears gpt-4o-mini and gpt-series models in general appear to wander the most through various languages and ideas with high temperatures. Gemini models and many llama ones appear more stable despite high temps. Thinking models in general appear to be worse at this task.
   
   - Wander with an auto-generated environment  
     ```
-    npc wander "How can I improve my creative writing?"
+    npc --model "gemini-2.0-flash"  --provider "gemini"  wander "how does the bar of a galaxy influence the the surrounding IGM?" \
+      n-high-temp-streams=10 \
+      high-temp=1.95 \
+      low-temp=0.4 \
+      sample-rate=0.5 \
+      interruption-likelihood=1
+
+
     ```
   - Specify a custom environment
     ```
-    npc wander "How can I improve my creative writing?" --environment "A vast library with towering bookshelves stretching to infinity, filled with books from all of human history"
+
+    npc --model "gpt-4o-mini"  --provider "openai"  wander "how does the goos-hanchen effect impact neutron scattering?" \
+      environment='a ships library in the south.' \
+      num-events=3 \
+      n-high-temp-streams=10 \
+      high-temp=1.95 \
+      low-temp=0.4 \
+      sample-rate=0.5 \
+      interruption-likelihood=1
+
     ```
   - Control event generation
     ```
-    npc wander "How can I improve my creative writing?" --num-events 5
+    npc wander "what is the goos hanchen effect and does it affect water refraction?" \
+    --provider "ollama" \
+    --model "deepseek-r1:32b" \
+    environment="a vast, dark ocean ." \
+    interruption-likelihood=.1
+
+
+
     ```
 
 

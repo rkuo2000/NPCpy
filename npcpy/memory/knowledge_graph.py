@@ -8,7 +8,7 @@ try:
     import kuzu
 except ModuleNotFoundError:
     print("kuzu not installed")
-from typing import Optional, Dict, List, Union, Tuple, Any
+from typing import Optional, Dict, List, Union, Tuple, Any, Set
 
 
 from npcpy.llm_funcs import get_llm_response
@@ -16,6 +16,7 @@ from npcpy.npc_compiler import NPC
 import sqlite3
 
 
+import random 
 def safe_kuzu_execute(conn, query, error_message="Kuzu query failed"):
     """Execute a Kuzu query with proper error handling"""
     try:
@@ -60,29 +61,22 @@ def create_group(conn, name: str, metadata: str = ""):
 
 
 import traceback
-
-
 def init_db(db_path: str, drop=False):
-    """Initialize Kùzu database and create schema with robust error handling"""
+    """Initialize Kùzu database and create schema with generational tracking."""
     try:
-        # Ensure the directory exists
         os.makedirs(os.path.dirname(os.path.abspath(db_path)), exist_ok=True)
-
-        try:
-            db = kuzu.Database(db_path)
-            conn = kuzu.Connection(db)
-            print("Database connection established successfully")
-        except Exception as e:
-            print(f"Failed to connect to database: {str(e)}")
-            traceback.print_exc()
-            return None
-        # Drop tables if requested
+        db = kuzu.Database(db_path)
+        conn = kuzu.Connection(db)
+        print("Database connection established successfully")
+        
         if drop:
-            safe_kuzu_execute(conn, "DROP REL TABLE IF EXISTS Contains")
-            safe_kuzu_execute(conn, "DROP NODE TABLE IF EXISTS Fact")
-            safe_kuzu_execute(conn, "DROP NODE TABLE IF EXISTS Groups")
+            # Drop tables in reverse order of dependency
+            safe_kuzu_execute(conn, "DROP TABLE IF EXISTS Contains")
+            safe_kuzu_execute(conn, "DROP TABLE IF EXISTS EvolvedFrom") # New
+            safe_kuzu_execute(conn, "DROP TABLE IF EXISTS Fact")
+            safe_kuzu_execute(conn, "DROP TABLE IF EXISTS Groups")
 
-        # Create tables with proper error handling
+        # Fact table remains the same
         safe_kuzu_execute(
             conn,
             """
@@ -95,265 +89,68 @@ def init_db(db_path: str, drop=False):
             """,
             "Failed to create Fact table",
         )
-        print("Fact table created or already exists.")
 
+        # UPDATED Groups table with generational properties
         safe_kuzu_execute(
             conn,
             """
             CREATE NODE TABLE IF NOT EXISTS Groups(
               name STRING,
               metadata STRING,
+              generation_created INT64,
+              is_active BOOLEAN,
               PRIMARY KEY (name)
             );
             """,
             "Failed to create Groups table",
         )
-        print("Groups table created or already exists.")
-
+        print("Groups table (with generation tracking) created or already exists.")
+        
+        # Contains relationship remains the same
+        safe_kuzu_execute(
+            conn,
+            "CREATE REL TABLE IF NOT EXISTS Contains(FROM Groups TO Fact);",
+            "Failed to create Contains relationship table",
+        )
+        
+        # NEW EvolvedFrom relationship table
         safe_kuzu_execute(
             conn,
             """
-            CREATE REL TABLE IF NOT EXISTS Contains(
-              FROM Groups TO Fact
+            CREATE REL TABLE IF NOT EXISTS EvolvedFrom(
+                FROM Groups TO Groups,
+                event_type STRING,
+                generation INT64,
+                reason STRING
             );
             """,
-            "Failed to create Contains relationship table",
+            "Failed to create EvolvedFrom relationship table",
         )
-        print("Contains relationship table created or already exists.")
+        print("EvolvedFrom relationship table created or already exists.")
 
         return conn
     except Exception as e:
         print(f"Fatal error initializing database: {str(e)}")
         traceback.print_exc()
         return None
-
-
-def extract_mistakes(
-    text: str, model: str = "llama3.2", provider: str = "ollama", npc: NPC = None, context: str = ""
-) -> List:
-    """Extract facts from text using LLM"""
-    prompt = """Extract mistakes from this text.
-        A mistake is a choice made that ended up being incorrect.
-        Mistakes may be simple or complex. 
-        For example, if a message says :
-            "vaccines cause autism and I'm a doctor so you should believe me"    
-        You might extract the following mistake:
-            - The message insinuates to believe their lie by appealing to authority                
-            - The message is incorrect because vaccines do not cause autism
-
-        Another example:
-            "user>what shape is the earth? 
-            assistant> It is flat
-            user> no its not
-            assistant> yes it is
-            "
-        You might extract the following mistakes:
-            - The assistant is incorrect because the earth is not flat
-            - The assistant should not argue without supporting evidence. 
-
-
-    Return a JSON object with the following structure:
-
-        {
-            "mistakes": "a list containing the mistakes where each mistake is a string",
-        }
-
-
-    """ + f""" Here is some relevant user context: {context}
-    
-    
-    Return only the JSON object.
-    Do not include any additional markdown formatting.
-
-    """
-
-    response = get_llm_response(
-        prompt + f"\n\nHERE BEGINS THE TEXT TO INVESTIGATE:\nText: {text}",
-        model=model,
-        provider=provider,
-        format="json",
-    )
-    response = response["response"]
-    print(response)
-    return response["fact_list"]
-
-
-def extract_lessons_learned(
-    text: str, model: str  = "llama3.2", provider: str = "ollama", npc: NPC = None, context: str = ""
-) -> List:
-    """Extract lessons_learned from text using LLM"""
-    prompt = """Extract lessons learned from this text.
-        A lesson learned is a piece of information that directly states how a new understanding came to be. 
-        A lesson learned describes the initial conception and then the ultimate understanding ,
-        A lesson learned documents a change in perception.
-        changes in perception may be simple or complex. 
-        For example, if a message chain goes like says :
-            "user> tell me about the baldwin phillips and terlevich diagrams and how they separate active galaxies and star-forming galaxies
-            assistant> The Baldwin-Phillips and Terlevich diagrams are used to separate active galaxies from star-forming galaxies based on their emission line ratios.
-            user> how did they determine that to be the case? 
-            assistant> They determined this by analyzing the spectra of various galaxies and observing the differences in their emission line ratios.
-            user> but how could they determine which galaxies were active and which were star-forming a priori?
-            assistant> They used a combination of theoretical models and observational data to establish the criteria for classifying galaxies as active or star-forming.
-            user> so they used a priori knowledge to determine the classification of the galaxies?
-            assistant> Yes, they relied on existing knowledge and models to classify the galaxies based on their emission line ratios.
-            
-        You might extract the following lessons learned:
-            -The user had difficulty understanding how emission line ratios could be 
-            used for galaxies without any other known signal of black hole accretion,
-            and the assistant helped them understand that the classification of galaxies 
-            is based on a priori knowledge and models.
-            
-        Another example:
-            "user> if i build a docker container, will it store data permanently?
-            assistant> Yes, Docker containers can store data permanently if you use volumes or bind mounts.
-            user> but what if i don't use volumes or bind mounts?
-            assistant> In that case, the data will not be stored permanently and will be lost when the container is removed.
-            user> so i need to use volumes or bind mounts to keep the data?
-            assistant> Yes, using volumes or bind mounts is necessary to ensure data persistence in Docker containers.
-        You might extract the following lessons learned:
-            - The user was unsure about the data persistence in Docker containers and
-            asked the assistant for clarification, learning that Docker containers can
-            store data permanently only if volumes or bind mounts are used.
-            
-        Thus, it is your mission to reliably extract lists of facts.
-
-
-    Return a JSON object with the following structure:
-
-        {
-            "lessons_learned": "a list containing the lessons learned where each lesson learned is a string",
-        }
-
-
-    """ + f""" Here is some relevant user context: {context}
-    
-    
-    Return only the JSON object.
-    Do not include any additional markdown formatting.
-
-    """
-
-    response = get_llm_response(
-        prompt + f"\n\nHERE BEGINS THE TEXT TO INVESTIGATE\n\nText: {text}",
-        model=model,
-        provider=provider,
-        format="json",
-    )
-    response = response["response"]
-    print(response)
-    return response["fact_list"]
-
-def identify_individuals(
-    text: str, model: str = "llama3.2", provider: str = "ollama", npc: NPC = None, context: str = ""
-) -> List:
-    """Identify individuals from text using LLM"""
-    prompt = """Extract individuals from this text.
-        An individual is a person or entity that is mentioned in the text.
-        Individuals may be simple or complex. They can also be conflicting with each other, usually
-        because there is some hidden context that is not mentioned in the text.
-        In any case, it is simply your job to extract a list of individuals that could pertain to
-        an individual's  personality.
-        For example, if a messages says :
-            "since my coworker is a hardass i have to do this thing very carefully.
-            "
-        You might extract the following individuals:
-            - There is a coworker
-        
-
-        Another example:
-            "I am a software engineer who loves to play video games. I am also a huge fan of the
-            Star Wars franchise and I am a member of the 501st Legion."
-        You might extract the following individuals:
-            - The individual is a software engineer
-            - The individual loves to play video games
-            - The individual is a huge fan of the Star Wars franchise
-            - The individual is a member of the 501st Legion
-
-        Thus, it is your mission to reliably extract lists of personas.
-
-
-    Return a JSON object with the following structure:
-
-        {
-            "persona_list": "a list containing the personas where each persona is a string",
-        }
-
-
-    """ + f""" Here is some relevant user context: {context}
-    
-    
-    Return only the JSON object.
-    Do not include any additional markdown formatting.
-
-    """
-
-    response = get_llm_response(
-        prompt + f"\n\nText: {text}",
-        model=model,
-        provider=provider,
-        format="json",
-    )
-    response = response["response"]
-    print(response)
-    return response["fact_list"]
-def check_existing_individuals( 
-    new_individuals, 
-    existing_individuals,
-    model: str = "llama3.2",
-    provider: str = "ollama",
-    npc: NPC = None,
-) -> List[str]:
-    prompt =f'''
-    
-    please compare the set of new individuals with the set of existing individuals.
-    
-    New individuals: {new_individuals}
-    
-    Existing individuals: {existing_individuals}
-    
-    
-    Return a JSON object with the following structure:
-        {
-            "new_individuals": "a list containing the new individuals that are not in the existing individuals",
-            "existing_mapping": "a dictionary mapping the new individuals to the existing individuals they are idempotent to"
-        }
-    If an individual's functional relationship is essentially idempotent to an existing individual, 
-    then it is not a new individual. For example, if a new individual is a coworker and there is an existing "coworker" identifier,
-    then the new individual is not a new individual and their information should be associated with the existing individual.
-     Another example is if a new individual is "one of my best friends" and there is an existing "best friend" identifier,
-     then without an associated name it is best to associate that individual with the generalized class of "best friend" rather than
-     trying to keep track of multiple individual best friends.
-     
-     An example which would not be idempotent is if a new individual is "my best friend John" and there is an existing "best friend" identifier.
-        
-        this name is able to break a degeneracy and so it can be separated into a new specific individual. 
-        At a later time, usersr will review the data labels and can update them for some of our more generic classes, 
-        so don't feel like you have be too scrutinous against new groups but simply try to keep the set of known individual entities
-        as small as possible
-        '''
-    response = get_llm_response(
-        prompt,
-        model=model,
-        provider=provider,
-        format="json",
-        npc=npc,
-    )
-    response = response["response"]
-    print(response)
-    return response["new_individuals"], response["existing_mapping"]
-
 def extract_facts(
-    text: str, model: str = "llama3.2", provider: str = "ollama", npc: NPC = None, context: str = ""
-) -> List:
-    """Extract facts from text using LLM"""
-    prompt = """Extract facts from this text.
+    text: str,
+    model: str,
+    provider: str,
+    npc: NPC = None,
+    context: str = ""
+) -> List[str]:
+    """Extract concise facts from text using LLM (as defined earlier)"""
+    # Implementation from your previous code
+    prompt = """Extract concise facts from this text.
         A fact is a piece of information that makes a statement about the world.
         A fact is typically a sentence that is true or false.
         Facts may be simple or complex. They can also be conflicting with each other, usually
         because there is some hidden context that is not mentioned in the text.
         In any case, it is simply your job to extract a list of facts that could pertain to
-        an individual's  personality.
-        For example, if a messages says :
+        an individual's personality.
+        
+        For example, if a message says:
             "since I am a doctor I am often trying to think up new ways to help people.
             Can you help me set up a new kind of software to help with that?"
         You might extract the following facts:
@@ -369,22 +166,57 @@ def extract_facts(
             - The individual is a huge fan of the Star Wars franchise
             - The individual is a member of the 501st Legion
 
+        Another example:
+            "The quantum tunneling effect allows particles to pass through barriers
+            that classical physics says they shouldn't be able to cross. This has
+            huge implications for semiconductor design."
+        You might extract these facts:
+            - Quantum tunneling enables particles to pass through barriers that are
+              impassable according to classical physics
+            - The behavior of quantum tunneling has significant implications for
+              how semiconductors must be designed
+
+        Another example:
+            "People used to think the Earth was flat. Now we know it's spherical,
+            though technically it's an oblate spheroid due to its rotation."
+        You might extract these facts:
+            - People historically believed the Earth was flat
+            - It is now known that the Earth is an oblate spheroid
+            - The Earth's oblate spheroid shape is caused by its rotation
+
+        Another example:
+            "My research on black holes suggests they emit radiation, but my professor
+            says this conflicts with Einstein's work. After reading more papers, I
+            learned this is actually Hawking radiation and doesn't conflict at all."
+        You might extract the following facts:
+            - Black holes emit radiation
+            - The professor believes this radiation conflicts with Einstein's work
+            - The radiation from black holes is called Hawking radiation
+            - Hawking radiation does not conflict with Einstein's work
+
+        Another example:
+            "During the pandemic, many developers switched to remote work. I found
+            that I'm actually more productive at home, though my company initially
+            thought productivity would drop. Now they're keeping remote work permanent."
+        You might extract the following facts:
+            - The pandemic caused many developers to switch to remote work
+            - The individual discovered higher productivity when working from home
+            - The company predicted productivity would decrease with remote work
+            - The company decided to make remote work a permanent option
+
         Thus, it is your mission to reliably extract lists of facts.
 
+        Return a JSON object with the following structure:
+            {
+                "fact_list": "a list containing the facts where each fact is a string",
+            }
+    """ 
+    if len(context) > 0:
+        prompt+=f""" Here is some relevant user context: {context}"""
 
-    Return a JSON object with the following structure:
-
-        {
-            "fact_list": "a list containing the facts where each fact is a string",
-        }
-
-
-    """ + f""" Here is some relevant user context: {context}
-    
-    
+    prompt+="""    
     Return only the JSON object.
     Do not include any additional markdown formatting.
-
     """
 
     response = get_llm_response(
@@ -394,54 +226,771 @@ def extract_facts(
         format="json",
     )
     response = response["response"]
-    print(response)
-    return response["fact_list"]
+    return response.get("fact_list", [])
 
 
+# --- Breathe (Context Condensation) ---
 def breathe(
-            messages: Optional[List[Dict[str, str]]],
-            model: str,
-            provider: str,
-            npc: Any = None, 
-            context:str = None,             
-            ) -> Dict[str, Any]:
-    """Function to condense context on a regular cadence.
-    Args:
-        prompt (str): The prompt to send to the LLM.
-        npc (Any): The NPC object.
-        model (str): The model to use for the LLM.
-        provider (str): The provider for the LLM.
-        messages (Optional[List[Dict[str, str]]]): The conversation history.
-    Returns:
-        Dict[str, Any]: The response from the LLM.
-    """
-    if len(messages) == 0:
+    messages: List[Dict[str, str]],
+    model: str,
+    provider: str,
+    npc: NPC = None,
+    context: str = None,
+) -> Dict[str, Any]:
+    """Condense the conversation context into a small set of key extractions."""
+    if not messages:
         return {"output": {}, "messages": []}
 
-    facts = extract_facts(
-        str(messages),
-        npc=npc,
-        model=model,
-        provider=provider,
-        )
-    mistakes = extract_mistakes(
-        str(messages),
-        npc=npc,
-        model=model,
-        provider=provider,
-        )
-    lessons = extract_lessons_learned(
-        str(messages),
-        npc=npc,
-        model=model,
-        provider=provider,
-        )
-    # execute slash command will handle updating database     
-    return {"output": {'facts': facts,
-                       'mistakes': mistakes, 
-                       'lessons': lessons}, 
-                        "messages": []}
+    conversation_text = "\n".join([f"{m['role']}: {m['content']}" for m in messages])
+
+    # Extract facts, mistakes, and lessons learned
+    facts = extract_facts(conversation_text, model, provider)
+    mistakes = extract_mistakes(conversation_text, model, provider)
+    lessons = extract_lessons_learned(conversation_text, model, provider)
+
+    # Combine results for brevity
+    output = {
+        "facts": facts,
+        "mistakes": mistakes,
+        "lessons_learned": lessons
+    }
+
+    return {"output": output, "messages": []}
+
+# --- Semantic Evolution (Sleep) ---
+def semantic_evolution(
+    facts: List[str],
+    existing_leaf_groups: List[str], # These are groups from previous steps, not necessarily facts
+    model: str,
+    provider: str,
+    npc: NPC = None,
+    min_top: int = 4,
+    max_top: int = 10,
+    max_levels: int = 5
+) -> Dict:
+    """Build hierarchical group structure iteratively from facts and existing groups."""
     
+    # Step 1: Generate initial group candidates from the new facts
+    new_group_candidates = generate_group_candidates(facts, "facts", model, provider, npc)
+    
+    # Step 2: Combine with existing leaf groups and remove idempotents to get our starting set
+    # These will be the bottom-most groups that we will then try to abstract upwards.
+    initial_groups_for_hierarchy = remove_idempotent_groups(
+        new_group_candidates + existing_leaf_groups, model, provider, npc
+    )
+    
+    # Step 3: Build the hierarchy iteratively from these initial groups
+    # We pass these initial groups, and build_full_hierarchy will abstract them upwards.
+    hierarchy_data = build_full_hierarchy(
+        initial_groups_for_hierarchy, # Use the cleaned list of groups
+        model=model,
+        provider=provider,
+        npc=npc,
+        min_top=min_top,
+        max_top=max_top,
+        max_levels=max_levels
+    )
+    
+    return {
+        "hierarchy": hierarchy_data,
+        "leaf_groups": initial_groups_for_hierarchy, # These are the groups that were NOT abstracted further
+    }
+# --- Helper Functions for Hierarchy (unchanged from before) ---
+def generate_group_candidates(
+    items: List[str],
+    item_type: str,
+    model: str,
+    provider: str,
+    npc: NPC = None,
+    n_passes: int = 3,
+    subset_size: int = 10
+) -> List[str]:
+    """Generate candidate groups for items (facts or groups) based on core semantic meaning."""
+    all_candidates = []
+    
+    for pass_num in range(n_passes):
+        if len(items) > subset_size:
+            item_subset = random.sample(items, min(subset_size, len(items)))
+        else:
+            item_subset = items
+        
+        # --- PROMPT MODIFICATION: Focus on semantic essence, avoid gerunds/adverbs, favor subjects ---
+        prompt = f"""From the following {item_type}, identify specific and relevant conceptual groups.
+        Think about the core subject or entity being discussed.
+        
+        GUIDELINES FOR GROUP NAMES:
+        1.  **Prioritize Specificity:** Names should be precise and directly reflect the content.
+        2.  **Favor Nouns and Noun Phrases:** Use descriptive nouns or noun phrases.
+        3.  **AVOID:**
+            *   Gerunds (words ending in -ing when used as nouns, like "Understanding", "Analyzing", "Processing"). If a gerund is unavoidable, try to make it a specific action (e.g., "User Authentication Module" is better than "Authenticating Users").
+            *   Adverbs or descriptive adjectives that don't form a core part of the subject's identity (e.g., "Quickly calculating", "Effectively managing").
+            *   Overly generic terms (e.g., "Concepts", "Processes", "Dynamics", "Mechanics", "Analysis", "Understanding", "Interactions", "Relationships", "Properties", "Structures", "Systems", "Frameworks", "Predictions", "Outcomes", "Effects", "Considerations", "Methods", "Techniques", "Data", "Theoretical", "Physical", "Spatial", "Temporal").
+        4.  **Direct Naming:** If an item is a specific entity or action, it can be a group name itself (e.g., "Earth", "Lamb Shank Braising", "World War I").
+        
+        EXAMPLE:
+        Input {item_type.capitalize()}: ["Self-intersection shocks drive accretion disk formation.", "Gravity stretches star into stream.", "Energy dissipation in shocks influences capture fraction."]
+        Desired Output Groups: ["Accretion Disk Formation (Self-Intersection Shocks)", "Stellar Tidal Stretching", "Energy Dissipation from Shocks"]
+        
+        ---
+        
+        Now, analyze the following {item_type}:
+        {item_type.capitalize()}: {json.dumps(item_subset)}
+        
+        Return a JSON object:
+        {{
+            "groups": ["list of specific, precise, and relevant group names"]
+        }}
+        """
+        # --- END PROMPT MODIFICATION ---
+        
+        response = get_llm_response(
+            prompt,
+            model=model,
+            provider=provider,
+            format="json",
+            npc=npc,
+        )
+        
+        candidates = response["response"].get("groups", [])
+        all_candidates.extend(candidates)
+    print(all_candidates)
+    return list(set(all_candidates))
+
+
+def remove_idempotent_groups(
+    group_candidates: List[str],
+    model: str,
+    provider: str,
+    npc: NPC = None
+) -> List[str]:
+    """Remove groups that are essentially identical in meaning, favoring specificity and direct naming, and avoiding generic structures."""
+    
+    prompt = f"""Compare these group names. Identify and list ONLY the groups that are conceptually distinct and specific.
+    
+    GUIDELINES FOR SELECTING DISTINCT GROUPS:
+    1.  **Prioritize Specificity and Direct Naming:** Favor precise nouns or noun phrases that directly name the subject.
+    2.  **Prefer Concrete Entities/Actions:** If a name refers to a specific entity or action (e.g., "Earth", "Sun", "Water", "France", "User Authentication Module", "Lamb Shank Braising", "World War I"), keep it if it's distinct.
+    3.  **Rephrase Gerunds:** If a name uses a gerund (e.g., "Understanding TDEs"), rephrase it to a noun or noun phrase (e.g., "Tidal Disruption Events").
+    4.  **AVOID OVERLY GENERIC TERMS:** Do NOT use very broad or abstract terms that don't add specific meaning. Examples to avoid: "Concepts", "Processes", "Dynamics", "Mechanics", "Analysis", "Understanding", "Interactions", "Relationships", "Properties", "Structures", "Systems", "Frameworks", "Predictions", "Outcomes", "Effects", "Considerations", "Methods", "Techniques", "Data", "Theoretical", "Physical", "Spatial", "Temporal". If a group name seems overly generic or abstract, it should likely be removed or refined.
+    5.  **Similarity Check:** If two groups are very similar, keep the one that is more descriptive or specific to the domain.
+
+    EXAMPLE 1:
+    Groups: ["Accretion Disk Formation", "Accretion Disk Dynamics", "Formation of Accretion Disks"]
+    Distinct Groups: ["Accretion Disk Formation", "Accretion Disk Dynamics"] 
+
+    EXAMPLE 2:
+    Groups: ["Causes of Events", "Event Mechanisms", "Event Drivers"]
+    Distinct Groups: ["Event Causation", "Event Mechanisms"] 
+
+    EXAMPLE 3:
+    Groups: ["Astrophysics Basics", "Fundamental Physics", "General Science Concepts"]
+    Distinct Groups: ["Fundamental Physics"] 
+
+    EXAMPLE 4:
+    Groups: ["Earth", "The Planet Earth", "Sun", "Our Star"]
+    Distinct Groups: ["Earth", "Sun"]
+    
+    EXAMPLE 5:
+    Groups: ["User Authentication Module", "Authentication System", "Login Process"]
+    Distinct Groups: ["User Authentication Module", "Login Process"]
+    
+    ---
+    
+    Now, analyze the following groups:
+    Groups: {json.dumps(group_candidates)}
+    
+    Return JSON:
+    {{
+        "distinct_groups": ["list of specific, precise, and distinct group names to keep"]
+    }}
+    """
+    
+    response = get_llm_response(
+        prompt,
+        model=model,
+        provider=provider,
+        format="json",
+        npc=npc
+    )
+    
+    print(response['response']['distinct_groups'])
+    return response["response"]["distinct_groups"]
+
+
+def build_hierarchy_dag(
+    groups: List[str],
+    model: str,
+    provider: str,
+    npc: NPC = None,
+    max_levels: int = 3,
+    target_top_count: int = 8,
+    n_passes: int = 3,      # This is the number of times we query the LLM per level
+    subset_size: int = 10   # This is how many groups we pass to the LLM at once
+) -> Dict:
+    """Build DAG hierarchy iteratively from bottom up, abstracting groups."""
+    
+    # Initialize DAG structure for the initial set of groups
+    dag = {group: {"parents": set(), "children": set(), "level": 0} for group in groups}
+    all_groups = set(groups)
+    current_level_items = groups # Start with the provided groups (the bottom layer)
+    level_num = 0
+    
+    # Keep abstracting until we have a manageable number of top-level groups
+    # or reach max_levels. The condition checks the number of groups *currently* without parents.
+    while len([g for g in all_groups if not dag.get(g, {}).get("parents")]) > target_top_count and level_num < max_levels:
+        level_num += 1
+        print(f"Too many top groups ({len([g for g in all_groups if not dag.get(g, {}).get('parents')])}), abstracting level {level_num}")
+        
+        # --- CRITICAL FIX: Re-introduce the multi-pass sampling for parent suggestions ---
+        potential_parents = []
+        # Multiple passes with resampling to explore different abstraction possibilities
+        for pass_num in range(n_passes): # Iterate n_passes times
+            # Sample a subset of groups from the current level for the LLM prompt
+            if len(current_level_items) > subset_size:
+                # Use a seed based on level and pass to ensure different samples each time
+                random.seed(level_num * 10 + pass_num) 
+                group_subset = random.sample(current_level_items, min(subset_size, len(current_level_items)))
+            else:
+                group_subset = current_level_items # Use all if subset_size is larger than available groups
+                
+            # Prompt the LLM to suggest parent categories for this subset of groups
+            prompt = f"""
+            What are broader parent categories that could contain these groups?
+            Suggest 1-3 broader categories. Make them distinct and meaningful.
+
+            Groups: {json.dumps(group_subset)}
+
+            Return JSON:
+            {{
+                "parents": ["list of parent categories"]
+            }}
+            """
+
+            response = get_llm_response(
+                prompt, model=model, provider=provider, format="json", npc=npc
+            )
+
+            parents = response["response"].get("parents", [])
+            potential_parents.extend(parents)
+        
+        distinct_parents = remove_idempotent_groups(potential_parents, model, provider, npc)
+        
+        if not distinct_parents: # Stop if no new abstract groups were generated
+            print("No distinct parent groups generated, stopping abstraction.")
+            break
+
+        # Add these distinct parent groups to the DAG and update relationships
+        new_groups_for_next_level = set()
+        for parent in distinct_parents:
+            if parent not in dag: # If this is a completely new abstract group
+                dag[parent] = {
+                    "parents": set(), # These new parents have no parents yet in this round
+                    "children": set(current_level_items), # The groups from the previous level are their children
+                    "level": level_num
+                }
+                all_groups.add(parent)
+                new_groups_for_next_level.add(parent)
+            else: # If the parent group already exists (e.g., from a different branch)
+                # Update its children to include the current level's groups
+                dag[parent]["children"].update(current_level_items)
+            
+            # Update parent relationship for the children from the previous level
+            for child in current_level_items:
+                dag[child]["parents"].add(parent)
+                
+        # The newly found parents become the input for the next abstraction level
+        current_level_items = list(new_groups_for_next_level) 
+
+    # After the loop, identify the final top groups (those with no parents in the constructed DAG)
+    top_groups_final = [g for g in all_groups if not dag.get(g, {}).get("parents")]
+
+    return {
+        "dag": dag,
+        "top_groups": top_groups_final,
+        "leaf_groups": groups, # The initial set of groups passed in, which are the base for the hierarchy
+        "max_level": level_num
+    }
+    
+    
+    
+
+def build_full_hierarchy(
+    leaf_groups: List[str],
+    model: str,
+    provider: str,
+    npc: NPC = None,
+    min_top: int = 4,
+    max_top: int = 10,
+    max_levels: int = 5
+) -> Dict:
+    """Build full hierarchy from initial leaf groups up to top groups."""
+    # Step 1: Get initial distinct groups from facts (already done by caller if passing leaf_groups)
+    # If leaf_groups is empty, we might want to generate them from facts first, but for now, assume they are provided.
+    
+    # Step 2: Build the DAG structure, abstracting upwards until we have <= max_top groups
+    hierarchy = build_hierarchy_dag(
+        leaf_groups, model, provider, npc, max_levels, max_top, n_passes=3, subset_size=10
+    )
+    
+    return hierarchy
+
+def assign_fact_to_dag(fact: str, dag_data: Dict, model: str, provider: str, npc: NPC = None) -> Dict:
+    """Assign fact to DAG starting from top-level abstract concepts, traversing down."""
+    
+    top_groups = dag_data.get("top_groups", [])
+    if not top_groups: # Handle case where no hierarchy was built
+        print(f"Warning: No top groups found for fact: {fact}. Assigning to all leaf groups.")
+        # Fallback: assign to leaf groups if no hierarchy exists
+        leaf_groups = dag_data.get("leaf_groups", [])
+        if not leaf_groups: return {'top_level_groups': [], 'all_groups': [], 'hierarchy_paths': []}
+        assignments = get_fact_assignments(fact, leaf_groups, model, provider, npc)
+        return {'top_level_groups': assignments, 'all_groups': assignments, 'hierarchy_paths': [f"{g}" for g in assignments]}
+
+    print(f"assign_fact_to_dag: Assigning fact: {fact[:50]}...")
+    
+    # Start assignment process from the top-level groups
+    top_level_assignments = get_fact_assignments(fact, top_groups, model, provider, npc)
+    
+    # Initialize tracking for all relevant groups and paths
+    all_assigned_groups = set(top_level_assignments)
+    current_level_to_process = top_level_assignments # Groups at the current level we need to check children for
+    hierarchy_paths = [] # Stores the path from top-level to the most specific assigned group
+
+    # Store path segments as we go down
+    path_segments = {group: [group] for group in top_level_assignments}
+
+    # Traverse down the hierarchy level by level
+    # We continue as long as there are groups at the current level that are assigned to the fact
+    # and these groups have children defined in the DAG.
+    processed_groups_in_level = set() # To avoid infinite loops if DAG has cycles (though should be acyclic)
+
+    while current_level_to_process:
+        next_level_to_process = set()
+        
+        for current_group in current_level_to_process:
+            # Prevent reprocessing the same group in the same level traversal
+            if current_group in processed_groups_in_level:
+                continue
+            processed_groups_in_level.add(current_group)
+
+            # Get children of the current group
+            children = dag_data["dag"].get(current_group, {}).get("children", set())
+            
+            if children:
+                # Get assignments for children
+                child_assignments = get_fact_assignments(fact, list(children), model, provider, npc)
+                
+                # If the fact belongs to any children, add them to the next level to process
+                if child_assignments:
+                    next_level_to_process.update(child_assignments)
+                    all_assigned_groups.update(child_assignments)
+                    
+                    # Update path segments for newly assigned children
+                    for assigned_child in child_assignments:
+                        # Append the child to the path of its parent
+                        if current_group in path_segments:
+                            path_segments[assigned_child] = path_segments[current_group] + [assigned_child]
+                        else: # Should not happen if logic is correct, but as a safeguard
+                            path_segments[assigned_child] = [assigned_child]
+        
+        # Add completed paths to our final list
+        for group, path in path_segments.items():
+            if group in current_level_to_process and group not in processed_groups_in_level: # If it was processed and assigned
+                if path not in hierarchy_paths:
+                    hierarchy_paths.append(' → '.join(path))
+
+        current_level_to_process = next_level_to_process
+        processed_groups_in_level = set() # Reset for the next level
+
+    # Ensure all paths are captured even if a fact is only assigned to top-level groups
+    for group in top_level_assignments:
+        if group in path_segments and ' → '.join(path_segments[group]) not in hierarchy_paths:
+             hierarchy_paths.append(' → '.join(path_segments[group]))
+
+
+    return {
+        "top_level_groups": top_level_assignments,
+        "all_groups": list(all_assigned_groups),
+        "hierarchy_paths": hierarchy_paths
+    }
+
+def process_text_with_hierarchy(
+    text: str,
+    model: str,
+    provider: str,
+    db_path: str,
+    npc: NPC = None,
+    existing_knowledge_graph: Optional[Dict] = None
+) -> Dict:
+    """Full processing pipeline with hierarchical grouping"""
+    print('process_text_with_hierarchy: Starting processing')
+    facts = extract_facts(text, model, provider, npc)
+    print(f'process_text_with_hierarchy: Extracted Facts: {facts}')
+    
+    conn = init_db(db_path, drop=False)
+    if conn is None:
+        return None
+
+    leaf_groups = existing_knowledge_graph.get("leaf_groups", []) if existing_knowledge_graph else []
+    
+    # Build the hierarchy from the extracted facts (and any existing leaf groups)
+    hierarchy_data = build_full_hierarchy(facts + leaf_groups, model, provider, npc) # Pass facts to generate initial groups
+
+    assignments = {}
+    for fact in facts:
+        # Assign facts using the top-down traversal logic
+        assignment = assign_fact_to_dag(fact, hierarchy_data, model, provider, npc)
+        
+        # Store fact and its assignments in Kuzu
+        store_success = store_fact_and_group(conn, fact, assignment["all_groups"], "")
+        if not store_success:
+            print(f'process_text_with_hierarchy: Failed to store fact: {fact}')
+        
+        assignments[fact] = assignment
+    
+    conn.close()
+    
+    print('process_text_with_hierarchy: Finished Processing')
+    return {
+        'facts': facts,
+        'leaf_groups': hierarchy_data.get("leaf_groups", []), # This should be the *final* leaf groups after abstraction
+        'hierarchy': hierarchy_data,
+        'assignments': assignments
+    }
+
+
+
+
+### STORAGE
+
+def store_fact_and_group(conn: kuzu.Connection, fact: str,
+                        groups: List[str], path: str) -> bool:
+    """Insert a fact into the database along with its groups"""
+    if not conn:
+        print("store_fact_and_group: Database connection is None")
+        return False
+    
+    print(f"store_fact_and_group: Storing fact: {fact}, with groups:"
+          f" {groups}") # DEBUG
+    try:
+        # Insert the fact
+        insert_success = insert_fact(conn, fact, path) # Capture return
+        if not insert_success:
+            print(f"store_fact_and_group: Failed to insert fact: {fact}")
+            return False
+        
+        # Assign fact to groups
+        for group in groups:
+            assign_success = assign_fact_to_group_graph(conn, fact, group)
+            if not assign_success:
+                print(f"store_fact_and_group: Failed to assign fact"
+                      f" {fact} to group {group}")
+                return False
+        
+        return True
+    except Exception as e:
+        print(f"store_fact_and_group: Error storing fact and group: {e}")
+        traceback.print_exc()
+        return False
+
+def insert_fact(conn, fact: str, path: str) -> bool:
+    """Insert a fact into the database with robust error handling"""
+    if conn is None:
+        print("insert_fact: Cannot insert fact:"
+              " database connection is None")
+        return False
+
+    try:
+        # Properly escape quotes in strings
+        escaped_fact = fact.replace('"', '\\"')
+        escaped_path = os.path.expanduser(path).replace('"', '\\"')
+
+        # Generate timestamp
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        print(f"insert_fact: Attempting to insert fact: {fact}") #DEBUG
+
+        # Begin transaction
+        safe_kuzu_execute(conn, "BEGIN TRANSACTION")
+
+        # Check if fact already exists
+        check_query = f"""
+        MATCH (f:Fact {{content: "{escaped_fact}"}})
+        RETURN f
+        """
+
+        result, error = safe_kuzu_execute(
+            conn, check_query, "insert_fact: Failed to check if fact exists"
+        )
+        if error:
+            safe_kuzu_execute(conn, "ROLLBACK")
+            print(f"insert_fact: Error checking if fact exists: {error}")
+            return False
+
+        # Insert fact if it doesn't exist
+        if not result.has_next():
+            insert_query = f"""
+            CREATE (f:Fact {{
+                content: "{escaped_fact}",
+                path: "{escaped_path}",
+                recorded_at: "{timestamp}"
+            }})
+            """
+
+            result, error = safe_kuzu_execute(
+                conn, insert_query, "insert_fact: Failed to insert fact"
+            )
+            if error:
+                safe_kuzu_execute(conn, "ROLLBACK")
+                print(f"insert_fact: Error inserting fact: {error}")
+                return False
+
+        # Commit transaction
+        safe_kuzu_execute(conn, "COMMIT")
+        print(f"insert_fact: Successfully inserted/found fact: {fact}")
+        return True
+    except Exception as e:
+        print(f"insert_fact: Error inserting fact: {str(e)}")
+        traceback.print_exc()
+        safe_kuzu_execute(conn, "ROLLBACK")
+        return False
+
+def assign_fact_to_group_graph(conn, fact: str, group: str) -> bool:
+    """Create a relationship between a fact and a group with robust
+       error handling"""
+    if conn is None:
+        print("assign_fact_to_group_graph: Cannot assign fact to group:"
+              " database connection is None")
+        return False
+
+    try:
+        # Properly escape quotes in strings
+        escaped_fact = fact.replace('"', '\\"')
+        escaped_group = group.replace('"', '\\"')
+
+        print(f"assign_fact_to_group_graph: Assigning fact: {fact} to group:"
+              f" {group}") #DEBUG
+
+        # Check if both fact and group exist before creating relationship
+        check_query = f"""
+        MATCH (f:Fact {{content: "{escaped_fact}"}})
+        RETURN f
+        """
+
+        result, error = safe_kuzu_execute(
+            conn, check_query, "assign_fact_to_group_graph: Failed to check"
+                               " if fact exists"
+        )
+        if error or not result.has_next():
+            print(f"assign_fact_to_group_graph: Fact not found: {fact}")
+            return False
+
+        check_query = f"""
+        MATCH (g:Groups {{name: "{escaped_group}"}})
+        RETURN g
+        """
+
+        result, error = safe_kuzu_execute(
+            conn, check_query, "assign_fact_to_group_graph: Failed to check"
+                               " if group exists"
+        )
+        if error or not result.has_next():
+            print(f"assign_fact_to_group_graph: Group not found: {group}")
+            return False
+
+        # Create relationship
+        query = f"""
+        MATCH (f:Fact), (g:Groups)
+        WHERE f.content = "{escaped_fact}" AND g.name = "{escaped_group}"
+        CREATE (g)-[:Contains]->(f)
+        """
+
+        result, error = safe_kuzu_execute(
+            conn, query, "assign_fact_to_group_graph: Failed to create"
+                         " relationship: {error}"
+        )
+        if error:
+            print(f"assign_fact_to_group_graph: Failed to create"
+                  f" relationship: {error}")
+            return False
+
+        print(f"assign_fact_to_group_graph: Assigned fact to group:"
+              f" {group}")
+        return True
+    except Exception as e:
+        print(f"assign_fact_to_group_graph: Error assigning fact to group:"
+              f" {str(e)}")
+        traceback.print_exc()
+        return False
+    
+def get_fact_assignments(
+    fact: str,
+    groups: List[str],
+    model: str,
+    provider: str,
+    npc: NPC = None
+) -> List[str]:
+    """Get direct group assignments for a fact"""
+
+    prompt = f"""Which of these groups does this fact belong to?
+    Select ALL that apply.
+    
+    Fact: {fact}
+    Groups: {json.dumps(groups)}
+    
+    Return JSON:
+    {{
+        "selected_groups": ["list of relevant groups"]
+    }}
+    """
+    response = get_llm_response(prompt, 
+                                model=model, 
+                                provider=provider,
+                                format="json", 
+                                npc=npc)
+    return response["response"]["selected_groups"]
+def get_ancestor_groups(group: str, dag: Dict) -> Set[str]:
+    """Get all ancestor groups in the DAG for a given group."""
+    ancestors = set()
+    queue = [group]
+    
+    while queue:
+        current = queue.pop(0)
+        # Ensure current group exists in DAG and has parents
+        if current in dag and dag[current].get("parents"):
+            for parent in dag[current]["parents"]:
+                if parent not in ancestors:
+                    ancestors.add(parent)
+                    queue.append(parent)
+    return ancestors
+
+
+# --- Main Process Flow ---
+def process_text_with_hierarchy(
+    text: str,
+    model: str,
+    provider: str,
+    db_path: str,
+    npc: NPC = None,
+    existing_knowledge_graph: Optional[Dict] = None
+) -> Dict:
+    """Full processing pipeline with hierarchical grouping"""
+    print("process_text_with_hierarchy: Starting processing")
+    # Step 1: Extract facts from text
+    facts = extract_facts(text, model, provider, npc)
+    print(f"process_text_with_hierarchy: Extracted Facts: {facts}")
+    
+    # Build the DB connection
+    conn = init_db(db_path, drop=False)
+    if conn is None:
+        return None
+
+    # Use the existing leaf_groups for semantic evolution
+    if existing_knowledge_graph:
+        leaf_groups = existing_knowledge_graph.get("leaf_groups", [])
+    else:
+        leaf_groups = []
+    
+    # Build the hierarchy from the database
+    hierarchy_data = build_full_hierarchy(leaf_groups, model, provider, npc)
+
+    # Step 3: Assign facts to hierarchy
+    assignments = {}
+    for fact in facts:
+        assignment = assign_fact_to_dag(fact, hierarchy_data, model, provider, npc)
+        # Store fact and group in kuzu
+        store_success = store_fact_and_group(conn, fact, assignment["all_groups"], "")
+        if not store_success:
+            print(f"process_text_with_hierarchy: Failed to store fact: {fact}")
+        assignments[fact] = assignment
+    
+    conn.close()
+    
+    print("process_text_with_hierarchy: Finished Processing")
+    return {
+        "facts": facts,
+        "leaf_groups": leaf_groups,
+        "hierarchy": hierarchy_data,
+        "assignments": assignments
+    }
+
+
+#--- Kuzu Database integration ---
+def store_fact_and_group(conn: kuzu.Connection, fact: str, groups: List[str], path: str) -> bool:
+    """Insert a fact into the database along with its groups"""
+    if not conn:
+        print("store_fact_and_group: Database connection is None")
+        return False
+    
+    print(f"store_fact_and_group: Storing fact: {fact}, with groups: {groups}") # DEBUG
+    try:
+        # Insert the fact
+        insert_success = insert_fact(conn, fact, path) # Capture return value
+        if not insert_success:
+            print(f"store_fact_and_group: Failed to insert fact: {fact}") #DEBUG
+            return False
+        
+        # Assign fact to groups
+        for group in groups:
+            assign_success = assign_fact_to_group_graph(conn, fact, group)
+            if not assign_success:
+                print(f"store_fact_and_group: Failed to assign fact {fact} to group {group}") #DEBUG
+                return False
+        
+        return True
+    except Exception as e:
+        print(f"store_fact_and_group: Error storing fact and group: {e}")
+        traceback.print_exc()
+        return False
+    
+        
+# ---Database and other helper methods---
+def safe_kuzu_execute(conn, query, error_message="Kuzu query failed"):
+    """Execute a Kuzu query with proper error handling"""
+    try:
+        result = conn.execute(query)
+        return result, None
+    except Exception as e:
+        error = f"{error_message}: {str(e)}"
+        print(error)
+        return None, error
+
+
+def test_hierarchical_knowledge_graph():
+    """Test the full hierarchical knowledge graph implementation"""
+    text = """
+    npcsh is a Python-based command-line tool for integrating LLMs into daily workflows.
+    It features a smart interpreter that understands natural language commands.
+    The tool remembers command history and can reference previous commands.
+    It supports creating custom NPCs with specific personalities and directives.
+    Advanced customization is possible through configuration files.
+    """
+    
+    # Initialize with model and provider
+    model = "gpt-4o-mini"
+    provider = "openai"
+    
+    # Create knowledge graph
+    kg = create_knowledge_graph(text, model, provider)
+    
+    # Print results
+    print("FACTS:")
+    for i, fact in enumerate(kg["facts"]):
+        print(f"{i+1}. {fact}")
+    
+    print("\nHIERARCHY LEVELS:")
+    for level in range(kg["hierarchy"]["top_level"], -1, -1):
+        groups = kg["hierarchy"][f"level_{level}"]["groups"]
+        print(f"Level {level} ({len(groups)} groups):")
+        for group in groups:
+            print(f"  - {group}")
+    
+    print("\nASSIGNMENTS:")
+    for fact, assignment in kg["assignments"].items():
+        print(f"\nFact: {fact}")
+        print("Assignments by level:")
+        for level, groups in assignment["all_assignments"].items():
+            print(f"  Level {level}: {groups}")
 
 def find_similar_groups(
     conn,
@@ -563,120 +1112,6 @@ def assign_groups_to_fact(
         npc=npc,
     )
     return response["response"]
-
-
-def insert_fact(conn, fact: str, path: str) -> bool:
-    """Insert a fact into the database with robust error handling"""
-    if conn is None:
-        print("Cannot insert fact: database connection is None")
-        return False
-
-    try:
-        # Properly escape quotes in strings
-        escaped_fact = fact.replace('"', '\\"')
-        escaped_path = os.path.expanduser(path).replace('"', '\\"')
-
-        # Generate timestamp
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-        # Begin transaction
-        safe_kuzu_execute(conn, "BEGIN TRANSACTION")
-
-        # Check if fact already exists
-        check_query = f"""
-        MATCH (f:Fact {{content: "{escaped_fact}"}})
-        RETURN f
-        """
-
-        result, error = safe_kuzu_execute(
-            conn, check_query, "Failed to check if fact exists"
-        )
-        if error:
-            safe_kuzu_execute(conn, "ROLLBACK")
-            return False
-
-        # Insert fact if it doesn't exist
-        if not result.has_next():
-            insert_query = f"""
-            CREATE (f:Fact {{
-                content: "{escaped_fact}",
-                path: "{escaped_path}",
-                recorded_at: "{timestamp}"
-            }})
-            """
-
-            result, error = safe_kuzu_execute(
-                conn, insert_query, "Failed to insert fact"
-            )
-            if error:
-                safe_kuzu_execute(conn, "ROLLBACK")
-                return False
-
-        # Commit transaction
-        safe_kuzu_execute(conn, "COMMIT")
-        return True
-    except Exception as e:
-        print(f"Error inserting fact: {str(e)}")
-        traceback.print_exc()
-        safe_kuzu_execute(conn, "ROLLBACK")
-        return False
-
-
-def assign_fact_to_group_graph(conn, fact: str, group: str) -> bool:
-    """Create a relationship between a fact and a group with robust error handling"""
-    if conn is None:
-        print("Cannot assign fact to group: database connection is None")
-        return False
-
-    try:
-        # Properly escape quotes in strings
-        escaped_fact = fact.replace('"', '\\"')
-        escaped_group = group.replace('"', '\\"')
-
-        # Check if both fact and group exist before creating relationship
-        check_query = f"""
-        MATCH (f:Fact {{content: "{escaped_fact}"}})
-        RETURN f
-        """
-
-        result, error = safe_kuzu_execute(
-            conn, check_query, "Failed to check if fact exists"
-        )
-        if error or not result.has_next():
-            print(f"Fact not found: {fact}")
-            return False
-
-        check_query = f"""
-        MATCH (g:Groups {{name: "{escaped_group}"}})
-        RETURN g
-        """
-
-        result, error = safe_kuzu_execute(
-            conn, check_query, "Failed to check if group exists"
-        )
-        if error or not result.has_next():
-            print(f"Group not found: {group}")
-            return False
-
-        # Create relationship
-        query = f"""
-        MATCH (f:Fact), (g:Groups)
-        WHERE f.content = "{escaped_fact}" AND g.name = "{escaped_group}"
-        CREATE (g)-[:Contains]->(f)
-        """
-
-        result, error = safe_kuzu_execute(
-            conn, query, f"Failed to assign fact to group: {group}"
-        )
-        if error:
-            return False
-
-        print(f"Assigned fact to group: {group}")
-        return True
-    except Exception as e:
-        print(f"Error assigning fact to group: {str(e)}")
-        traceback.print_exc()
-        return False
 
 
 def save_facts_to_db(
@@ -1246,945 +1681,695 @@ def answer_with_rag(
     return response["response"]
 
 
-def add_fact(conn, fact: str, source: str) -> bool:
-    """
-    Add a fact to the knowledge graph database.
-    
-    Args:
-        conn: Database connection
-        fact: The fact to add
-        source: Source of the fact
+
+
+
+# --- New: KnowledgeGraphManager Class ---
+class KnowledgeGraphManager:
+    def __init__(self, db_path: str, model: str, provider: str, npc: Optional[NPC] = None):
+        self.db_path = db_path
+        self.model = model
+        self.provider = provider
+        self.npc = npc
+        self.conn = None
+        self._initialize_database()
+        self.current_generation = self._get_latest_generation()
+        print(f"KnowledgeGraphManager initialized. Current generation: {self.current_generation}")
+
+    def _initialize_database(self, drop: bool = False):
+        """Initializes or connects to the Kuzu database."""
+        self.conn = init_db(self.db_path, drop=drop)
+        if self.conn is None:
+            raise ConnectionError("Failed to initialize Kuzu database.")
+
+    def close(self):
+        """Closes the Kuzu database connection."""
+        if self.conn:
+            self.conn.close()
+            print("Kuzu database connection closed.")
+
+    def _get_latest_generation(self) -> int:
+        """Queries the database for the latest generation number."""
+        query = "MATCH (g:Groups) RETURN MAX(g.generation_created) AS max_gen;"
+        result, error = safe_kuzu_execute(self.conn, query, "Failed to get max generation")
+        if error:
+            return -1 # Indicate no groups or error
         
-    Returns:
-        True if successful, False otherwise
-    """
-    try:
-        cursor = conn.cursor()
-        cursor.execute(
-            "INSERT OR IGNORE INTO facts (content, source, created_at) VALUES (?, ?, datetime('now'))",
-            (fact, source)
+        # Kuzu returns a kuzu.result.QueryResult object
+        # Need to fetch the value
+        df = result.fetch_as_df()
+        if not df.empty and not df['max_gen'].isnull().all():
+            return int(df['max_gen'].iloc[0])
+        return -1 # No groups yet
+
+    def _get_active_hierarchy_dag(self) -> Dict[str, Dict[str, Any]]:
+        """
+        Queries the Kuzu database to construct the active conceptual hierarchy DAG
+        (ParentOf relationships).
+        Returns a dictionary representing the DAG structure:
+        {
+            'group_name': {
+                'parents': set(),
+                'children': set(),
+                'is_active': bool,
+                'generation_created': int
+            },
+            ...
+        }
+        Also returns a list of top-level groups (roots) and leaf groups.
+        """
+        dag = {}
+        all_groups_query = "MATCH (g:Groups) RETURN g.name, g.is_active, g.generation_created;"
+        groups_result, _ = safe_kuzu_execute(self.conn, all_groups_query)
+
+        if groups_result:
+            for row in groups_result.fetch_as_df().itertuples():
+                group_name = row._1 # Assuming the first column is g.name
+                is_active = row._2 # Assuming the second column is g.is_active
+                generation_created = row._3 # Assuming the third column is g.generation_created
+                dag[group_name] = {
+                    "parents": set(),
+                    "children": set(),
+                    "is_active": is_active,
+                    "generation_created": generation_created
+                }
+
+        parent_of_query = """
+        MATCH (p:Groups)-[:ParentOf]->(c:Groups)
+        RETURN p.name, c.name;
+        """
+        relationships_result, _ = safe_kuzu_execute(self.conn, parent_of_query)
+
+        if relationships_result:
+            for row in relationships_result.fetch_as_df().itertuples():
+                parent_name = row._1
+                child_name = row._2
+                if child_name in dag and parent_name in dag: # Ensure both nodes exist in the active_dag structure
+                    dag[child_name]["parents"].add(parent_name)
+                    dag[parent_name]["children"].add(child_name)
+        
+        # Filter for active groups and identify roots/leaves
+        active_dag = {name: data for name, data in dag.items() if data['is_active']}
+        
+        top_groups = [name for name, data in active_dag.items() if not data["parents"]]
+        leaf_groups = [name for name, data in active_dag.items() if not data["children"]]
+
+        # Also get all active groups for potential random sampling
+        all_active_groups = list(active_dag.keys())
+
+        return {
+            "dag": active_dag,
+            "top_groups": top_groups,
+            "leaf_groups": leaf_groups,
+            "all_active_groups": all_active_groups
+        }
+
+    # --- LLM Abstraction Methods (wrap existing functions or define new prompts) ---
+
+    def _llm_extract_facts(self, text: str, context: str = "") -> List[str]:
+        """Wrapper for extract_facts."""
+        return extract_facts(text, self.model, self.provider, self.npc, context)
+
+    def _llm_generate_concepts(self, items: List[str], item_type: str = "facts") -> List[str]:
+        """Wrapper for generate_group_candidates."""
+        return generate_group_candidates(items, item_type, self.model, self.provider, self.npc)
+
+    def _llm_clean_concepts(self, concept_candidates: List[str]) -> List[str]:
+        """Wrapper for remove_idempotent_groups."""
+        return remove_idempotent_groups(concept_candidates, self.model, self.provider, self.npc)
+
+    def _llm_build_initial_hierarchy(self, concepts: List[str]) -> Dict:
+        """
+        Builds a hierarchy DAG from a flat list of concepts.
+        This corresponds to LLM_BuildHierarchy in Algorithm 2.
+        It uses the existing build_hierarchy_dag function.
+        """
+        print(f"Building initial hierarchy in memory for {len(concepts)} concepts...")
+        hierarchy_structure = build_hierarchy_dag(
+            concepts, self.model, self.provider, self.npc,
+            max_levels=5, # Can be tuned
+            target_top_count=8 # Can be tuned
         )
-        conn.commit()
-        return True
-    except Exception as e:
-        print(f"Error adding fact: {str(e)}")
-        return False
+        print("Initial hierarchy structure built in memory.")
+        return hierarchy_structure['dag'] # Return just the DAG portion
 
-def add_mistake(conn, mistake: str, source: str) -> bool:
-    """
-    Add a mistake to the knowledge graph database.
-    
-    Args:
-        conn: Database connection
-        mistake: The mistake to add
-        source: Source of the mistake
-        
-    Returns:
-        True if successful, False otherwise
-    """
-    try:
-        cursor = conn.cursor()
-        cursor.execute(
-            "INSERT OR IGNORE INTO mistakes (content, source, created_at) VALUES (?, ?, datetime('now'))",
-            (mistake, source)
+    def _llm_find_best_fit(self, item: str, candidates: List[str]) -> List[str]:
+        """
+        Finds the best fit group(s) for an item (fact or concept) from a list of candidates.
+        Corresponds to LLM_FindBestFit in Algorithm 3.
+        """
+        return get_fact_assignments(item, candidates, self.model, self.provider, self.npc)
+
+    def _llm_check_direct_link(self, concept_a: str, concept_b: str) -> bool:
+        """
+        Checks if there's a direct, meaningful semantic link between two concepts.
+        Corresponds to LLM_CheckDirectLink in Algorithm 3.
+        """
+        prompt = f"""Is there a direct and meaningful semantic relationship between "{concept_a}" and "{concept_b}"?
+        Consider if one is a component of, a type of, strongly influences, or is directly associated with the other.
+        Answer with "yes" or "no".
+
+        Concept A: {concept_a}
+        Concept B: {concept_b}
+
+        Return JSON:
+        {{
+            "has_link": "yes" or "no"
+        }}
+        """
+        response = get_llm_response(
+            prompt, model=self.model, provider=self.provider, format="json", npc=self.npc
         )
-        conn.commit()
-        return True
-    except Exception as e:
-        print(f"Error adding mistake: {str(e)}")
-        return False
+        return response["response"].get("has_link", "no").lower() == "yes"
 
-def add_lesson(conn, lesson: str, source: str) -> bool:
-    """
-    Add a lesson to the knowledge graph database.
-    
-    Args:
-        conn: Database connection
-        lesson: The lesson to add
-        source: Source of the lesson
-        
-    Returns:
-        True if successful, False otherwise
-    """
-    try:
-        cursor = conn.cursor()
-        cursor.execute(
-            "INSERT OR IGNORE INTO lessons (content, source, created_at) VALUES (?, ?, datetime('now'))",
-            (lesson, source)
-        )
-        conn.commit()
-        return True
-    except Exception as e:
-        print(f"Error adding lesson: {str(e)}")
-        return False
-
-def add_action(conn, action: str, source: str) -> bool:
-    """
-    Add an action to the knowledge graph database.
-    
-    Args:
-        conn: Database connection
-        action: The action to add
-        source: Source of the action
-        
-    Returns:
-        True if successful, False otherwise
-    """
-    try:
-        cursor = conn.cursor()
-        cursor.execute(
-            "INSERT OR IGNORE INTO actions (content, source, created_at) VALUES (?, ?, datetime('now'))",
-            (action, source)
-        )
-        conn.commit()
-        return True
-    except Exception as e:
-        print(f"Error adding action: {str(e)}")
-        return False
-
-def add_decision(conn, decision: str, source: str) -> bool:
-    """
-    Add a decision to the knowledge graph database.
-    
-    Args:
-        conn: Database connection
-        decision: The decision to add
-        source: Source of the decision
-        
-    Returns:
-        True if successful, False otherwise
-    """
-    try:
-        cursor = conn.cursor()
-        cursor.execute(
-            "INSERT OR IGNORE INTO decisions (content, source, created_at) VALUES (?, ?, datetime('now'))",
-            (decision, source)
-        )
-        conn.commit()
-        return True
-    except Exception as e:
-        print(f"Error adding decision: {str(e)}")
-        return False
-
-def search_facts(conn, query: str) -> List[Tuple[int, str, str]]:
-    """
-    Search for facts in the knowledge graph database.
-    
-    Args:
-        conn: Database connection
-        query: Search query
-        
-    Returns:
-        List of tuples containing (fact_id, content, source)
-    """
-    try:
-        cursor = conn.cursor()
-        cursor.execute(
-            "SELECT id, content, source FROM facts WHERE content LIKE ?",
-            (f"%{query}%",)
-        )
-        return cursor.fetchall()
-    except Exception as e:
-        print(f"Error searching facts: {str(e)}")
-        return []
-
-def search_mistakes(conn, query: str) -> List[Tuple[int, str, str]]:
-    """
-    Search for mistakes in the knowledge graph database.
-    
-    Args:
-        conn: Database connection
-        query: Search query
-        
-    Returns:
-        List of tuples containing (mistake_id, content, source)
-    """
-    try:
-        cursor = conn.cursor()
-        cursor.execute(
-            "SELECT id, content, source FROM mistakes WHERE content LIKE ?",
-            (f"%{query}%",)
-        )
-        return cursor.fetchall()
-    except Exception as e:
-        print(f"Error searching mistakes: {str(e)}")
-        return []
-
-def search_lessons(conn, query: str) -> List[Tuple[int, str, str]]:
-    """
-    Search for lessons in the knowledge graph database.
-    
-    Args:
-        conn: Database connection
-        query: Search query
-        
-    Returns:
-        List of tuples containing (lesson_id, content, source)
-    """
-    try:
-        cursor = conn.cursor()
-        cursor.execute(
-            "SELECT id, content, source FROM lessons WHERE content LIKE ?",
-            (f"%{query}%",)
-        )
-        return cursor.fetchall()
-    except Exception as e:
-        print(f"Error searching lessons: {str(e)}")
-        return []
-
-def search_actions(conn, query: str) -> List[Tuple[int, str, str]]:
-    """
-    Search for actions in the knowledge graph database.
-    
-    Args:
-        conn: Database connection
-        query: Search query
-        
-    Returns:
-        List of tuples containing (action_id, content, source)
-    """
-    try:
-        cursor = conn.cursor()
-        cursor.execute(
-            "SELECT id, content, source FROM actions WHERE content LIKE ?",
-            (f"%{query}%",)
-        )
-        return cursor.fetchall()
-    except Exception as e:
-        print(f"Error searching actions: {str(e)}")
-        return []
-
-def search_decisions(conn, query: str) -> List[Tuple[int, str, str]]:
-    """
-    Search for decisions in the knowledge graph database.
-    
-    Args:
-        conn: Database connection
-        query: Search query
-        
-    Returns:
-        List of tuples containing (decision_id, content, source)
-    """
-    try:
-        cursor = conn.cursor()
-        cursor.execute(
-            "SELECT id, content, source FROM decisions WHERE content LIKE ?",
-            (f"%{query}%",)
-        )
-        return cursor.fetchall()
-    except Exception as e:
-        print(f"Error searching decisions: {str(e)}")
-        return []
-
-def delete_fact(conn, fact_id: int) -> bool:
-    """
-    Delete a fact from the knowledge graph database.
-    
-    Args:
-        conn: Database connection
-        fact_id: ID of the fact to delete
-        
-    Returns:
-        True if successful, False otherwise
-    """
-    try:
-        cursor = conn.cursor()
-        cursor.execute("DELETE FROM facts WHERE id = ?", (fact_id,))
-        conn.commit()
-        return True
-    except Exception as e:
-        print(f"Error deleting fact: {str(e)}")
-        return False
-
-def delete_mistake(conn, mistake_id: int) -> bool:
-    """
-    Delete a mistake from the knowledge graph database.
-    
-    Args:
-        conn: Database connection
-        mistake_id: ID of the mistake to delete
-        
-    Returns:
-        True if successful, False otherwise
-    """
-    try:
-        cursor = conn.cursor()
-        cursor.execute("DELETE FROM mistakes WHERE id = ?", (mistake_id,))
-        conn.commit()
-        return True
-    except Exception as e:
-        print(f"Error deleting mistake: {str(e)}")
-        return False
-
-def delete_lesson(conn, lesson_id: int) -> bool:
-    """
-    Delete a lesson from the knowledge graph database.
-    
-    Args:
-        conn: Database connection
-        lesson_id: ID of the lesson to delete
-        
-    Returns:
-        True if successful, False otherwise
-    """
-    try:
-        cursor = conn.cursor()
-        cursor.execute("DELETE FROM lessons WHERE id = ?", (lesson_id,))
-        conn.commit()
-        return True
-    except Exception as e:
-        print(f"Error deleting lesson: {str(e)}")
-        return False
-
-def delete_action(conn, action_id: int) -> bool:
-    """
-    Delete an action from the knowledge graph database.
-    
-    Args:
-        conn: Database connection
-        action_id: ID of the action to delete
-        
-    Returns:
-        True if successful, False otherwise
-    """
-    try:
-        cursor = conn.cursor()
-        cursor.execute("DELETE FROM actions WHERE id = ?", (action_id,))
-        conn.commit()
-        return True
-    except Exception as e:
-        print(f"Error deleting action: {str(e)}")
-        return False
-
-def delete_decision(conn, decision_id: int) -> bool:
-    """
-    Delete a decision from the knowledge graph database.
-    
-    Args:
-        conn: Database connection
-        decision_id: ID of the decision to delete
-        
-    Returns:
-        True if successful, False otherwise
-    """
-    try:
-        cursor = conn.cursor()
-        cursor.execute("DELETE FROM decisions WHERE id = ?", (decision_id,))
-        conn.commit()
-        return True
-    except Exception as e:
-        print(f"Error deleting decision: {str(e)}")
-        return False
-
-def setup_chroma_db(collection_name: str, collection_description: str, chroma_path: str):
-    """
-    Set up a ChromaDB collection for vector storage.
-    
-    Args:
-        collection_name: Name of the collection
-        collection_description: Description of the collection
-        chroma_path: Path to the ChromaDB directory
-        
-    Returns:
-        Tuple of (client, collection)
-    """
-    try:
-        import chromadb
-        from chromadb.config import Settings
-        
-        # Create client with persistent storage
-        client = chromadb.PersistentClient(path=chroma_path)
-        
-        # Get or create collection
-        try:
-            collection = client.get_collection(collection_name)
-            print(f"Using existing collection: {collection_name}")
-        except Exception as e:
-            print(f"Creating new collection: {collection_name}")
-            collection = client.create_collection(
-                name=collection_name,
-                metadata={"description": collection_description}
-            )
-            
-        return client, collection
-    except ImportError:
-        print("ChromaDB not installed. Install with pip install chromadb")
-        return None, None
-    except Exception as e:
-        print(f"Error setting up ChromaDB: {str(e)}")
-        return None, None
-
-def store_in_vector_db(chroma_path: str, conversation_text: str, extraction_data: Dict, source: str):
-    """
-    Store extracted information in the vector database.
-    
-    Args:
-        chroma_path: Path to the ChromaDB directory
-        conversation_text: The full conversation text
-        extraction_data: Dictionary with extracted facts, mistakes, lessons, etc.
-        source: Source identifier
-        
-    Returns:
-        True if successful, False otherwise
-    """
-    try:
-        # Setup ChromaDB
-        client, collection = setup_chroma_db(
-            "memory_extractions", 
-            "Extracted memory items from conversations",
-            chroma_path
-        )
-        
-        if not collection:
-            return False
-            
-        # Import get_embeddings function
-        from npcpy.llm_funcs import get_embeddings
-        
-        # Prepare items to store
-        docs = []
-        metadatas = []
-        ids = []
-        
-        timestamp = datetime.datetime.now().isoformat()
-        
-        # Process each type of extraction
-        for key, items in extraction_data.items():
-            if not isinstance(items, list):
-                continue
-                
-            for item in items:
-                # Create a unique ID
-                import hashlib
-                item_id = hashlib.md5(f"{key}:{item}:{timestamp}".encode()).hexdigest()
-                
-                # Prepare document and metadata
-                docs.append(item)
-                metadatas.append({
-                    "type": key,
-                    "source": source,
-                    "timestamp": timestamp,
-                    "conversation_snippet": conversation_text[:200] + "..." if len(conversation_text) > 200 else conversation_text
-                })
-                ids.append(item_id)
-        
-        # If we have items to store, get embeddings and add to collection
-        if docs:
-            embeddings = get_embeddings(docs)
-            collection.add(
-                documents=docs,
-                embeddings=embeddings,
-                metadatas=metadatas,
-                ids=ids
-            )
-            
-        return True
-    except Exception as e:
-        print(f"Error storing in vector DB: {str(e)}")
-        return False
-
-def remove_from_vector_db(chroma_path: str, query: str):
-    """
-    Remove entries from the vector database matching a query.
-    
-    Args:
-        chroma_path: Path to the ChromaDB directory
-        query: Query to match for deletion
-        
-    Returns:
-        Number of items deleted
-    """
-    try:
-        # Setup ChromaDB
-        client, collection = setup_chroma_db(
-            "memory_extractions", 
-            "Extracted memory items from conversations",
-            chroma_path
-        )
-        
-        if not collection:
-            return 0
-            
-        # Find items matching the query
-        from npcpy.llm_funcs import get_embeddings
-        query_embedding = get_embeddings([query])[0]
-        
-        # Search for similar items
-        results = collection.query(
-            query_embeddings=[query_embedding],
-            n_results=50
-        )
-        
-        if not results or "ids" not in results or not results["ids"]:
-            return 0
-            
-        # Get IDs to delete
-        ids_to_delete = results["ids"][0]
-        
-        # Delete matching items
-        if ids_to_delete:
-            collection.delete(ids=ids_to_delete)
-            
-        return len(ids_to_delete)
-    except Exception as e:
-        print(f"Error removing from vector DB: {str(e)}")
-        return 0
-
-def retrieve_relevant_memory(query: str, chroma_path: str, top_k: int = 5) -> List[Dict]:
-    """
-    Retrieve relevant memories based on a query.
-    
-    Args:
-        query: The query to search for
-        chroma_path: Path to the ChromaDB directory
-        top_k: Number of results to return
-        
-    Returns:
-        List of relevant memories
-    """
-    try:
-        # Setup ChromaDB
-        client, collection = setup_chroma_db(
-            "memory_extractions", 
-            "Extracted memory items from conversations",
-            chroma_path
-        )
-        
-        if not collection:
+    def _llm_find_redundant_nodes(self, all_active_groups: List[str]) -> List[Tuple[str, List[str]]]:
+        """
+        Identifies redundant or consolidatable groups within the hierarchy.
+        Corresponds to LLM_FindRedundantNodes in Algorithm 1, Phase 3.
+        Returns a list of tuples: (new_consolidated_name, [old_redundant_names]).
+        """
+        if not all_active_groups:
             return []
-            
-        # Get embedding for query
-        from npcpy.llm_funcs import get_embeddings
-        query_embedding = get_embeddings([query])[0]
+
+        # It's better to process in batches if all_active_groups is very large
+        # For simplicity, sending all for now, but consider batching for production.
         
-        # Search for similar items
-        results = collection.query(
-            query_embeddings=[query_embedding],
-            n_results=top_k,
-            include=["documents", "metadatas", "distances"]
-        )
+        prompt = f"""Given the following list of active conceptual groups, identify any groups that are highly redundant, overly specific, or could be consolidated into a single, more abstract, but still precise concept.
+        For each set of redundant groups, propose a single, better consolidated group name.
         
-        if not results or "documents" not in results or not results["documents"]:
-            return []
-            
-        # Format results
-        memories = []
-        for i, doc in enumerate(results["documents"][0]):
-            metadata = results["metadatas"][0][i] if "metadatas" in results and results["metadatas"] else {}
-            distance = results["distances"][0][i] if "distances" in results and results["distances"] else None
-            
-            memory_type = metadata.get("type", "unknown")
-            source = metadata.get("source", "unknown")
-            timestamp = metadata.get("timestamp", "unknown")
-            
-            memories.append({
-                "content": doc,
-                "type": memory_type,
-                "source": source,
-                "timestamp": timestamp,
-                "relevance": 1.0 - (distance / 2.0) if distance is not None else 1.0  # Normalize relevance score
-            })
-            
-        return memories
-    except Exception as e:
-        print(f"Error retrieving from vector DB: {str(e)}")
-        return []
+        GUIDELINES for Consolidation:
+        1.  **Semantic Overlap:** Only consolidate if groups are truly very similar or one is a very specific instance of another.
+        2.  **Naming:** The new consolidated name should be concise, specific, and accurately represent all merged concepts. Prioritize nouns/noun phrases. Avoid generic terms (e.g., "Concepts," "Processes").
+        3.  **Efficiency:** Aim for meaningful consolidation, not excessive merging.
 
-
-
-def check_fact_distinctness(
-    new_fact: str,
-    existing_facts: List[str],
-    model: str = "llama3.2", 
-    provider: str = "ollama",
-    npc: NPC = None,
-    threshold: float = 0.8
-) -> Dict[str, Any]:
-    """Check if a new fact is distinct enough from existing facts"""
-    
-    prompt = f"""Compare this new fact against existing facts to determine if it's 
-    distinct enough to store separately.
-
-    New fact: {new_fact}
-
-    Existing facts:
-    {json.dumps(existing_facts, indent=2)}
-
-    A fact is considered distinct if:
-    1. It contains genuinely new information
-    2. It's not just a rephrasing of an existing fact
-    3. It adds meaningful context or detail
-    4. It comes from a different context that might create valid contradictions
-
-    Return a JSON object:
-    {{
-        "is_distinct": true/false,
-        "reason": "explanation of why it is or isn't distinct",
-        "similar_to": "existing fact it's most similar to, if any",
-        "merge_suggestion": "how to merge if not distinct, or null"
-    }}
-    """
-    
-    response = get_llm_response(
-        prompt, model=model, provider=provider, format="json", npc=npc
-    )
-    return response["response"]
-
-
-def check_group_distinctness(
-    new_group: str,
-    existing_groups: List[str],
-    model: str = "llama3.2",
-    provider: str = "ollama", 
-    npc: NPC = None
-) -> Dict[str, Any]:
-    """Check if a new group is distinct enough from existing groups"""
-    
-    prompt = f"""Compare this new group against existing groups to determine if it's
-    distinct enough to create separately.
-
-    New group: {new_group}
-
-    Existing groups:
-    {json.dumps(existing_groups, indent=2)}
-
-    A group is considered distinct if:
-    1. It represents a genuinely different semantic category
-    2. It's not just a synonym or minor variation of an existing group
-    3. It would organize facts in a meaningfully different way
-
-    Return a JSON object:
-    {{
-        "is_distinct": true/false,
-        "reason": "explanation of why it is or isn't distinct", 
-        "similar_to": "existing group it's most similar to, if any",
-        "merge_suggestion": "suggested name if merging, or null"
-    }}
-    """
-    
-    response = get_llm_response(
-        prompt, model=model, provider=provider, format="json", npc=npc
-    )
-    return response["response"]
-
-
-def analyze_group_for_subgrouping(
-    conn,
-    group_name: str,
-    max_size: int = 20,
-    model: str = "llama3.2",
-    provider: str = "ollama",
-    npc: NPC = None
-) -> Dict[str, Any]:
-    """Analyze if a group should be split into subgroups"""
-    
-    # Get all facts in this group
-    escaped_group = group_name.replace('"', '\\"')
-    result = conn.execute(f"""
-        MATCH (g:Groups)-[:Contains]->(f:Fact)
-        WHERE g.name = "{escaped_group}"
-        RETURN f.content
-    """).get_as_df()
-    
-    facts = [row["f.content"] for _, row in result.iterrows()]
-    
-    if len(facts) < max_size:
-        return {"should_split": False, "reason": "Group is not large enough"}
-    
-    prompt = f"""This group has {len(facts)} facts and may be getting too large.
-    Analyze if it should be split into subgroups.
-
-    Group: {group_name}
-
-    Facts in group:
-    {json.dumps(facts, indent=2)}
-
-    Return a JSON object:
-    {{
-        "should_split": true/false,
-        "reason": "explanation of decision",
-        "suggested_subgroups": [
+        Example:
+        Active Groups: ["Tidal Disruption Events", "Black Hole Mergers", "Supernovae", "Neutron Star Collisions", "Astrophysical Transients", "Stellar Explosions"]
+        Consolidation Candidates: [
             {{
-                "name": "subgroup name",
-                "facts": ["list of facts that belong in this subgroup"]
+                "new_concept": "Cataclysmic Astronomical Events",
+                "old_concepts": ["Tidal Disruption Events", "Black Hole Mergers", "Supernovae", "Neutron Star Collisions"]
+            }},
+            {{
+                "new_concept": "Stellar Explosions",
+                "old_concepts": ["Supernovae", "Stellar Explosions"]
             }}
         ]
-    }}
-    """
-    
-    response = get_llm_response(
-        prompt, model=model, provider=provider, format="json", npc=npc
-    )
-    return response["response"]
-
-
-def suggest_fact_reassignments(
-    conn,
-    model: str = "llama3.2",
-    provider: str = "ollama", 
-    npc: NPC = None,
-    batch_size: int = 50
-) -> List[Dict[str, Any]]:
-    """Suggest reassignments for facts based on current group structure"""
-    
-    # Get all facts and their current groups
-    result = conn.execute("""
-        MATCH (g:Groups)-[:Contains]->(f:Fact)
-        RETURN f.content, collect(g.name) as current_groups
-    """).get_as_df()
-    
-    # Get all available groups
-    groups_result = conn.execute("MATCH (g:Groups) RETURN g.name").get_as_df()
-    all_groups = [row["g.name"] for _, row in groups_result.iterrows()]
-    
-    suggestions = []
-    
-    # Process facts in batches
-    for i in range(0, len(result), batch_size):
-        batch = result.iloc[i:i+batch_size]
         
-        for _, row in batch.iterrows():
-            fact = row["f.content"]
-            current_groups = row["current_groups"]
+        Note: "Astrophysical Transients" might be a broader category that subsumes the events, but if we have the specific events, we consolidate specific events first, then potentially link them to broader concepts in the hierarchy.
+
+        Active Groups: {json.dumps(all_active_groups)}
+
+        Return JSON:
+        {{
+            "consolidation_candidates": [
+                {{"new_concept": "Proposed Name", "old_concepts": ["Old Name 1", "Old Name 2"]}},
+                ...
+            ]
+        }}
+        """
+        response = get_llm_response(
+            prompt, model=self.model, provider=self.provider, format="json", npc=self.npc
+        )
+        candidates_data = response["response"].get("consolidation_candidates", [])
+        
+        # Convert to the desired format: List[Tuple[str, List[str]]]
+        formatted_candidates = []
+        for cand in candidates_data:
+            new_concept = cand.get("new_concept")
+            old_concepts = cand.get("old_concepts")
+            if new_concept and isinstance(old_concepts, list) and old_concepts:
+                # Filter out old_concepts that are not actually in all_active_groups
+                # to avoid trying to merge non-existent or inactive groups.
+                valid_old_concepts = [
+                    oc for oc in old_concepts if oc in all_active_groups
+                ]
+                if valid_old_concepts: # Only add if there are valid old concepts to merge
+                    formatted_candidates.append((new_concept, valid_old_concepts))
+        
+        return formatted_candidates
+
+    # --- Kuzu Graph Update Methods ---
+
+    def _add_parent_of_link(self, parent_name: str, child_name: str) -> bool:
+        """Creates a ParentOf relationship between two groups."""
+        escaped_parent = parent_name.replace('"', '\\"')
+        escaped_child = child_name.replace('"', '\\"')
+        query = f"""
+        MATCH (p:Groups), (c:Groups)
+        WHERE p.name = "{escaped_parent}" AND c.name = "{escaped_child}"
+        CREATE (p)-[:ParentOf]->(c)
+        """
+        _, error = safe_kuzu_execute(self.conn, query, f"Failed to create ParentOf link: {parent_name} -> {child_name}")
+        if error: print(f"Error creating ParentOf link: {error}")
+        return error is None
+
+    def _add_associated_with_link(self, source_name: str, target_name: str) -> bool:
+        """Creates an AssociatedWith relationship between two groups."""
+        escaped_source = source_name.replace('"', '\\"')
+        escaped_target = target_name.replace('"', '\\"')
+        query = f"""
+        MATCH (s:Groups), (t:Groups)
+        WHERE s.name = "{escaped_source}" AND t.name = "{escaped_target}"
+        CREATE (s)-[:AssociatedWith]->(t)
+        """
+        _, error = safe_kuzu_execute(self.conn, query, f"Failed to create AssociatedWith link: {source_name} - {target_name}")
+        if error: print(f"Error creating AssociatedWith link: {error}")
+        return error is None
+
+    def _record_evolution_link(self, old_group_name: str, new_group_name: str, event_type: str, reason: str):
+        """Records an EvolvedFrom link for genealogical tracking."""
+        escaped_old = old_group_name.replace('"', '\\"')
+        escaped_new = new_group_name.replace('"', '\\"')
+        query = f"""
+        MATCH (oldG:Groups), (newG:Groups)
+        WHERE oldG.name = "{escaped_old}" AND newG.name = "{escaped_new}"
+        CREATE (oldG)-[:EvolvedFrom {{event_type: "{event_type}", generation: {self.current_generation}, reason: "{reason}"}}]->(newG)
+        """
+        _, error = safe_kuzu_execute(self.conn, query, f"Failed to record evolution link: {old_group_name} -> {new_group_name}")
+        if error: print(f"Error recording evolution link: {error}")
+        return error is None
+
+    def _set_group_active_status(self, group_name: str, is_active: bool):
+        """Sets the is_active status of a group."""
+        escaped_name = group_name.replace('"', '\\"')
+        query = f"""
+        MATCH (g:Groups {{name: "{escaped_name}"}})
+        SET g.is_active = {str(is_active).lower()}
+        """
+        _, error = safe_kuzu_execute(self.conn, query, f"Failed to update active status for group: {group_name}")
+        if error: print(f"Error setting group active status: {error}")
+        return error is None
+    
+    def _rewire_group_relationships(self, old_group_name: str, new_group_name: str):
+        """
+        Rewires ParentOf, AssociatedWith, and Contains relationships from an old group to a new one.
+        This is crucial during consolidation.
+        """
+        escaped_old = old_group_name.replace('"', '\\"')
+        escaped_new = new_group_name.replace('"', '\\"')
+
+        # Kuzu's `SET` on relationship destination or source is not direct.
+        # The typical way to "rewire" in graph databases is to:
+        # 1. Create new relationships from existing nodes to the new target.
+        # 2. Delete the old relationships.
+        # This requires careful transaction management if atomicity is critical,
+        # but for simple delete-and-create within a loop, it's often fine.
+
+        # Rewire ParentOf where old_group is a child
+        # (i.e., its parents should now point to new_group instead of old_group)
+        query_parent_to_child = f"""
+        MATCH (p:Groups)-[r:ParentOf]->(oldG:Groups)
+        WHERE oldG.name = "{escaped_old}"
+        AND NOT (p)-[:ParentOf]->(:Groups {{name: "{escaped_new}"}}) // Avoid duplicate relationships
+        CREATE (p)-[:ParentOf]->(newG:Groups) WHERE newG.name = "{escaped_new}"
+        DELETE r;
+        """
+        _, error = safe_kuzu_execute(self.conn, query_parent_to_child, f"Failed to rewire ParentOf (parent to old): {old_group_name}")
+        if error: print(f"Rewire error (ParentOf parent): {error}")
+
+        # Rewire ParentOf where old_group is a parent
+        # (i.e., its children should now be children of new_group instead of old_group)
+        query_child_to_parent = f"""
+        MATCH (oldG:Groups)-[r:ParentOf]->(c:Groups)
+        WHERE oldG.name = "{escaped_old}"
+        AND NOT (:Groups {{name: "{escaped_new}"}})-[:ParentOf]->(c) // Avoid duplicate relationships
+        CREATE (newG:Groups)-[:ParentOf]->(c) WHERE newG.name = "{escaped_new}"
+        DELETE r;
+        """
+        _, error = safe_kuzu_execute(self.conn, query_child_to_parent, f"Failed to rewire ParentOf (old to child): {old_group_name}")
+        if error: print(f"Rewire error (ParentOf child): {error}")
+
+        # Rewire AssociatedWith where old_group is a source
+        query_assoc_source = f"""
+        MATCH (s:Groups)-[r:AssociatedWith]->(oldG:Groups)
+        WHERE oldG.name = "{escaped_old}"
+        AND NOT (s)-[:AssociatedWith]->(:Groups {{name: "{escaped_new}"}}) // Avoid duplicate relationships
+        CREATE (s)-[:AssociatedWith]->(newG:Groups) WHERE newG.name = "{escaped_new}"
+        DELETE r;
+        """
+        _, error = safe_kuzu_execute(self.conn, query_assoc_source, f"Failed to rewire AssociatedWith (source to old): {old_group_name}")
+        if error: print(f"Rewire error (AssociatedWith source): {error}")
+
+        # Rewire AssociatedWith where old_group is a target
+        query_assoc_target = f"""
+        MATCH (oldG:Groups)-[r:AssociatedWith]->(t:Groups)
+        WHERE oldG.name = "{escaped_old}"
+        AND NOT (:Groups {{name: "{escaped_new}"}})-[:AssociatedWith]->(t) // Avoid duplicate relationships
+        CREATE (newG:Groups)-[:AssociatedWith]->(t) WHERE newG.name = "{escaped_new}"
+        DELETE r;
+        """
+        _, error = safe_kuzu_execute(self.conn, query_assoc_target, f"Failed to rewire AssociatedWith (old to target): {old_group_name}")
+        if error: print(f"Rewire error (AssociatedWith target): {error}")
+
+        # Rewire 'Contains' relationships if facts were directly linked to the old group
+        query_contains = f"""
+        MATCH (oldG:Groups)-[r:Contains]->(f:Fact)
+        WHERE oldG.name = "{escaped_old}"
+        AND NOT (:Groups {{name: "{escaped_new}"}})-[:Contains]->(f) // Avoid duplicate relationships
+        CREATE (newG:Groups)-[:Contains]->(f) WHERE newG.name = "{escaped_new}"
+        DELETE r;
+        """
+        _, error = safe_kuzu_execute(self.conn, query_contains, f"Failed to rewire Contains (old to fact): {old_group_name}")
+        if error: print(f"Rewire error (Contains): {error}")
+
+        print(f"Rewired all relationships from '{old_group_name}' to '{new_group_name}'.")
+
+    # --- Algorithm 3: FindAllAssociationPaths ---
+
+    def _recursive_traversal(self, c_new: str, current_nodes: List[str], hierarchy_dag: Dict, current_path: List[str]) -> Set[Tuple[str, ...]]:
+        """
+        Helper for FindAllAssociationPaths: Recursively traverses the hierarchy to find paths.
+        """
+        paths_results = set()
+        
+        # Base case for recursion: if no current_nodes to evaluate, path terminates.
+        # Add the current path to results if it's not empty and represents a complete segment.
+        if not current_nodes:
+            if current_path:
+                paths_results.add(tuple(current_path))
+            return paths_results
+
+        # Find best fit nodes among current_nodes for the new concept
+        relevant_next_nodes = self._llm_find_best_fit(c_new, current_nodes)
+        
+        if not relevant_next_nodes:
+            # If no relevant children found among current_nodes, current path segment terminates.
+            # Only add to results if this path segment is valid and contains at least one node.
+            if current_path: # Ensures we don't add empty paths if initial_roots have no fit
+                paths_results.add(tuple(current_path))
+            return paths_results
+
+        for node_name in relevant_next_nodes:
+            # Ensure the node being added to the path is not already the last node in the path
+            # This prevents cycles in a path if LLM returns the same node.
+            if current_path and node_name == current_path[-1]:
+                continue
+
+            new_path = current_path + [node_name]
             
-            prompt = f"""Review this fact's current group assignments and suggest 
-            if it should be reassigned to different groups.
+            # Get active children of the current node from the DAG
+            children_of_node = []
+            if node_name in hierarchy_dag:
+                children_of_node = [child for child in hierarchy_dag[node_name]["children"] if hierarchy_dag[child]["is_active"]]
 
-            Fact: {fact}
-            Current groups: {current_groups}
-            All available groups: {all_groups}
+            if not children_of_node: # Reached a leaf node or no relevant active children
+                paths_results.add(tuple(new_path))
+            else:
+                # Recurse down
+                paths_results.update(self._recursive_traversal(c_new, list(children_of_node), hierarchy_dag, new_path))
+        
+        return paths_results
 
-            Consider:
-            1. Does the fact fit better in other groups?
-            2. Should it be in additional groups?
-            3. Should it be removed from any current groups?
+    def _find_all_association_paths(self, c_new: str, hierarchy_dag: Dict, theta_explore: float) -> Set[Tuple[str, ...]]:
+        """
+        Algorithm 3: Finds all primary and serendipitous association paths for a new concept.
+        Returns a set of tuples, where each tuple is a path of concept names.
+        """
+        print(f"Finding association paths for new concept: {c_new}")
+        
+        # Part A: Primary Top-Down Traversal
+        # Start with active root nodes (groups with no active parents in the current hierarchy view)
+        active_root_nodes = [name for name, data in hierarchy_dag.items() if not data["parents"] and data["is_active"]]
+        if not active_root_nodes:
+            print("No active root nodes found in hierarchy. Considering all active groups as potential starting points for primary traversal.")
+            active_root_nodes = [node for node in hierarchy_dag.keys() if hierarchy_dag[node]["is_active"]]
+        
+        # Perform initial filtering at the top level
+        initial_relevant_roots = self._llm_find_best_fit(c_new, active_root_nodes)
+        
+        primary_paths = set()
+        for root in initial_relevant_roots:
+            # Paths start *from* the root selected by LLM
+            primary_paths.update(self._recursive_traversal(c_new, [root], hierarchy_dag, []))
 
-            Return a JSON object:
-            {{
-                "needs_reassignment": true/false,
-                "reason": "explanation of suggested changes",
-                "suggested_groups": ["list of groups this fact should be in"],
-                "confidence": 0.0-1.0
-            }}
-            """
-            
-            response = get_llm_response(
-                prompt, model=model, provider=provider, format="json", npc=npc
+        print(f"Primary paths found: {primary_paths}")
+
+        # Part B: Serendipitous Random Exploration
+        all_active_groups = [node for node in hierarchy_dag.keys() if hierarchy_dag[node]["is_active"]]
+
+        # Collect all nodes visited in primary paths to exclude them from serendipitous sample
+        visited_in_primary = set()
+        for path in primary_paths:
+            visited_in_primary.update(path)
+        
+        unvisited_groups = [g for g in all_active_groups if g not in visited_in_primary]
+        
+        num_sample = int(len(unvisited_groups) * theta_explore)
+        sampled_nodes = random.sample(unvisited_groups, min(num_sample, len(unvisited_groups)))
+        print(f"Sampled {len(sampled_nodes)} nodes from {len(unvisited_groups)} unvisited for serendipitous exploration.")
+
+        serendipity_paths = set()
+        for s_node in sampled_nodes:
+            if self._llm_check_direct_link(c_new, s_node):
+                print(f"Direct link found between '{c_new}' and serendipitous node '{s_node}'. Initiating branch traversal.")
+                # Start a new traversal from this node. The path will start with this node.
+                branch_paths = self._recursive_traversal(c_new, [s_node], hierarchy_dag, [])
+                serendipity_paths.update(branch_paths)
+        print(f"Serendipitous paths found: {serendipity_paths}")
+
+        return primary_paths.union(serendipity_paths)
+
+    # --- Algorithm 2: CreateInitialGraph ---
+
+    def create_initial_graph(self, initial_facts: List[str]) -> Dict:
+        """
+        Algorithm 2: Creates the initial Knowledge Graph at generation 0.
+        """
+        if self.current_generation >= 0:
+            print(f"Warning: Knowledge Graph already exists at generation {self.current_generation}. Returning current state.")
+            return self._get_active_hierarchy_dag()
+
+        print("Creating initial Knowledge Graph (Generation 0)...")
+        self.current_generation = 0 # Set for initial creation
+
+        # Store initial facts
+        for fact_content in initial_facts:
+            self._insert_fact(fact_content, "initial_load") 
+
+        # Generate concept candidates from initial facts
+        concept_candidates = self._llm_generate_concepts(initial_facts, "facts")
+        initial_concepts = self._llm_clean_concepts(concept_candidates)
+        print(f"Initial concepts identified for hierarchy: {initial_concepts}")
+
+        # Build initial hierarchy structure (in-memory DAG)
+        hierarchy_dag_structure = self._llm_build_initial_hierarchy(initial_concepts)
+        print(f"Initial hierarchy structure built in memory for {len(hierarchy_dag_structure)} groups.")
+
+        # Instantiate the concepts (Groups nodes) in Kuzu for Generation 0
+        all_groups_in_hierarchy = set(hierarchy_dag_structure.keys())
+        for c_name in all_groups_in_hierarchy:
+            self.create_group(self.conn, c_name, self.current_generation, is_active=True)
+            # Record CREATE link for the new group (concept created in this generation)
+            self._record_evolution_link(c_name, c_name, "CREATE", f"Initial creation at generation {self.current_generation}")
+
+        # Create 'ParentOf' links in Kuzu based on the hierarchy_dag_structure
+        print("Creating ParentOf links in Kuzu...")
+        for group_name, data in hierarchy_dag_structure.items():
+            for parent_name in data["parents"]: # Parents are defined as the 'source' of ParentOf links
+                self._add_parent_of_link(parent_name, group_name)
+        
+        print("Initial graph creation complete.")
+        return self._get_active_hierarchy_dag() # Return the state of the newly created graph
+
+    # --- Algorithm 1: EvolveKnowledgeGraph ---
+
+    def evolve_knowledge_graph(self, new_facts: List[str], theta_explore: float = 0.1) -> Dict:
+        """
+        Algorithm 1: Generational Knowledge Hierarchy Evolution (EvoSem-MHI).
+        """
+        if self.current_generation == -1:
+            print("No initial graph found. Calling create_initial_graph first for current facts.")
+            return self.create_initial_graph(new_facts)
+
+        self.current_generation += 1
+        print(f"\n--- Starting Evolution for Generation {self.current_generation} ---")
+
+        # Phase 1: Discovery of New Concepts
+        print("Phase 1: Discovery of New Concepts")
+        # LLM_GenerateConcepts for new facts
+        candidate_new_concepts = self._llm_generate_concepts(new_facts, "facts")
+        # LLM_CleanConcepts
+        cleaned_new_concepts = self._llm_clean_concepts(candidate_new_concepts)
+        
+        # Store initial facts
+        for fact_content in new_facts:
+            self._insert_fact(fact_content, f"generation_{self.current_generation}_input") 
+
+        # Ensure new concepts are created as Groups nodes, even if not immediately integrated into hierarchy
+        for concept_name in cleaned_new_concepts:
+            self.create_group(self.conn, concept_name, self.current_generation, is_active=True)
+            # Record CREATE link for the new group (concept created in this generation)
+            self._record_evolution_link(concept_name, concept_name, "CREATE", f"Discovered in generation {self.current_generation}")
+
+        print(f"Discovered and prepared {len(cleaned_new_concepts)} new concepts.")
+
+        # Capture the current state of the hierarchy *before* MHI
+        # This DAG needs to include all active groups, including potentially new ones from this generation if they exist
+        current_hierarchy_state = self._get_active_hierarchy_dag()
+        current_dag_for_mhi = current_hierarchy_state["dag"]
+
+        # Phase 2: Multiplicative Hierarchical Integration
+        print("\nPhase 2: Multiplicative Hierarchical Integration")
+        for new_concept_name in cleaned_new_concepts:
+            all_association_paths = self._find_all_association_paths(
+                new_concept_name, current_dag_for_mhi, theta_explore
             )
             
-            suggestion = response["response"]
-            suggestion["fact"] = fact
-            suggestion["current_groups"] = current_groups
-            suggestions.append(suggestion)
-    
-    return suggestions
-
-
-def create_evolution_history_tables(conn):
-    """Create tables to track evolution history"""
-    
-    # Evolution log table
-    safe_kuzu_execute(conn, """
-        CREATE NODE TABLE IF NOT EXISTS EvolutionLog(
-            id STRING,
-            timestamp STRING,
-            operation_type STRING,
-            description STRING,
-            details STRING,
-            PRIMARY KEY (id)
-        );
-    """)
-    
-    # Fact evolution history
-    safe_kuzu_execute(conn, """
-        CREATE NODE TABLE IF NOT EXISTS FactHistory(
-            fact_content STRING,
-            operation STRING,
-            timestamp STRING,
-            old_groups STRING,
-            new_groups STRING,
-            reason STRING,
-            PRIMARY KEY (fact_content, timestamp)
-        );
-    """)
-    
-    # Group evolution history  
-    safe_kuzu_execute(conn, """
-        CREATE NODE TABLE IF NOT EXISTS GroupHistory(
-            group_name STRING,
-            operation STRING,
-            timestamp STRING,
-            details STRING,
-            reason STRING,
-            PRIMARY KEY (group_name, timestamp)
-        );
-    """)
-
-
-def log_evolution_event(
-    conn,
-    operation_type: str,
-    description: str,
-    details: Dict = None
-):
-    """Log an evolution event for historical tracking"""
-    
-    import uuid
-    event_id = str(uuid.uuid4())
-    timestamp = datetime.datetime.now().isoformat()
-    details_json = json.dumps(details) if details else "{}"
-    
-    # Escape strings for Kuzu
-    escaped_desc = description.replace('"', '\\"')
-    escaped_details = details_json.replace('"', '\\"')
-    escaped_op = operation_type.replace('"', '\\"')
-    
-    safe_kuzu_execute(conn, f"""
-        CREATE (e:EvolutionLog {{
-            id: "{event_id}",
-            timestamp: "{timestamp}",
-            operation_type: "{escaped_op}",
-            description: "{escaped_desc}",
-            details: "{escaped_details}"
-        }});
-    """)
-
-
-def semantic_evolution_pipeline(
-    conn,
-    model: str = "llama3.2",
-    provider: str = "ollama",
-    npc: NPC = None,
-    max_group_size: int = 20,
-    distinctness_threshold: float = 0.8
-) -> Dict[str, Any]:
-    """Main semantic evolution pipeline - the /sleep function"""
-    
-    print("🧠 Starting semantic evolution pipeline...")
-    
-    evolution_stats = {
-        "facts_processed": 0,
-        "groups_processed": 0,
-        "facts_reassigned": 0,
-        "groups_split": 0,
-        "groups_merged": 0,
-        "new_facts_added": 0,
-        "new_groups_created": 0
-    }
-    
-    # Ensure evolution history tables exist
-    create_evolution_history_tables(conn)
-    
-    # 1. Analyze group sizes and suggest splits
-    print("📊 Analyzing group sizes...")
-    groups_result = conn.execute("MATCH (g:Groups) RETURN g.name").get_as_df()
-    
-    for _, row in groups_result.iterrows():
-        group_name = row["g.name"]
-        analysis = analyze_group_for_subgrouping(
-            conn, group_name, max_group_size, model, provider, npc
-        )
-        
-        if analysis["should_split"]:
-            print(f"🔄 Splitting group: {group_name}")
+            print(f"Paths for '{new_concept_name}': {all_association_paths}")
             
-            # Create subgroups
-            for subgroup in analysis["suggested_subgroups"]:
-                subgroup_name = subgroup["name"]
+            # Create AssociatedWith links for all nodes along all paths
+            # The new concept is linked *to* existing concepts in the hierarchy.
+            for path in all_association_paths:
+                if not path: continue # Skip empty paths
+                for node_in_path in path:
+                    # Ensure the node in path is an active group.
+                    if node_in_path in current_dag_for_mhi and current_dag_for_mhi[node_in_path]["is_active"]:
+                        self._add_associated_with_link(new_concept_name, node_in_path)
+                        # print(f"Added 'AssociatedWith' link: '{new_concept_name}' -> '{node_in_path}'") # Too verbose
+
+        print("Phase 2: Integration complete.")
+
+        # Phase 3: Pruning and Consolidation
+        print("\nPhase 3: Pruning and Consolidation")
+        # Get the *updated* list of all active groups for consolidation check
+        # This includes newly created groups from this generation (Phase 1)
+        # and existing active groups.
+        updated_hierarchy_state_for_pruning = self._get_active_hierarchy_dag()
+        all_active_groups_for_consolidation = updated_hierarchy_state_for_pruning["all_active_groups"]
+
+        redundant_candidates = self._llm_find_redundant_nodes(all_active_groups_for_consolidation)
+        
+        if not redundant_candidates:
+            print("No redundant concepts identified for consolidation.")
+        else:
+            print(f"Identified {len(redundant_candidates)} consolidation candidates.")
+
+        for new_consolidated_name, old_concept_names in redundant_candidates:
+            # Ensure the new_consolidated_name is not one of the old_concept_names
+            # If LLM suggests merging "A" into "A", skip.
+            if new_consolidated_name in old_concept_names:
+                print(f"Skipping consolidation where new concept '{new_consolidated_name}' is also an old concept. This should be handled by LLM.")
+                old_concept_names.remove(new_consolidated_name)
+                if not old_concept_names: continue # If no other old concepts, skip
+
+            print(f"Consolidating: {old_concept_names} into '{new_consolidated_name}'")
+            # Create the new consolidated group if it doesn't exist
+            # It will be active and created in the current generation
+            self.create_group(self.conn, new_consolidated_name, self.current_generation, is_active=True)
+
+            # Link old concepts to the new consolidated group and mark them inactive
+            for old_name in old_concept_names:
+                # Record evolution link from old to new
+                self._record_evolution_link(old_name, new_consolidated_name, "SUBSUMED_BY", f"Consolidated in generation {self.current_generation}")
                 
-                # Create new subgroup
-                if create_group(conn, subgroup_name, f"Subgroup of {group_name}"):
-                    
-                    # Move facts to subgroup
-                    for fact in subgroup["facts"]:
-                        # Remove from old group
-                        escaped_fact = fact.replace('"', '\\"')
-                        escaped_old = group_name.replace('"', '\\"')
-                        escaped_new = subgroup_name.replace('"', '\\"')
-                        
-                        safe_kuzu_execute(conn, f"""
-                            MATCH (g:Groups)-[r:Contains]->(f:Fact)
-                            WHERE g.name = "{escaped_old}" AND f.content = "{escaped_fact}"
-                            DELETE r
-                        """)
-                        
-                        # Add to new group
-                        assign_fact_to_group_graph(conn, fact, subgroup_name)
-                    
-                    evolution_stats["groups_split"] += 1
-                    log_evolution_event(conn, "group_split", 
-                        f"Split {group_name} -> {subgroup_name}", analysis)
-    
-    # 2. Suggest and apply fact reassignments
-    print("🔄 Analyzing fact assignments...")
-    reassignment_suggestions = suggest_fact_reassignments(conn, model, provider, npc)
-    
-    for suggestion in reassignment_suggestions:
-        if suggestion["needs_reassignment"] and suggestion["confidence"] > 0.7:
-            fact = suggestion["fact"]
-            current_groups = suggestion["current_groups"]
-            suggested_groups = suggestion["suggested_groups"]
-            
-            print(f"📝 Reassigning fact: {fact[:50]}...")
-            
-            # Remove from current groups
-            escaped_fact = fact.replace('"', '\\"')
-            for group in current_groups:
-                escaped_group = group.replace('"', '\\"')
-                safe_kuzu_execute(conn, f"""
-                    MATCH (g:Groups)-[r:Contains]->(f:Fact)
-                    WHERE g.name = "{escaped_group}" AND f.content = "{escaped_fact}"
-                    DELETE r
-                """)
-            
-            # Add to suggested groups
-            for group in suggested_groups:
-                assign_fact_to_group_graph(conn, fact, group)
-            
-            evolution_stats["facts_reassigned"] += 1
-            log_evolution_event(conn, "fact_reassignment",
-                f"Reassigned fact from {current_groups} to {suggested_groups}",
-                suggestion)
-    
-    print(f"✅ Evolution complete! Stats: {evolution_stats}")
-    return evolution_stats
+                # Mark old group as inactive
+                self._set_group_active_status(old_name, False)
+                
+                # Rewire all relationships (ParentOf, AssociatedWith, Contains) from old to new
+                self._rewire_group_relationships(old_name, new_consolidated_name)
+                print(f"Marked '{old_name}' as inactive and rewired its connections to '{new_consolidated_name}'.")
 
+        print(f"\n--- Evolution for Generation {self.current_generation} Complete ---")
+        return self._get_active_hierarchy_dag() # Return the final state of the graph after this generation
 
-def sleep_command(
-    db_path: str,
-    model: str = "llama3.2", 
-    provider: str = "ollama",
-    npc: NPC = None
-) -> Dict[str, Any]:
-    """The /sleep command that triggers semantic evolution"""
-    
-    print("💤 Entering sleep mode - semantic evolution starting...")
-    
-    # Initialize database connection
-    conn = init_db(db_path, drop=False)
-    if not conn:
-        return {"error": "Failed to connect to database"}
-    
-    try:
-        # Run the evolution pipeline
-        stats = semantic_evolution_pipeline(
-            conn, model, provider, npc
-        )
+    # --- Fact Storage (from original code, slightly adapted for self.conn) ---
+    def _insert_fact(self, fact_content: str, path: str) -> bool:
+        """Insert a fact into the database with robust error handling."""
+        if self.conn is None:
+            print("Cannot insert fact: database connection is None")
+            return False
+
+        try:
+            escaped_fact = fact_content.replace('"', '\\"')
+            escaped_path = os.path.expanduser(path).replace('"', '\\"')
+            timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+            safe_kuzu_execute(self.conn, "BEGIN TRANSACTION")
+            check_query = f'MATCH (f:Fact {{content: "{escaped_fact}"}}) RETURN f'
+            result, error = safe_kuzu_execute(self.conn, check_query, "Failed to check if fact exists")
+            if error:
+                safe_kuzu_execute(self.conn, "ROLLBACK")
+                return False
+
+            if not result.has_next():
+                insert_query = f"""
+                CREATE (f:Fact {{
+                    content: "{escaped_fact}",
+                    path: "{escaped_path}",
+                    recorded_at: "{timestamp}"
+                }})
+                """
+                _, error = safe_kuzu_execute(self.conn, insert_query, "Failed to insert fact")
+                if error:
+                    safe_kuzu_execute(self.conn, "ROLLBACK")
+                    return False
+            safe_kuzu_execute(self.conn, "COMMIT")
+            return True
+        except Exception as e:
+            print(f"Error inserting fact: {str(e)}")
+            traceback.print_exc()
+            safe_kuzu_execute(self.conn, "ROLLBACK")
+            return False
+
+    def _assign_fact_to_group_graph(self, fact_content: str, group_name: str) -> bool:
+        """Create a Contains relationship between a fact and a group."""
+        if self.conn is None:
+            print("Cannot assign fact to group: database connection is None")
+            return False
+
+        try:
+            escaped_fact = fact_content.replace('"', '\\"')
+            escaped_group = group_name.replace('"', '\\"')
+
+            # Check if both fact and group exist before creating relationship
+            check_fact_query = f'MATCH (f:Fact {{content: "{escaped_fact}"}}) RETURN f'
+            fact_result, fact_error = safe_kuzu_execute(self.conn, check_fact_query)
+            if fact_error or not fact_result or not fact_result.has_next():
+                print(f"Fact not found for assignment: {fact_content}")
+                return False
+
+            check_group_query = f'MATCH (g:Groups {{name: "{escaped_group}"}}) RETURN g'
+            group_result, group_error = safe_kuzu_execute(self.conn, check_group_query)
+            if group_error or not group_result or not group_result.has_next():
+                print(f"Group not found for assignment: {group_name}")
+                return False
+
+            # Check if relationship already exists to prevent duplicates
+            check_rel_query = f"""
+            MATCH (g:Groups {{name: "{escaped_group}"}})-[:Contains]->(f:Fact {{content: "{escaped_fact}"}})
+            RETURN g, f
+            """
+            rel_exists_result, _ = safe_kuzu_execute(self.conn, check_rel_query)
+            if rel_exists_result and rel_exists_result.has_next():
+                # print(f"Contains relationship already exists for fact '{fact_content}' to group '{group_name}'.")
+                return True # Relationship already exists, so it's "successful"
+
+            # Create relationship
+            query = f"""
+            MATCH (f:Fact), (g:Groups)
+            WHERE f.content = "{escaped_fact}" AND g.name = "{escaped_group}"
+            CREATE (g)-[:Contains]->(f)
+            """
+            _, error = safe_kuzu_execute(self.conn, query, f"Failed to create Contains relationship for fact {fact_content} to group {group_name}")
+            return error is None
+        except Exception as e:
+            print(f"Error assigning fact to group: {str(e)}")
+            traceback.print_exc()
+            return False
+
+    def store_fact_and_group(self, fact_content: str, groups: List[str], path: str = "unknown_source") -> bool:
+        """
+        Public method to store a fact and associate it with groups.
+        This handles the `Contains` relationships.
+        """
+        success = self._insert_fact(fact_content, path)
+        if not success:
+            print(f"Failed to insert fact: {fact_content}")
+            return False
         
-        # Log the sleep event
-        log_evolution_event(conn, "sleep_cycle", 
-            "Completed full semantic evolution cycle", stats)
-        
-        return {
-            "success": True,
-            "message": "Semantic evolution completed",
-            "stats": stats
-        }
-        
-    except Exception as e:
-        print(f"Error during evolution: {str(e)}")
-        return {"error": str(e)}
-    finally:
-        # Close connection
-        if conn:
-            conn.close()
+        for group in groups:
+            # Assign fact to group (creates Contains link)
+            if not self._assign_fact_to_group_graph(fact_content, group):
+                print(f"Failed to assign fact {fact_content} to group {group}")
+                success = False # Still continue with other groups but mark overall failure
+        return success
