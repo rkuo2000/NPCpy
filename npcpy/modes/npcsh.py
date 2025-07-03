@@ -51,7 +51,6 @@ from npcpy.memory.command_history import (
 )
 from npcpy.memory.knowledge_graph import breathe
 from npcpy.memory.sleep import sleep, forget
-from npcpy.memory.memory_integration import register_memory_commands, execute_breathe, execute_sleep, execute_forget
 from npcpy.npc_compiler import NPC, Team, load_jinxs_from_directory
 from npcpy.llm_funcs import check_llm_command, get_llm_response, execute_llm_command
 from npcpy.gen.embeddings import get_embeddings

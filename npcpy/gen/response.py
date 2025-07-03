@@ -171,7 +171,7 @@ def get_ollama_response(
     # Add tool choice if specified
     if tool_choice:
         api_params["tool_choice"] = tool_choice
-    
+    options = {}
     # Add any additional parameters
     for key, value in kwargs.items():
         if key in [
@@ -187,8 +187,9 @@ def get_ollama_response(
             "response_format",
             "user",
         ]:
-            api_params[key] = value
+            options[key] = value
     
+    print(options)
     # Handle formatting
     if isinstance(format, type) and not stream:
         schema = format.model_json_schema()
@@ -206,11 +207,11 @@ def get_ollama_response(
     
     # Handle streaming
     if stream:
-        result["response"] = ollama.chat(**api_params)
+        result["response"] = ollama.chat(**api_params, options=options)
         return result
     
     # Non-streaming case
-    res = ollama.chat(**api_params)
+    res = ollama.chat(**api_params, options = options)
     result["raw_response"] = res
     
     # Extract the response content
@@ -397,11 +398,13 @@ def get_litellm_response(
             result = process_tool_calls(result, tool_map, model, provider, messages, stream=True)
             
         else:
+
             result["response"] = completion(**api_params, stream=True)
             
         return result
     
     # Non-streaming case
+    
     resp = completion(**api_params)
     result["raw_response"] = resp
     

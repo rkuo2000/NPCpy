@@ -58,7 +58,7 @@ def generate_random_events(
             model=model,
             provider=provider,
             npc=npc,
-            temperature=0.8,
+            temperature=0.4,
             **api_kwargs
         )
         
@@ -271,27 +271,29 @@ def perform_single_wandering(problem,
         print(f'Stream #{n+1}')
         
         # Occasionally inject an event
-        if events_to_use and random.random() < 0.7:  # 70% chance to inject event
+        if events_to_use and random.random() < 0.1:  
             event = events_to_use.pop(0)
             print(f"\n[EVENT: {event['type']} at {event['location']}]\n{event['description']}\n")
             # Add the event to the prompt for the next stream
-            event_prompt = f"\nSuddenly, {event['description']} This happens at {event['location']}. How does this influence your thinking?"
+            event_prompt = f"\nSuddenly, {event['description']} This happens at {event['location']}."
         else:
             event_prompt = ""
-            
-        stream_result = ''
+        random_subsample = ' '.join(np.random.choice(conversation_result.split(), 20))
+        print(random_subsample)
+        stream_result = ' '
         high_temp_response = get_llm_response(
-            problem + conversation_result + event_prompt, 
+            random_subsample+event_prompt, 
             model=model, 
             provider=provider, 
-            npc=npc, 
             stream=True, 
             temperature=high_temp, 
+            messages = [{'role':'system', 
+                         'content':'continue generating, do not attempt to answer.'}],
             **api_kwargs
         )
         
         for chunk in high_temp_response['response']:
-            interruption = np.random.randint(0,100) < interruption_likelihood
+            interruption = np.random.random_sample() < interruption_likelihood/100
             if interruption:
                 high_temp_streams.append(stream_result)
                 
@@ -304,7 +306,7 @@ def perform_single_wandering(problem,
                     high_temp_samples.append(sampled_stream_result)
                 break
                 
-            if provider == "ollama" and 'hf.co' in model:
+            if provider == "ollama":
                 chunk_content = chunk["message"]["content"]
                 if chunk_content:
                     stream_result += chunk_content
@@ -318,10 +320,17 @@ def perform_single_wandering(problem,
                 if chunk_content:
                     stream_result += chunk_content
                     print(chunk_content, end="")
-                    
+        
         if stream_result and stream_result not in high_temp_streams:
             high_temp_streams.append(stream_result)
-            
+            stream_result_list = stream_result.split()
+            sample_size = int(len(stream_result_list) * sample_rate)
+
+            sample_indices = np.random.choice(len(stream_result_list), size=min(sample_size, len(stream_result_list)), replace=False)
+            sampled_stream_result = [stream_result_list[i] for i in sample_indices]
+            sampled_stream_result = ' '.join(sampled_stream_result)
+            high_temp_samples.append(sampled_stream_result)
+
     print('\n\n--- Wandering complete ---\n')
             
     # Combine the samples and evaluate with initial problem
@@ -340,8 +349,7 @@ def perform_single_wandering(problem,
     {problem}
 
     Use the thoughts and events creatively and explicitly reference them in your response.
-    Are there any specific items contained that are unusual that may suggest a new direction?
-    Focus on these, and consider how the environment and events influenced your thinking.
+    Are there any specific items contained that may suggest a new direction?
     '''
     
     print("Extracted thought samples:")

@@ -656,7 +656,7 @@ def stream():
             dot_count += 1
             
             if "hf.co" in model or provider == 'ollama':
-                print("streaming from hf model through ollama")
+                #print("streaming from hf model through ollama")
                 chunk_content = response_chunk["message"]["content"] if "message" in response_chunk and "content" in response_chunk["message"] else ""
                 
                 # Extract tool call info for Ollama
@@ -1497,7 +1497,7 @@ def stream_raw():
             chunk_content = ""
             
             if "hf.co" in model or provider == 'ollama':
-                print("streaming from hf model through ollama")
+                #print("streaming from hf model through ollama")
                 chunk_content = response_chunk["message"]["content"]
                 
                 # Extract tool call info for Ollama

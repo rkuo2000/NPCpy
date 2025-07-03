@@ -228,63 +228,6 @@ def extract_facts(
     response = response["response"]
     return response.get("fact_list", [])
 
-def extract_mistakes(
-    text: str,
-    model: str,
-    provider: str,
-    npc: NPC = None,
-    context: str = ""
-) -> List[str]:
-    """Extract mistakes from a conversation."""
-    prompt = f"""
-    Based on this text, identify and list any mistakes made.
-    A mistake is a decision or action that resulted in an incorrect outcome
-    or a misunderstanding.
-    
-    Text: {text}
-
-    Return a JSON object:
-    {{
-        "mistakes": ["list of mistakes"]
-    }}
-    """
-    response = get_llm_response(
-        prompt,
-        model=model,
-        provider=provider,
-        format="json",
-        npc=npc,
-    )
-    return response["response"].get("mistakes", [])
-
-def extract_lessons_learned(
-    text: str,
-    model: str,
-    provider: str,
-    npc: NPC = None,
-    context: str = ""
-) -> List[str]:
-    """Extract lessons learned from the conversation."""
-    prompt = f"""
-    Based on this conversation, what lessons were learned?
-    A lesson learned is a new understanding or insight.
-    
-    Text: {text}
-    
-    Return a JSON object:
-    {{
-        "lessons_learned": ["list of lessons"]
-    }}
-    """
-    response = get_llm_response(
-        prompt,
-        model=model,
-        provider=provider,
-        format="json",
-        npc=npc,
-    )
-    return response["response"].get("lessons_learned", [])
-
 
 # --- Breathe (Context Condensation) ---
 def breathe(
@@ -716,6 +659,9 @@ def process_text_with_hierarchy(
     }
 
 
+
+
+### STORAGE
 
 def store_fact_and_group(conn: kuzu.Connection, fact: str,
                         groups: List[str], path: str) -> bool:
