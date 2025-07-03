@@ -175,6 +175,10 @@ def setup_guac_mode(config_dir=None,
     npc_team_dir = Path(npc_team_dir) if npc_team_dir else config_dir / "npc_team"
     src_dir = config_dir / "src"
 
+    for p in [src_dir, plots_dir, npc_team_dir]:
+        p.mkdir(parents=True, exist_ok=True)
+
+
     team_ctx = {
         "team_name": "guac_team",
         "description": f"A team of NPCs specialized in {lang} analysis",
@@ -186,9 +190,6 @@ def setup_guac_mode(config_dir=None,
     with open(npc_team_dir / "team.ctx", "w") as f:
         yaml.dump(team_ctx, f, default_flow_style=False)
 
-
-    for p in [src_dir, plots_dir, npc_team_dir]:
-        p.mkdir(parents=True, exist_ok=True)
 
     if not (config_dir / "__init__.py").exists():
         (config_dir / "__init__.py").touch()
