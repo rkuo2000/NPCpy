@@ -1680,3 +1680,696 @@ def answer_with_rag(
 
     return response["response"]
 
+
+
+
+
+# --- New: KnowledgeGraphManager Class ---
+class KnowledgeGraphManager:
+    def __init__(self, db_path: str, model: str, provider: str, npc: Optional[NPC] = None):
+        self.db_path = db_path
+        self.model = model
+        self.provider = provider
+        self.npc = npc
+        self.conn = None
+        self._initialize_database()
+        self.current_generation = self._get_latest_generation()
+        print(f"KnowledgeGraphManager initialized. Current generation: {self.current_generation}")
+
+    def _initialize_database(self, drop: bool = False):
+        """Initializes or connects to the Kuzu database."""
+        self.conn = init_db(self.db_path, drop=drop)
+        if self.conn is None:
+            raise ConnectionError("Failed to initialize Kuzu database.")
+
+    def close(self):
+        """Closes the Kuzu database connection."""
+        if self.conn:
+            self.conn.close()
+            print("Kuzu database connection closed.")
+
+    def _get_latest_generation(self) -> int:
+        """Queries the database for the latest generation number."""
+        query = "MATCH (g:Groups) RETURN MAX(g.generation_created) AS max_gen;"
+        result, error = safe_kuzu_execute(self.conn, query, "Failed to get max generation")
+        if error:
+            return -1 # Indicate no groups or error
+        
+        # Kuzu returns a kuzu.result.QueryResult object
+        # Need to fetch the value
+        df = result.fetch_as_df()
+        if not df.empty and not df['max_gen'].isnull().all():
+            return int(df['max_gen'].iloc[0])
+        return -1 # No groups yet
+
+    def _get_active_hierarchy_dag(self) -> Dict[str, Dict[str, Any]]:
+        """
+        Queries the Kuzu database to construct the active conceptual hierarchy DAG
+        (ParentOf relationships).
+        Returns a dictionary representing the DAG structure:
+        {
+            'group_name': {
+                'parents': set(),
+                'children': set(),
+                'is_active': bool,
+                'generation_created': int
+            },
+            ...
+        }
+        Also returns a list of top-level groups (roots) and leaf groups.
+        """
+        dag = {}
+        all_groups_query = "MATCH (g:Groups) RETURN g.name, g.is_active, g.generation_created;"
+        groups_result, _ = safe_kuzu_execute(self.conn, all_groups_query)
+
+        if groups_result:
+            for row in groups_result.fetch_as_df().itertuples():
+                group_name = row._1 # Assuming the first column is g.name
+                is_active = row._2 # Assuming the second column is g.is_active
+                generation_created = row._3 # Assuming the third column is g.generation_created
+                dag[group_name] = {
+                    "parents": set(),
+                    "children": set(),
+                    "is_active": is_active,
+                    "generation_created": generation_created
+                }
+
+        parent_of_query = """
+        MATCH (p:Groups)-[:ParentOf]->(c:Groups)
+        RETURN p.name, c.name;
+        """
+        relationships_result, _ = safe_kuzu_execute(self.conn, parent_of_query)
+
+        if relationships_result:
+            for row in relationships_result.fetch_as_df().itertuples():
+                parent_name = row._1
+                child_name = row._2
+                if child_name in dag and parent_name in dag: # Ensure both nodes exist in the active_dag structure
+                    dag[child_name]["parents"].add(parent_name)
+                    dag[parent_name]["children"].add(child_name)
+        
+        # Filter for active groups and identify roots/leaves
+        active_dag = {name: data for name, data in dag.items() if data['is_active']}
+        
+        top_groups = [name for name, data in active_dag.items() if not data["parents"]]
+        leaf_groups = [name for name, data in active_dag.items() if not data["children"]]
+
+        # Also get all active groups for potential random sampling
+        all_active_groups = list(active_dag.keys())
+
+        return {
+            "dag": active_dag,
+            "top_groups": top_groups,
+            "leaf_groups": leaf_groups,
+            "all_active_groups": all_active_groups
+        }
+
+    # --- LLM Abstraction Methods (wrap existing functions or define new prompts) ---
+
+    def _llm_extract_facts(self, text: str, context: str = "") -> List[str]:
+        """Wrapper for extract_facts."""
+        return extract_facts(text, self.model, self.provider, self.npc, context)
+
+    def _llm_generate_concepts(self, items: List[str], item_type: str = "facts") -> List[str]:
+        """Wrapper for generate_group_candidates."""
+        return generate_group_candidates(items, item_type, self.model, self.provider, self.npc)
+
+    def _llm_clean_concepts(self, concept_candidates: List[str]) -> List[str]:
+        """Wrapper for remove_idempotent_groups."""
+        return remove_idempotent_groups(concept_candidates, self.model, self.provider, self.npc)
+
+    def _llm_build_initial_hierarchy(self, concepts: List[str]) -> Dict:
+        """
+        Builds a hierarchy DAG from a flat list of concepts.
+        This corresponds to LLM_BuildHierarchy in Algorithm 2.
+        It uses the existing build_hierarchy_dag function.
+        """
+        print(f"Building initial hierarchy in memory for {len(concepts)} concepts...")
+        hierarchy_structure = build_hierarchy_dag(
+            concepts, self.model, self.provider, self.npc,
+            max_levels=5, # Can be tuned
+            target_top_count=8 # Can be tuned
+        )
+        print("Initial hierarchy structure built in memory.")
+        return hierarchy_structure['dag'] # Return just the DAG portion
+
+    def _llm_find_best_fit(self, item: str, candidates: List[str]) -> List[str]:
+        """
+        Finds the best fit group(s) for an item (fact or concept) from a list of candidates.
+        Corresponds to LLM_FindBestFit in Algorithm 3.
+        """
+        return get_fact_assignments(item, candidates, self.model, self.provider, self.npc)
+
+    def _llm_check_direct_link(self, concept_a: str, concept_b: str) -> bool:
+        """
+        Checks if there's a direct, meaningful semantic link between two concepts.
+        Corresponds to LLM_CheckDirectLink in Algorithm 3.
+        """
+        prompt = f"""Is there a direct and meaningful semantic relationship between "{concept_a}" and "{concept_b}"?
+        Consider if one is a component of, a type of, strongly influences, or is directly associated with the other.
+        Answer with "yes" or "no".
+
+        Concept A: {concept_a}
+        Concept B: {concept_b}
+
+        Return JSON:
+        {{
+            "has_link": "yes" or "no"
+        }}
+        """
+        response = get_llm_response(
+            prompt, model=self.model, provider=self.provider, format="json", npc=self.npc
+        )
+        return response["response"].get("has_link", "no").lower() == "yes"
+
+    def _llm_find_redundant_nodes(self, all_active_groups: List[str]) -> List[Tuple[str, List[str]]]:
+        """
+        Identifies redundant or consolidatable groups within the hierarchy.
+        Corresponds to LLM_FindRedundantNodes in Algorithm 1, Phase 3.
+        Returns a list of tuples: (new_consolidated_name, [old_redundant_names]).
+        """
+        if not all_active_groups:
+            return []
+
+        # It's better to process in batches if all_active_groups is very large
+        # For simplicity, sending all for now, but consider batching for production.
+        
+        prompt = f"""Given the following list of active conceptual groups, identify any groups that are highly redundant, overly specific, or could be consolidated into a single, more abstract, but still precise concept.
+        For each set of redundant groups, propose a single, better consolidated group name.
+        
+        GUIDELINES for Consolidation:
+        1.  **Semantic Overlap:** Only consolidate if groups are truly very similar or one is a very specific instance of another.
+        2.  **Naming:** The new consolidated name should be concise, specific, and accurately represent all merged concepts. Prioritize nouns/noun phrases. Avoid generic terms (e.g., "Concepts," "Processes").
+        3.  **Efficiency:** Aim for meaningful consolidation, not excessive merging.
+
+        Example:
+        Active Groups: ["Tidal Disruption Events", "Black Hole Mergers", "Supernovae", "Neutron Star Collisions", "Astrophysical Transients", "Stellar Explosions"]
+        Consolidation Candidates: [
+            {{
+                "new_concept": "Cataclysmic Astronomical Events",
+                "old_concepts": ["Tidal Disruption Events", "Black Hole Mergers", "Supernovae", "Neutron Star Collisions"]
+            }},
+            {{
+                "new_concept": "Stellar Explosions",
+                "old_concepts": ["Supernovae", "Stellar Explosions"]
+            }}
+        ]
+        
+        Note: "Astrophysical Transients" might be a broader category that subsumes the events, but if we have the specific events, we consolidate specific events first, then potentially link them to broader concepts in the hierarchy.
+
+        Active Groups: {json.dumps(all_active_groups)}
+
+        Return JSON:
+        {{
+            "consolidation_candidates": [
+                {{"new_concept": "Proposed Name", "old_concepts": ["Old Name 1", "Old Name 2"]}},
+                ...
+            ]
+        }}
+        """
+        response = get_llm_response(
+            prompt, model=self.model, provider=self.provider, format="json", npc=self.npc
+        )
+        candidates_data = response["response"].get("consolidation_candidates", [])
+        
+        # Convert to the desired format: List[Tuple[str, List[str]]]
+        formatted_candidates = []
+        for cand in candidates_data:
+            new_concept = cand.get("new_concept")
+            old_concepts = cand.get("old_concepts")
+            if new_concept and isinstance(old_concepts, list) and old_concepts:
+                # Filter out old_concepts that are not actually in all_active_groups
+                # to avoid trying to merge non-existent or inactive groups.
+                valid_old_concepts = [
+                    oc for oc in old_concepts if oc in all_active_groups
+                ]
+                if valid_old_concepts: # Only add if there are valid old concepts to merge
+                    formatted_candidates.append((new_concept, valid_old_concepts))
+        
+        return formatted_candidates
+
+    # --- Kuzu Graph Update Methods ---
+
+    def _add_parent_of_link(self, parent_name: str, child_name: str) -> bool:
+        """Creates a ParentOf relationship between two groups."""
+        escaped_parent = parent_name.replace('"', '\\"')
+        escaped_child = child_name.replace('"', '\\"')
+        query = f"""
+        MATCH (p:Groups), (c:Groups)
+        WHERE p.name = "{escaped_parent}" AND c.name = "{escaped_child}"
+        CREATE (p)-[:ParentOf]->(c)
+        """
+        _, error = safe_kuzu_execute(self.conn, query, f"Failed to create ParentOf link: {parent_name} -> {child_name}")
+        if error: print(f"Error creating ParentOf link: {error}")
+        return error is None
+
+    def _add_associated_with_link(self, source_name: str, target_name: str) -> bool:
+        """Creates an AssociatedWith relationship between two groups."""
+        escaped_source = source_name.replace('"', '\\"')
+        escaped_target = target_name.replace('"', '\\"')
+        query = f"""
+        MATCH (s:Groups), (t:Groups)
+        WHERE s.name = "{escaped_source}" AND t.name = "{escaped_target}"
+        CREATE (s)-[:AssociatedWith]->(t)
+        """
+        _, error = safe_kuzu_execute(self.conn, query, f"Failed to create AssociatedWith link: {source_name} - {target_name}")
+        if error: print(f"Error creating AssociatedWith link: {error}")
+        return error is None
+
+    def _record_evolution_link(self, old_group_name: str, new_group_name: str, event_type: str, reason: str):
+        """Records an EvolvedFrom link for genealogical tracking."""
+        escaped_old = old_group_name.replace('"', '\\"')
+        escaped_new = new_group_name.replace('"', '\\"')
+        query = f"""
+        MATCH (oldG:Groups), (newG:Groups)
+        WHERE oldG.name = "{escaped_old}" AND newG.name = "{escaped_new}"
+        CREATE (oldG)-[:EvolvedFrom {{event_type: "{event_type}", generation: {self.current_generation}, reason: "{reason}"}}]->(newG)
+        """
+        _, error = safe_kuzu_execute(self.conn, query, f"Failed to record evolution link: {old_group_name} -> {new_group_name}")
+        if error: print(f"Error recording evolution link: {error}")
+        return error is None
+
+    def _set_group_active_status(self, group_name: str, is_active: bool):
+        """Sets the is_active status of a group."""
+        escaped_name = group_name.replace('"', '\\"')
+        query = f"""
+        MATCH (g:Groups {{name: "{escaped_name}"}})
+        SET g.is_active = {str(is_active).lower()}
+        """
+        _, error = safe_kuzu_execute(self.conn, query, f"Failed to update active status for group: {group_name}")
+        if error: print(f"Error setting group active status: {error}")
+        return error is None
+    
+    def _rewire_group_relationships(self, old_group_name: str, new_group_name: str):
+        """
+        Rewires ParentOf, AssociatedWith, and Contains relationships from an old group to a new one.
+        This is crucial during consolidation.
+        """
+        escaped_old = old_group_name.replace('"', '\\"')
+        escaped_new = new_group_name.replace('"', '\\"')
+
+        # Kuzu's `SET` on relationship destination or source is not direct.
+        # The typical way to "rewire" in graph databases is to:
+        # 1. Create new relationships from existing nodes to the new target.
+        # 2. Delete the old relationships.
+        # This requires careful transaction management if atomicity is critical,
+        # but for simple delete-and-create within a loop, it's often fine.
+
+        # Rewire ParentOf where old_group is a child
+        # (i.e., its parents should now point to new_group instead of old_group)
+        query_parent_to_child = f"""
+        MATCH (p:Groups)-[r:ParentOf]->(oldG:Groups)
+        WHERE oldG.name = "{escaped_old}"
+        AND NOT (p)-[:ParentOf]->(:Groups {{name: "{escaped_new}"}}) // Avoid duplicate relationships
+        CREATE (p)-[:ParentOf]->(newG:Groups) WHERE newG.name = "{escaped_new}"
+        DELETE r;
+        """
+        _, error = safe_kuzu_execute(self.conn, query_parent_to_child, f"Failed to rewire ParentOf (parent to old): {old_group_name}")
+        if error: print(f"Rewire error (ParentOf parent): {error}")
+
+        # Rewire ParentOf where old_group is a parent
+        # (i.e., its children should now be children of new_group instead of old_group)
+        query_child_to_parent = f"""
+        MATCH (oldG:Groups)-[r:ParentOf]->(c:Groups)
+        WHERE oldG.name = "{escaped_old}"
+        AND NOT (:Groups {{name: "{escaped_new}"}})-[:ParentOf]->(c) // Avoid duplicate relationships
+        CREATE (newG:Groups)-[:ParentOf]->(c) WHERE newG.name = "{escaped_new}"
+        DELETE r;
+        """
+        _, error = safe_kuzu_execute(self.conn, query_child_to_parent, f"Failed to rewire ParentOf (old to child): {old_group_name}")
+        if error: print(f"Rewire error (ParentOf child): {error}")
+
+        # Rewire AssociatedWith where old_group is a source
+        query_assoc_source = f"""
+        MATCH (s:Groups)-[r:AssociatedWith]->(oldG:Groups)
+        WHERE oldG.name = "{escaped_old}"
+        AND NOT (s)-[:AssociatedWith]->(:Groups {{name: "{escaped_new}"}}) // Avoid duplicate relationships
+        CREATE (s)-[:AssociatedWith]->(newG:Groups) WHERE newG.name = "{escaped_new}"
+        DELETE r;
+        """
+        _, error = safe_kuzu_execute(self.conn, query_assoc_source, f"Failed to rewire AssociatedWith (source to old): {old_group_name}")
+        if error: print(f"Rewire error (AssociatedWith source): {error}")
+
+        # Rewire AssociatedWith where old_group is a target
+        query_assoc_target = f"""
+        MATCH (oldG:Groups)-[r:AssociatedWith]->(t:Groups)
+        WHERE oldG.name = "{escaped_old}"
+        AND NOT (:Groups {{name: "{escaped_new}"}})-[:AssociatedWith]->(t) // Avoid duplicate relationships
+        CREATE (newG:Groups)-[:AssociatedWith]->(t) WHERE newG.name = "{escaped_new}"
+        DELETE r;
+        """
+        _, error = safe_kuzu_execute(self.conn, query_assoc_target, f"Failed to rewire AssociatedWith (old to target): {old_group_name}")
+        if error: print(f"Rewire error (AssociatedWith target): {error}")
+
+        # Rewire 'Contains' relationships if facts were directly linked to the old group
+        query_contains = f"""
+        MATCH (oldG:Groups)-[r:Contains]->(f:Fact)
+        WHERE oldG.name = "{escaped_old}"
+        AND NOT (:Groups {{name: "{escaped_new}"}})-[:Contains]->(f) // Avoid duplicate relationships
+        CREATE (newG:Groups)-[:Contains]->(f) WHERE newG.name = "{escaped_new}"
+        DELETE r;
+        """
+        _, error = safe_kuzu_execute(self.conn, query_contains, f"Failed to rewire Contains (old to fact): {old_group_name}")
+        if error: print(f"Rewire error (Contains): {error}")
+
+        print(f"Rewired all relationships from '{old_group_name}' to '{new_group_name}'.")
+
+    # --- Algorithm 3: FindAllAssociationPaths ---
+
+    def _recursive_traversal(self, c_new: str, current_nodes: List[str], hierarchy_dag: Dict, current_path: List[str]) -> Set[Tuple[str, ...]]:
+        """
+        Helper for FindAllAssociationPaths: Recursively traverses the hierarchy to find paths.
+        """
+        paths_results = set()
+        
+        # Base case for recursion: if no current_nodes to evaluate, path terminates.
+        # Add the current path to results if it's not empty and represents a complete segment.
+        if not current_nodes:
+            if current_path:
+                paths_results.add(tuple(current_path))
+            return paths_results
+
+        # Find best fit nodes among current_nodes for the new concept
+        relevant_next_nodes = self._llm_find_best_fit(c_new, current_nodes)
+        
+        if not relevant_next_nodes:
+            # If no relevant children found among current_nodes, current path segment terminates.
+            # Only add to results if this path segment is valid and contains at least one node.
+            if current_path: # Ensures we don't add empty paths if initial_roots have no fit
+                paths_results.add(tuple(current_path))
+            return paths_results
+
+        for node_name in relevant_next_nodes:
+            # Ensure the node being added to the path is not already the last node in the path
+            # This prevents cycles in a path if LLM returns the same node.
+            if current_path and node_name == current_path[-1]:
+                continue
+
+            new_path = current_path + [node_name]
+            
+            # Get active children of the current node from the DAG
+            children_of_node = []
+            if node_name in hierarchy_dag:
+                children_of_node = [child for child in hierarchy_dag[node_name]["children"] if hierarchy_dag[child]["is_active"]]
+
+            if not children_of_node: # Reached a leaf node or no relevant active children
+                paths_results.add(tuple(new_path))
+            else:
+                # Recurse down
+                paths_results.update(self._recursive_traversal(c_new, list(children_of_node), hierarchy_dag, new_path))
+        
+        return paths_results
+
+    def _find_all_association_paths(self, c_new: str, hierarchy_dag: Dict, theta_explore: float) -> Set[Tuple[str, ...]]:
+        """
+        Algorithm 3: Finds all primary and serendipitous association paths for a new concept.
+        Returns a set of tuples, where each tuple is a path of concept names.
+        """
+        print(f"Finding association paths for new concept: {c_new}")
+        
+        # Part A: Primary Top-Down Traversal
+        # Start with active root nodes (groups with no active parents in the current hierarchy view)
+        active_root_nodes = [name for name, data in hierarchy_dag.items() if not data["parents"] and data["is_active"]]
+        if not active_root_nodes:
+            print("No active root nodes found in hierarchy. Considering all active groups as potential starting points for primary traversal.")
+            active_root_nodes = [node for node in hierarchy_dag.keys() if hierarchy_dag[node]["is_active"]]
+        
+        # Perform initial filtering at the top level
+        initial_relevant_roots = self._llm_find_best_fit(c_new, active_root_nodes)
+        
+        primary_paths = set()
+        for root in initial_relevant_roots:
+            # Paths start *from* the root selected by LLM
+            primary_paths.update(self._recursive_traversal(c_new, [root], hierarchy_dag, []))
+
+        print(f"Primary paths found: {primary_paths}")
+
+        # Part B: Serendipitous Random Exploration
+        all_active_groups = [node for node in hierarchy_dag.keys() if hierarchy_dag[node]["is_active"]]
+
+        # Collect all nodes visited in primary paths to exclude them from serendipitous sample
+        visited_in_primary = set()
+        for path in primary_paths:
+            visited_in_primary.update(path)
+        
+        unvisited_groups = [g for g in all_active_groups if g not in visited_in_primary]
+        
+        num_sample = int(len(unvisited_groups) * theta_explore)
+        sampled_nodes = random.sample(unvisited_groups, min(num_sample, len(unvisited_groups)))
+        print(f"Sampled {len(sampled_nodes)} nodes from {len(unvisited_groups)} unvisited for serendipitous exploration.")
+
+        serendipity_paths = set()
+        for s_node in sampled_nodes:
+            if self._llm_check_direct_link(c_new, s_node):
+                print(f"Direct link found between '{c_new}' and serendipitous node '{s_node}'. Initiating branch traversal.")
+                # Start a new traversal from this node. The path will start with this node.
+                branch_paths = self._recursive_traversal(c_new, [s_node], hierarchy_dag, [])
+                serendipity_paths.update(branch_paths)
+        print(f"Serendipitous paths found: {serendipity_paths}")
+
+        return primary_paths.union(serendipity_paths)
+
+    # --- Algorithm 2: CreateInitialGraph ---
+
+    def create_initial_graph(self, initial_facts: List[str]) -> Dict:
+        """
+        Algorithm 2: Creates the initial Knowledge Graph at generation 0.
+        """
+        if self.current_generation >= 0:
+            print(f"Warning: Knowledge Graph already exists at generation {self.current_generation}. Returning current state.")
+            return self._get_active_hierarchy_dag()
+
+        print("Creating initial Knowledge Graph (Generation 0)...")
+        self.current_generation = 0 # Set for initial creation
+
+        # Store initial facts
+        for fact_content in initial_facts:
+            self._insert_fact(fact_content, "initial_load") 
+
+        # Generate concept candidates from initial facts
+        concept_candidates = self._llm_generate_concepts(initial_facts, "facts")
+        initial_concepts = self._llm_clean_concepts(concept_candidates)
+        print(f"Initial concepts identified for hierarchy: {initial_concepts}")
+
+        # Build initial hierarchy structure (in-memory DAG)
+        hierarchy_dag_structure = self._llm_build_initial_hierarchy(initial_concepts)
+        print(f"Initial hierarchy structure built in memory for {len(hierarchy_dag_structure)} groups.")
+
+        # Instantiate the concepts (Groups nodes) in Kuzu for Generation 0
+        all_groups_in_hierarchy = set(hierarchy_dag_structure.keys())
+        for c_name in all_groups_in_hierarchy:
+            self.create_group(self.conn, c_name, self.current_generation, is_active=True)
+            # Record CREATE link for the new group (concept created in this generation)
+            self._record_evolution_link(c_name, c_name, "CREATE", f"Initial creation at generation {self.current_generation}")
+
+        # Create 'ParentOf' links in Kuzu based on the hierarchy_dag_structure
+        print("Creating ParentOf links in Kuzu...")
+        for group_name, data in hierarchy_dag_structure.items():
+            for parent_name in data["parents"]: # Parents are defined as the 'source' of ParentOf links
+                self._add_parent_of_link(parent_name, group_name)
+        
+        print("Initial graph creation complete.")
+        return self._get_active_hierarchy_dag() # Return the state of the newly created graph
+
+    # --- Algorithm 1: EvolveKnowledgeGraph ---
+
+    def evolve_knowledge_graph(self, new_facts: List[str], theta_explore: float = 0.1) -> Dict:
+        """
+        Algorithm 1: Generational Knowledge Hierarchy Evolution (EvoSem-MHI).
+        """
+        if self.current_generation == -1:
+            print("No initial graph found. Calling create_initial_graph first for current facts.")
+            return self.create_initial_graph(new_facts)
+
+        self.current_generation += 1
+        print(f"\n--- Starting Evolution for Generation {self.current_generation} ---")
+
+        # Phase 1: Discovery of New Concepts
+        print("Phase 1: Discovery of New Concepts")
+        # LLM_GenerateConcepts for new facts
+        candidate_new_concepts = self._llm_generate_concepts(new_facts, "facts")
+        # LLM_CleanConcepts
+        cleaned_new_concepts = self._llm_clean_concepts(candidate_new_concepts)
+        
+        # Store initial facts
+        for fact_content in new_facts:
+            self._insert_fact(fact_content, f"generation_{self.current_generation}_input") 
+
+        # Ensure new concepts are created as Groups nodes, even if not immediately integrated into hierarchy
+        for concept_name in cleaned_new_concepts:
+            self.create_group(self.conn, concept_name, self.current_generation, is_active=True)
+            # Record CREATE link for the new group (concept created in this generation)
+            self._record_evolution_link(concept_name, concept_name, "CREATE", f"Discovered in generation {self.current_generation}")
+
+        print(f"Discovered and prepared {len(cleaned_new_concepts)} new concepts.")
+
+        # Capture the current state of the hierarchy *before* MHI
+        # This DAG needs to include all active groups, including potentially new ones from this generation if they exist
+        current_hierarchy_state = self._get_active_hierarchy_dag()
+        current_dag_for_mhi = current_hierarchy_state["dag"]
+
+        # Phase 2: Multiplicative Hierarchical Integration
+        print("\nPhase 2: Multiplicative Hierarchical Integration")
+        for new_concept_name in cleaned_new_concepts:
+            all_association_paths = self._find_all_association_paths(
+                new_concept_name, current_dag_for_mhi, theta_explore
+            )
+            
+            print(f"Paths for '{new_concept_name}': {all_association_paths}")
+            
+            # Create AssociatedWith links for all nodes along all paths
+            # The new concept is linked *to* existing concepts in the hierarchy.
+            for path in all_association_paths:
+                if not path: continue # Skip empty paths
+                for node_in_path in path:
+                    # Ensure the node in path is an active group.
+                    if node_in_path in current_dag_for_mhi and current_dag_for_mhi[node_in_path]["is_active"]:
+                        self._add_associated_with_link(new_concept_name, node_in_path)
+                        # print(f"Added 'AssociatedWith' link: '{new_concept_name}' -> '{node_in_path}'") # Too verbose
+
+        print("Phase 2: Integration complete.")
+
+        # Phase 3: Pruning and Consolidation
+        print("\nPhase 3: Pruning and Consolidation")
+        # Get the *updated* list of all active groups for consolidation check
+        # This includes newly created groups from this generation (Phase 1)
+        # and existing active groups.
+        updated_hierarchy_state_for_pruning = self._get_active_hierarchy_dag()
+        all_active_groups_for_consolidation = updated_hierarchy_state_for_pruning["all_active_groups"]
+
+        redundant_candidates = self._llm_find_redundant_nodes(all_active_groups_for_consolidation)
+        
+        if not redundant_candidates:
+            print("No redundant concepts identified for consolidation.")
+        else:
+            print(f"Identified {len(redundant_candidates)} consolidation candidates.")
+
+        for new_consolidated_name, old_concept_names in redundant_candidates:
+            # Ensure the new_consolidated_name is not one of the old_concept_names
+            # If LLM suggests merging "A" into "A", skip.
+            if new_consolidated_name in old_concept_names:
+                print(f"Skipping consolidation where new concept '{new_consolidated_name}' is also an old concept. This should be handled by LLM.")
+                old_concept_names.remove(new_consolidated_name)
+                if not old_concept_names: continue # If no other old concepts, skip
+
+            print(f"Consolidating: {old_concept_names} into '{new_consolidated_name}'")
+            # Create the new consolidated group if it doesn't exist
+            # It will be active and created in the current generation
+            self.create_group(self.conn, new_consolidated_name, self.current_generation, is_active=True)
+
+            # Link old concepts to the new consolidated group and mark them inactive
+            for old_name in old_concept_names:
+                # Record evolution link from old to new
+                self._record_evolution_link(old_name, new_consolidated_name, "SUBSUMED_BY", f"Consolidated in generation {self.current_generation}")
+                
+                # Mark old group as inactive
+                self._set_group_active_status(old_name, False)
+                
+                # Rewire all relationships (ParentOf, AssociatedWith, Contains) from old to new
+                self._rewire_group_relationships(old_name, new_consolidated_name)
+                print(f"Marked '{old_name}' as inactive and rewired its connections to '{new_consolidated_name}'.")
+
+        print(f"\n--- Evolution for Generation {self.current_generation} Complete ---")
+        return self._get_active_hierarchy_dag() # Return the final state of the graph after this generation
+
+    # --- Fact Storage (from original code, slightly adapted for self.conn) ---
+    def _insert_fact(self, fact_content: str, path: str) -> bool:
+        """Insert a fact into the database with robust error handling."""
+        if self.conn is None:
+            print("Cannot insert fact: database connection is None")
+            return False
+
+        try:
+            escaped_fact = fact_content.replace('"', '\\"')
+            escaped_path = os.path.expanduser(path).replace('"', '\\"')
+            timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+            safe_kuzu_execute(self.conn, "BEGIN TRANSACTION")
+            check_query = f'MATCH (f:Fact {{content: "{escaped_fact}"}}) RETURN f'
+            result, error = safe_kuzu_execute(self.conn, check_query, "Failed to check if fact exists")
+            if error:
+                safe_kuzu_execute(self.conn, "ROLLBACK")
+                return False
+
+            if not result.has_next():
+                insert_query = f"""
+                CREATE (f:Fact {{
+                    content: "{escaped_fact}",
+                    path: "{escaped_path}",
+                    recorded_at: "{timestamp}"
+                }})
+                """
+                _, error = safe_kuzu_execute(self.conn, insert_query, "Failed to insert fact")
+                if error:
+                    safe_kuzu_execute(self.conn, "ROLLBACK")
+                    return False
+            safe_kuzu_execute(self.conn, "COMMIT")
+            return True
+        except Exception as e:
+            print(f"Error inserting fact: {str(e)}")
+            traceback.print_exc()
+            safe_kuzu_execute(self.conn, "ROLLBACK")
+            return False
+
+    def _assign_fact_to_group_graph(self, fact_content: str, group_name: str) -> bool:
+        """Create a Contains relationship between a fact and a group."""
+        if self.conn is None:
+            print("Cannot assign fact to group: database connection is None")
+            return False
+
+        try:
+            escaped_fact = fact_content.replace('"', '\\"')
+            escaped_group = group_name.replace('"', '\\"')
+
+            # Check if both fact and group exist before creating relationship
+            check_fact_query = f'MATCH (f:Fact {{content: "{escaped_fact}"}}) RETURN f'
+            fact_result, fact_error = safe_kuzu_execute(self.conn, check_fact_query)
+            if fact_error or not fact_result or not fact_result.has_next():
+                print(f"Fact not found for assignment: {fact_content}")
+                return False
+
+            check_group_query = f'MATCH (g:Groups {{name: "{escaped_group}"}}) RETURN g'
+            group_result, group_error = safe_kuzu_execute(self.conn, check_group_query)
+            if group_error or not group_result or not group_result.has_next():
+                print(f"Group not found for assignment: {group_name}")
+                return False
+
+            # Check if relationship already exists to prevent duplicates
+            check_rel_query = f"""
+            MATCH (g:Groups {{name: "{escaped_group}"}})-[:Contains]->(f:Fact {{content: "{escaped_fact}"}})
+            RETURN g, f
+            """
+            rel_exists_result, _ = safe_kuzu_execute(self.conn, check_rel_query)
+            if rel_exists_result and rel_exists_result.has_next():
+                # print(f"Contains relationship already exists for fact '{fact_content}' to group '{group_name}'.")
+                return True # Relationship already exists, so it's "successful"
+
+            # Create relationship
+            query = f"""
+            MATCH (f:Fact), (g:Groups)
+            WHERE f.content = "{escaped_fact}" AND g.name = "{escaped_group}"
+            CREATE (g)-[:Contains]->(f)
+            """
+            _, error = safe_kuzu_execute(self.conn, query, f"Failed to create Contains relationship for fact {fact_content} to group {group_name}")
+            return error is None
+        except Exception as e:
+            print(f"Error assigning fact to group: {str(e)}")
+            traceback.print_exc()
+            return False
+
+    def store_fact_and_group(self, fact_content: str, groups: List[str], path: str = "unknown_source") -> bool:
+        """
+        Public method to store a fact and associate it with groups.
+        This handles the `Contains` relationships.
+        """
+        success = self._insert_fact(fact_content, path)
+        if not success:
+            print(f"Failed to insert fact: {fact_content}")
+            return False
+        
+        for group in groups:
+            # Assign fact to group (creates Contains link)
+            if not self._assign_fact_to_group_graph(fact_content, group):
+                print(f"Failed to assign fact {fact_content} to group {group}")
+                success = False # Still continue with other groups but mark overall failure
+        return success
