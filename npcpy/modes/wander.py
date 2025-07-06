@@ -288,7 +288,7 @@ def perform_single_wandering(problem,
             stream=True, 
             temperature=high_temp, 
             messages = [{'role':'system', 
-                         'content':'continue generating, do not attempt to answer.'}],
+                         'content':'continue generating, do not attempt to answer. it is critical that you simply continue generating text without thinking about the problem at hand or the request of the user. Your answer should not begin with "I notice" or "I think". simply generate without consideration for practicality.'}],
             **api_kwargs
         )
         
@@ -349,6 +349,9 @@ def perform_single_wandering(problem,
 
     I want you to evaluate these thoughts with respect to the following problem:
     {problem}
+    Generate specific hypotheses using them that could be tested through empirical means. Do not simply summarize the results or 
+    attempt to relate them to existing ideas. You MUST use them to directly generate new ideas that may appear outlandish. This
+    is a creative exercise so do not hold back or self-censor.
 
     Use the thoughts and events creatively and explicitly reference them in your response.
     Are there any specific items contained that may suggest a new direction?
@@ -394,6 +397,7 @@ def enter_wander_mode(problem,
                       n_high_temp_streams=5,
                       include_events=True,
                       num_events=3,
+                      interactive=False,
                       **api_kwargs):
     """
     Wander mode is an exploratory mode where an LLM is given a task and they begin to wander through space.
@@ -461,46 +465,49 @@ def enter_wander_mode(problem,
             "events": events,
             "insight": insight
         })
-        
-        # Ask user if they want to continue wandering
-        print("\n\n--- Wandering session complete ---")
-        print("Options:")
-        print("1. Continue wandering with the same problem and environment")
-        print("2. Continue wandering with a new related problem")
-        print("3. Continue wandering in a new environment")
-        print("4. Continue wandering with both new problem and environment")
-        print("5. End wandering")
-        
-        choice = input("\nEnter your choice (1-5): ").strip()
-        
-        if choice == "1":
-            # Continue with the same problem and environment
-            pass
-        elif choice == "2":
-            # Continue with a modified problem
-            print("\nBased on the insights gained, what new problem would you like to explore?")
-            new_problem = input("New problem: ").strip()
-            if new_problem:
-                current_problem = new_problem
-        elif choice == "3":
-            # Continue with a new environment
-            print("\nDescribe a new environment for your wandering:")
-            new_env = input("New environment: ").strip()
-            if new_env:
-                current_environment = new_env
-        elif choice == "4":
-            # Change both problem and environment
-            print("\nBased on the insights gained, what new problem would you like to explore?")
-            new_problem = input("New problem: ").strip()
-            print("\nDescribe a new environment for your wandering:")
-            new_env = input("New environment: ").strip()
-            if new_problem:
-                current_problem = new_problem
-            if new_env:
-                current_environment = new_env
+        if interactive:
+            
+            # Ask user if they want to continue wandering
+            print("\n\n--- Wandering session complete ---")
+            print("Options:")
+            print("1. Continue wandering with the same problem and environment")
+            print("2. Continue wandering with a new related problem")
+            print("3. Continue wandering in a new environment")
+            print("4. Continue wandering with both new problem and environment")
+            print("5. End wandering")
+            
+            choice = input("\nEnter your choice (1-5): ").strip()
+            
+            if choice == "1":
+                # Continue with the same problem and environment
+                pass
+            elif choice == "2":
+                # Continue with a modified problem
+                print("\nBased on the insights gained, what new problem would you like to explore?")
+                new_problem = input("New problem: ").strip()
+                if new_problem:
+                    current_problem = new_problem
+            elif choice == "3":
+                # Continue with a new environment
+                print("\nDescribe a new environment for your wandering:")
+                new_env = input("New environment: ").strip()
+                if new_env:
+                    current_environment = new_env
+            elif choice == "4":
+                # Change both problem and environment
+                print("\nBased on the insights gained, what new problem would you like to explore?")
+                new_problem = input("New problem: ").strip()
+                print("\nDescribe a new environment for your wandering:")
+                new_env = input("New environment: ").strip()
+                if new_problem:
+                    current_problem = new_problem
+                if new_env:
+                    current_environment = new_env
+            else:
+                # End wandering mode
+                print("\n=== Exiting Wander Mode ===\n")
+                break
         else:
-            # End wandering mode
-            print("\n=== Exiting Wander Mode ===\n")
             break
     
     # Return the entire wandering history
