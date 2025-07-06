@@ -11,7 +11,10 @@ action_space = {
         "drag": {"start_x": "int (0-100)", "start_y": "int (0-100)", "end_x": "int (0-100)", "end_y": "int (0-100)"},
         "quit": {"description": "Use this action when the main goal is 100% complete."},
     }
-import pyautogui
+try:
+    import pyautogui
+except:
+    print('could not import pyautogui')
 import time
 import subprocess
 
