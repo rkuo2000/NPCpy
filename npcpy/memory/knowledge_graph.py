@@ -663,7 +663,7 @@ def process_text_with_hierarchy(
 
 ### STORAGE
 
-def store_fact_and_group(conn: kuzu.Connection, fact: str,
+def store_fact_and_group(conn, fact: str,
                         groups: List[str], path: str) -> bool:
     """Insert a fact into the database along with its groups"""
     if not conn:
@@ -916,7 +916,7 @@ def process_text_with_hierarchy(
 
 
 #--- Kuzu Database integration ---
-def store_fact_and_group(conn: kuzu.Connection, fact: str, groups: List[str], path: str) -> bool:
+def store_fact_and_group(conn, fact: str, groups: List[str], path: str) -> bool:
     """Insert a fact into the database along with its groups"""
     if not conn:
         print("store_fact_and_group: Database connection is None")
