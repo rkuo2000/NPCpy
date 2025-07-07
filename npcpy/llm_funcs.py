@@ -192,117 +192,6 @@ def get_llm_response(
 
 
 
-def decide_plan(
-    command: str,
-    possible_actions: Dict[str, str],
-    responder = None,
-    messages: Optional[List[Dict[str, str]]] = None, 
-    model: Optional[str] = None,
-    provider: Optional[str] = None,
-    api_url: Optional[str] = None,
-    api_key: Optional[str] = None,
-) -> Dict[str, Any]:
-    """
-    Gets a plan by asking LLM to choose from possible_actions.
-    Prompt includes only command, actions, and potential delegation targets (if responder is Team).
-    Relies on get_llm_response to handle all other context via the passed npc object.
-
-    Args:
-        command: User input.
-        possible_actions: Dictionary of valid action names and descriptions.
-        responder: The NPC or Team object, or None.
-        messages: Conversation history (passed to get_llm_response).
-        model, provider, api_url, api_key: LLM configuration overrides.
-
-    Returns:
-        Plan dictionary: {"chosen_action":..., "parameters":..., "explanation":..., "error":...}.
-    """
-    if not possible_actions:
-        return {"error": "No possible actions provided."}
-
-
-    prompt = f"User Request: \"{command}\"\n\n"
-    prompt += "## Possible Actions:\nChoose ONE action:\n"
-    for name, desc in possible_actions.items():
-        prompt += f"- {name}: {desc}\n"
-
-    # Add delegation targets ONLY if responder is a Team    
-    if hasattr(responder, 'npcs'):
-        foreman = decision_npc_obj # Already fetched
-        entities = []
-        for name, npc_obj in responder.npcs.items():
-             if npc_obj != foreman: # Don't list the foreman itself
-                 entities.append(f"- {name} (NPC)")
-        for name, team_obj in responder.sub_teams.items():
-             entities.append(f"- {name} (Team)")
-        if entities:
-            prompt += "\n### Potential Delegation Targets:\n" + "\n".join(entities) + "\n"
-
-    # Instructions for LLM
-    prompt += """
-# Instructions:
-1. Select the single most appropriate action from 'Possible Actions'.
-2. Determine parameters identifying the action's target (e.g., 'jinx_name', 'target_entity'). DO NOT determine jinx arguments.
-3. Explain reasoning.
-
-# Required Output Format (JSON Only, NO MARKDOWN):
-{
-  "chosen_action": "action_name",
-  "parameters": { /* "jinx_name": "...", "target_entity": "..." */ },
-  "explanation": "Your reasoning."
-}
-"""
-
-    # --- 3. Call LLM ---
-    # Pass decision_npc_obj - get_llm_response handles its context (directive etc.)
-    llm_response = get_llm_response(
-        prompt=prompt,
-        model=effective_model,
-        provider=effective_provider,
-        api_url=effective_api_url,
-        api_key=effective_api_key,
-        npc=decision_npc_obj, # Pass the relevant NPC/Foreman object or None
-        format="json",
-        messages=messages # Pass history if get_llm_response uses it
-    )
-
-    # --- 4. Parse and Validate ---
-    plan = {"error": None}
-    if "error" in llm_response or "Error" in llm_response:
-        plan["error"] = f"LLM Error: {llm_response.get('error', llm_response.get('Error'))}"
-        print(plan["error"])
-        return plan
-
-    response_content = llm_response.get("response", {})
-    parsed_json = None
-    try:
-        if isinstance(response_content, str): parsed_json = json.loads(response_content.strip())
-        elif isinstance(response_content, dict): parsed_json = response_content
-        else: raise TypeError("Response is not str or dict")
-
-        if not all(k in parsed_json for k in ["chosen_action", "parameters", "explanation"]) or \
-           not isinstance(parsed_json.get("parameters"), dict) or \
-           not isinstance(parsed_json.get("chosen_action"), str) or \
-           not parsed_json.get("chosen_action"):
-            raise ValueError("LLM plan has invalid structure or missing keys.")
-
-        chosen_action = parsed_json["chosen_action"]
-        if chosen_action not in possible_actions:
-            raise ValueError(f"LLM chose an invalid action '{chosen_action}'. Valid: {list(possible_actions.keys())}")
-
-        plan["chosen_action"] = chosen_action
-        plan["parameters"] = parsed_json.get("parameters", {})
-        plan["explanation"] = parsed_json.get("explanation", "")
-
-    except (json.JSONDecodeError, TypeError, ValueError) as e:
-        plan["error"] = f"LLM plan processing error: {e}. Response: {str(response_content)[:200]}..."
-        print(plan["error"])
-        return plan
-
-
-    print(f"Plan Determined: Action='{plan['chosen_action']}', Params='{plan['parameters']}'")
-    return plan
-
 def execute_llm_command(
     command: str,
     model: Optional[str] = None,
@@ -331,9 +220,7 @@ def execute_llm_command(
     max_attempts = 5
     attempt = 0
     subcommands = []
-    npc_name = npc.name if npc else "sibiji"
-    location = os.getcwd()
-    print(f"{npc_name} generating command")
+
     # Create context from retrieved documents
     context = ""
     while attempt < max_attempts:
@@ -764,7 +651,7 @@ def check_llm_command(
         jinx to be called, perhaps in a sequence?
         Sequences should only be used for more than one consecutive jinx call. Do not invoke sequences for single jinx calls.
     """
-    if human_in_the_loop:
+    if human_in_the_loop and shell:
 
         prompt+= f"""
             5. is there a high amount of ambiguity in the user's request?  If so, ask the user for more information.
@@ -823,18 +710,19 @@ def check_llm_command(
             Here is a jinx that may be relevant to the user's request:
             {jinx}
             """        
+
     if team is None:
         prompt += "No NPCs available for alternative answers."
     else:
         # team.npcs is a dict , need to check if it is empty
-        if team.npcs is None or len(team.npcs) == 0:
-            prompt += "No NPCs available for alternative answers."
-        else:
-            prompt += f"""
-            Available NPCs for alternative answers:
-
-                {team.npcs}
-            """
+        #if team.npcs is None or len(team.npcs) == 0:
+        #    prompt += "No NPCs available for alternative answers."
+        #else:
+        #    prompt += f"""
+        #    Available NPCs for alternative answers:#
+        #
+        #        {team.npcs}
+        #    """
         if team.context:
             prompt += f"""
             Relevant shared context for the team:
@@ -852,17 +740,17 @@ def check_llm_command(
     - Whether a jinx should be used.
 
     Excluding time-sensitive phenomena or ones that require external data inputs /information,
-    most general questions can be answered without any extra jinxs or agent passes.
+    most general questions can be answered without any extra jinxs.
 
     
 
-    Only use jinxs or pass to other NPCs when it is obvious that the answer needs to be as up-to-date as possible. For example,
+    Only use jinxs when it is obvious that the answer needs to be as up-to-date as possible. For example,
         a question about where mount everest is does not necessarily need to be answered by a jinx call or an agent pass.
 
     Similarly, if a user asks to explain the plot of the aeneid, this can be answered without a jinx call or agent pass.
 
     If a user were to ask for the current weather in tokyo or the current price of bitcoin or who the mayor of a city is,
-        then a jinx call or agent pass may be appropriate.
+        then a jinx call may be appropriate.
 
     jinxs are valuable but their use should be limited and purposeful to
         ensure the best user experience.
@@ -881,7 +769,7 @@ def check_llm_command(
 
     The format of the JSON object is:
     {{
-        "action": "invoke_jinx" | "answer_question" | "pass_to_npc" |  "request_input",
+        "action": "invoke_jinx" | "answer_question"  |  "request_input",
         "jinx_name": "<jinx_name(s)_if_applicable>",
         "explanation": "<your_explanation>",
 
