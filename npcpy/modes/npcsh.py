@@ -570,17 +570,18 @@ def process_pipeline_command(
                     full_llm_cmd = f"{cmd_to_process} {stdin_input}" if stdin_input else cmd_to_process
 
                     llm_result = check_llm_command(
-                        command=full_llm_cmd,
-                        model=exec_model,        
-                        provider=exec_provider,  
-                        api_url=state.api_url,
-                        api_key=state.api_key,
-                        npc=state.npc,
-                        team=state.team,
-                        messages=state.messages, 
-                        images=state.attachments,
-                        stream=stream_final,
-                        context=None 
+                        command = full_llm_cmd,
+                        model = exec_model,        
+                        provider = exec_provider,  
+                        api_url = state.api_url,
+                        api_key = state.api_key,
+                        npc = state.npc,
+                        team = state.team,
+                        messages = state.messages, 
+                        images = state.attachments,
+                        stream = stream_final,
+                        context = None ,
+                        shell = True,
                        
                     )
                     if isinstance(llm_result, dict):

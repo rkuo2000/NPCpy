@@ -14,6 +14,7 @@ from dotenv import load_dotenv
 
 from PIL import Image
 from PIL import ImageFile
+from io import BytesIO
 
 from npcpy.npc_sysenv import get_locally_available_models
 from npcpy.memory.command_history import (
@@ -23,7 +24,7 @@ from npcpy.memory.command_history import (
 from npcpy.npc_compiler import  Jinx, NPC
 
 from npcpy.llm_funcs import (
-    get_llm_response,    
+    get_llm_response, check_llm_command
 )
 from npcpy.npc_compiler import NPC
 import base64
@@ -31,6 +32,7 @@ import base64
 import json
 import os
 from pathlib import Path
+from flask_cors import CORS
 
 # Path for storing settings
 SETTINGS_FILE = Path(os.path.expanduser("~/.npcshrc"))
@@ -485,7 +487,6 @@ def get_models():
 
     except Exception as e:
         print(f"Error getting available models: {str(e)}")
-        import traceback
 
         traceback.print_exc()
         # Return an empty list or a specific error structure
@@ -565,8 +566,7 @@ def stream():
     images = []
     print(attachments)
 
-    from io import BytesIO
-    from PIL import Image
+
 
     attachments_loaded = []
 
@@ -654,6 +654,7 @@ def stream():
             # Print progress dots for terminal feedback
             print('.', end="", flush=True)
             dot_count += 1
+
             
             if "hf.co" in model or provider == 'ollama':
                 #print("streaming from hf model through ollama")
@@ -1092,156 +1093,291 @@ def get_attachment_response():
         }
     )
 
-
 @app.route("/api/execute", methods=["POST"])
 def execute():
-    try:
-        data = request.json
-        command = data.get("commandstr")
-        current_path = data.get("currentPath")
-        conversation_id = data.get("conversationId")
-        model = data.get("model")
-        print("model", model)
-        npc_name = data.get("npc")
-        npc_source = data.get("npcSource", "global")
-        team = data.get("team")
-        print("npc", npc_name)
+    data = request.json
+    print(data)
+    commandstr = data.get("commandstr")
+    conversation_id = data.get("conversationId")
+    model = data.get("model", 'llama3.2')
+    provider = data.get("provider", 'ollama')
+    if provider is None:
+        provider = available_models.get(model)
         
-        # Load project-specific environment variables if currentPath is provided
-        if current_path:
-            loaded_vars = load_project_env(current_path)
-            print(f"Loaded project env variables for execute request: {list(loaded_vars.keys())}")
+    npc_name = data.get("npc", None)
+    npc_source = data.get("npcSource", "global")  # Default to global if not specified
+    team = data.get("team", None)
+    current_path = data.get("currentPath")
+    
+    # Load project-specific environment variables if currentPath is provided
+    if current_path:
+        loaded_vars = load_project_env(current_path)
+        print(f"Loaded project env variables for stream request: {list(loaded_vars.keys())}")
+    
+    # Load the NPC if a name was provided
+    npc_object = None
+    if npc_name:
+        db_conn = get_db_connection()
+        # Pass the current_path parameter when loading project NPCs
+        npc_object = load_npc_by_name_and_source(npc_name, npc_source, db_conn, current_path)
         
-        # Load the NPC if a name was provided
-        npc_object = None
-        if npc_name:
-            db_conn = get_db_connection()
-            # Pass the current_path parameter when loading project NPCs
-            npc_object = load_npc_by_name_and_source(npc_name, npc_source, db_conn, current_path)
+        if not npc_object and npc_source == 'project':
+            # Try global as fallback
+            print(f"NPC {npc_name} not found in project directory, trying global...")
+            npc_object = load_npc_by_name_and_source(npc_name, 'global', db_conn)
             
-            if not npc_object and npc_source == 'project':
-                # Try global as fallback
-                print(f"NPC {npc_name} not found in project directory, trying global...")
-                npc_object = load_npc_by_name_and_source(npc_name, 'global', db_conn)
-                
-            if npc_object:
-                print(f"Successfully loaded NPC {npc_name} from {npc_source} directory")
-            else:
-                print(f"Warning: Could not load NPC {npc_name}")
-                
-        # Clean command
-        command = command.strip().replace('"', "").replace("'", "").replace("`", "")
-
-        if not command:
-            return (
-                jsonify(
-                    {
-                        "error": "No command provided",
-                        "output": "Error: No command provided",
-                    }
-                ),
-                400,
-            )
-
-        command_history = CommandHistory(db_path)
-
-        # Fetch conversation history
-        if conversation_id:
-            conn = get_db_connection()
-            cursor = conn.cursor()
-
-            # Get all messages for this conversation in order
-            cursor.execute(
-                """
-                SELECT role, content, timestamp
-                FROM conversation_history
-                WHERE conversation_id = ?
-                ORDER BY timestamp ASC
-            """,
-                (conversation_id,),
-            )
-
-            conversation_messages = cursor.fetchall()
-
-            # Format messages for LLM
-            messages = [
-                {
-                    "role": msg["role"],
-                    "content": msg["content"],
-                }
-                for msg in conversation_messages
-            ]
-
-            conn.close()
+        if npc_object:
+            print(f"Successfully loaded NPC {npc_name} from {npc_source} directory")
         else:
-            messages = []
+            print(f"Warning: Could not load NPC {npc_name}")
+    print(npc_object, type(npc_object))
+    attachments = data.get("attachments", [])
 
-        # Execute command with conversation history
+    command_history = CommandHistory(db_path)
 
-        result = execute_command(
-            command=command,
-            command_history=command_history,
-            db_path=db_path,
-            npc_compiler=npc_compiler,
-            conversation_id=conversation_id,
-            messages=messages,
-            model=model,
-            npc=npc_object,  # Pass the NPC object instead of just the name
-        )
+    # Process attachments and save them properly
+    images = []
+    print(attachments)
+    attachments_loaded = []
+
+    if attachments:
+        for attachment in attachments:
+            extension = attachment["name"].split(".")[-1]
+            extension_mapped = extension_map.get(extension.upper(), "others")
+            file_path = os.path.expanduser(
+                "~/.npcsh/" + extension_mapped + "/" + attachment["name"]
+            )
+
+            if extension_mapped == "images":
+                # Open the image file and save it to the file path
+                ImageFile.LOAD_TRUNCATED_IMAGES = True
+                img = Image.open(attachment["path"])
+
+                # Save the image to a BytesIO buffer (to extract binary data)
+                img_byte_arr = BytesIO()
+                img.save(img_byte_arr, format="PNG")  # or the appropriate format
+                img_byte_arr.seek(0)  # Rewind the buffer to the beginning
+
+                # Save the image to a file
+                img.save(file_path, optimize=True, quality=50)
+
+                # Add to images list for LLM processing
+                images.append({"filename": attachment["name"], "file_path": file_path})
+
+                # Add the image data (in binary form) to attachments_loaded
+                attachments_loaded.append(
+                    {
+                        "name": attachment["name"],
+                        "type": extension_mapped,
+                        "data": img_byte_arr.read(),  # Read binary data from the buffer
+                        "size": os.path.getsize(file_path),
+                    }
+                )
+
+    messages = fetch_messages_for_conversation(conversation_id)
+    if len(messages) == 0 and npc_object is not None:
+        messages = [{'role': 'system', 'content': npc_object.get_system_prompt()}]
+    elif len(messages)>0 and messages[0]['role'] != 'system' and npc_object is not None:
+        # If the first message is not a system prompt, we need to add it
+        messages.insert(0, {'role': 'system', 'content': npc_object.get_system_prompt()})
+    elif len(messages) > 0 and npc_object is not None:
+        messages[0]['content'] = npc_object.get_system_prompt() 
+    # if we switch between npcs mid conversation, need to change the system prompt
+    if npc_object is not None and messages and messages[0]['role'] == 'system':
+        messages[0]['content'] = npc_object.get_system_prompt()
+    print("messages ", messages)
+    print("commandstr ", commandstr)
+    message_id = command_history.generate_message_id()
+
+    save_conversation_message(
+        command_history,
+        conversation_id,
+        "user",
+        commandstr,
+        wd=current_path,
+        model=model,
+        provider=provider,
+        npc=npc_name,
+        team=team,
+        attachments=attachments_loaded,
+        message_id=message_id,
+    )
+    message_id = command_history.generate_message_id()
+
+    response_gen = check_llm_command(
+        commandstr,
+        messages=messages,
+        images=images,
+        model=model,
+        provider=provider,
+        npc=npc_object,  # Pass the NPC object instead of just the name
+        stream=True,
+    )
+    def event_stream():
+        complete_response = []
+        dot_count = 0
+        tool_call_data = {"id": None, "function_name": None, "arguments": ""}
+        decision = ''
+        first_chunk = True
+        for response_chunk in response_gen['output']:
+
+            # Print progress dots for terminal feedback
+            print('.', end="", flush=True)
+            dot_count += 1
+
+            # Handle decision events that come before action execution
+            if isinstance(response_chunk, dict) and response_chunk.get("role") == "decision":
+                chunk_data = {
+                    "id": None,
+                    "object": None,
+                    "created": None,
+                    "model": model,
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {
+                                "content": response_chunk.get('content'),
+                                "role": response_chunk.get('role'),
+                            },
+                            "finish_reason": None,
+                        }
+                    ],
+                }
+                if response_chunk.get('content'):
+                    decision = response_chunk.get('content')
 
 
-        # Save new messages
-        save_conversation_message(
-            command_history, conversation_id, "user", command, wd=current_path,
-            model=model,
-            provider=available_models.get(model),
-            npc=npc,
-            attachments=[],
-            message_id=command_history.generate_message_id(),
-            team=team,
-            
-        )
+            elif "hf.co" in model or provider == 'ollama':
+                #print("streaming from hf model through ollama")
+                
+                chunk_content = response_chunk["message"]["content"] if "message" in response_chunk and "content" in response_chunk["message"] else ""
+                if first_chunk:
+                    chunk_content = decision + '\n' + chunk_content
+                    first_chunk = False
+                # Extract tool call info for Ollama
+                if "message" in response_chunk and "tool_calls" in response_chunk["message"]:
+                    for tool_call in response_chunk["message"]["tool_calls"]:
+                        if "id" in tool_call:
+                            tool_call_data["id"] = tool_call["id"]
+                        if "function" in tool_call:
+                            if "name" in tool_call["function"]:
+                                tool_call_data["function_name"] = tool_call["function"]["name"]
+                            if "arguments" in tool_call["function"]:
+                                tool_call_data["arguments"] += tool_call["function"]["arguments"]
+                
+                if chunk_content:
+                    complete_response.append(chunk_content)
+                    
+                # Keep original structure but add tool calls data
+                chunk_data = {
+                    "id": None,
+                    "object": None,
+                    "created": response_chunk["created_at"],
+                    "model": response_chunk["model"],
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {
+                                "content": chunk_content,
+                                "role": response_chunk["message"]["role"],
+                            },
+                            "finish_reason": response_chunk.get("done_reason"),
+                        }
+                    ],
+                }
+                yield f"data: {json.dumps(chunk_data)}\n\n"
 
+            else:
+                # For LiteLLM format
+                chunk_content = ""
+                reasoning_content = ""
+                # Replace the print(response_chunk.) line with:
+                # Extract tool call info for LiteLLM
+
+                for choice in response_chunk.choices:
+                    if hasattr(choice.delta, "tool_calls") and choice.delta.tool_calls:
+                        for tool_call in choice.delta.tool_calls:
+                            if tool_call.id:
+                                tool_call_data["id"] = tool_call.id
+                            if tool_call.function:
+                                if hasattr(tool_call.function, "name") and tool_call.function.name:
+                                    tool_call_data["function_name"] = tool_call.function.name
+                                if hasattr(tool_call.function, "arguments") and tool_call.function.arguments:
+                                    tool_call_data["arguments"] += tool_call.function.arguments
+                
+                # Check for reasoning content (thoughts)
+                for choice in response_chunk.choices:
+                    if hasattr(choice.delta, "reasoning_content"):
+                        reasoning_content += choice.delta.reasoning_content
+                
+                # Get regular content
+                chunk_content = "".join(
+                    choice.delta.content
+                    for choice in response_chunk.choices
+                    if choice.delta.content is not None
+                )
+                
+                if first_chunk:
+                    chunk_content = decision + '\n' + chunk_content    
+                    first_chunk = False            
+                if chunk_content:
+                    complete_response.append(chunk_content)
+                    
+                # Keep original structure but add reasoning content
+                chunk_data = {
+                    "id": response_chunk.id,
+                    "object": response_chunk.object,
+                    "created": response_chunk.created,
+                    "model": response_chunk.model,
+                    "choices": [
+                        {
+                            "index": choice.index,
+                            "delta": {
+                                "content": choice.delta.content,
+                                "role": choice.delta.role,
+                                "reasoning_content": reasoning_content if hasattr(choice.delta, "reasoning_content") else None,
+                            },
+                            "finish_reason": choice.finish_reason,
+                        }
+                        for choice in response_chunk.choices
+                    ],
+                }
+                yield f"data: {json.dumps(chunk_data)}\n\n"
+                save_conversation_message(
+                    command_history,
+                    conversation_id,
+                    "assistant",
+                    ''.join(complete_response),
+                    wd=current_path,
+                    model=model,
+                    provider=provider,
+                    npc = npc_object.name or '',
+                    team=team,
+                    message_id=message_id,  # Save with the same message_id
+                )
+
+        # Clear the dots by returning to the start of line and printing spaces
+        print('\r' + ' ' * dot_count*2 + '\r', end="", flush=True)
+        print('\n')
+
+        # Send completion message
+        yield f"data: {json.dumps({'type': 'message_stop'})}\n\n"
+        npc_name = '' if npc_object is None else npc_object.name
         save_conversation_message(
             command_history,
             conversation_id,
             "assistant",
-            result.get("output", ""),
+            ''.join(complete_response),
             wd=current_path,
             model=model,
-            provider=available_models.get(model),
-            npc=npc,
-            attachments=[],
+            provider=provider,
+            npc= npc_name,
             team=team,
-            
-            
+            message_id=message_id,
         )
-
-        return jsonify(
-            {
-                "output": result.get("output", ""),
-                "currentPath": os.getcwd(),
-                "error": None,
-                "messages": messages,  # Return updated messages
-            }
-        )
-
-    except Exception as e:
-        print(f"Error executing command: {str(e)}")
-        import traceback
-
-        traceback.print_exc()
-        return (
-            jsonify(
-                {
-                    "error": str(e),
-                    "output": f"Error: {str(e)}",
-                    "currentPath": data.get("currentPath", None),
-                }
-            ),
-            500,
-        )
-
+        
+    response = Response(event_stream(), mimetype="text/event-stream")
+    return response
 
 def get_conversation_history(conversation_id):
     """Fetch all messages for a conversation in chronological order."""
@@ -1389,237 +1525,6 @@ def get_conversation_messages(conversation_id):
         conn.close()
 
 
-@app.route("/api/stream_raw", methods=["POST"])
-def stream_raw():
-    """SSE stream that takes messages, models, providers, and attachments from frontend."""
-    data = request.json
-    commandstr = data.get("commandstr")
-    conversation_id = data.get("conversationId")
-    model = data.get("model", None)
-    provider = data.get("provider", None)
-    save_to_sqlite3 = data.get("saveToSqlite3", False)
-    npc = data.get("npc", None)
-    attachments = data.get("attachments", [])
-    current_path = data.get("currentPath")
-    print(data)
-
-    messages = data.get("messages", [])
-    print("messages", messages)
-    command_history = CommandHistory(db_path)
-
-    images = []
-    attachments_loaded = []
-
-    if attachments:
-        for attachment in attachments:
-            extension = attachment["name"].split(".")[-1]
-            extension_mapped = extension_map.get(extension.upper(), "others")
-            file_path = os.path.expanduser(
-                "~/.npcsh/" + extension_mapped + "/" + attachment["name"]
-            )
-
-            if extension_mapped == "images":
-                # Open the image file and save it to the file path
-                ImageFile.LOAD_TRUNCATED_IMAGES = True
-                img = Image.open(attachment["path"])
-
-                # Save the image to a BytesIO buffer (to extract binary data)
-                img_byte_arr = BytesIO()
-                img.save(img_byte_arr, format="PNG")  # or the appropriate format
-                img_byte_arr.seek(0)  # Rewind the buffer to the beginning
-
-                # Save the image to a file
-                img.save(file_path, optimize=True, quality=50)
-
-                # Add to images list for LLM processing
-                images.append({"filename": attachment["name"], "file_path": file_path})
-
-                # Add the image data (in binary form) to attachments_loaded
-                attachments_loaded.append(
-                    {
-                        "name": attachment["name"],
-                        "type": extension_mapped,
-                        "data": img_byte_arr.read(),  # Read binary data from the buffer
-                        "size": os.path.getsize(file_path),
-                    }
-                )
-    if save_to_sqlite3:
-        if len(messages) == 0:
-            # load the conversation messages
-            messages = fetch_messages_for_conversation(conversation_id)
-        if not messages:
-            return jsonify({"error": "No messages provided"}), 400
-        messages.append({"role": "user", "content": commandstr})
-        message_id = command_history.generate_message_id()
-
-        save_conversation_message(
-            command_history,
-            conversation_id,
-            "user",
-            commandstr,
-            wd=current_path,
-            model=model,
-            provider=provider,
-            npc=npc,
-            attachments=attachments_loaded,
-            message_id=message_id,
-        )
-        message_id = command_history.generate_message_id()
-
-    stream_response = get_stream(
-        messages,
-        images=images,
-        model=model,
-        provider=provider,
-        npc=npc if isinstance(npc, NPC) else None,
-    )
-
-    """else:
-
-        stream_response = execute_command_stream(
-            commandstr,
-            command_history,
-            db_path,
-            npc_compiler,
-            model=model,
-            provider=provider,
-            messages=messages,
-            images=images,  # Pass the processed images
-        )  # Get all conversation messages so far
-    """
-    final_response = ""  # To accumulate the assistant's response
-    complete_response = []  # List to store all chunks
-    def event_stream():
-        str_output = ""
-        tool_call_data = {"id": None, "function_name": None, "arguments": ""}
-
-        for response_chunk in stream_response['response']:
-            chunk_content = ""
-            
-            if "hf.co" in model or provider == 'ollama':
-                #print("streaming from hf model through ollama")
-                chunk_content = response_chunk["message"]["content"]
-                
-                # Extract tool call info for Ollama
-                if "message" in response_chunk and "tool_calls" in response_chunk["message"]:
-                    for tool_call in response_chunk["message"]["tool_calls"]:
-                        if "id" in tool_call:
-                            tool_call_data["id"] = tool_call["id"]
-                        if "function" in tool_call:
-                            if "name" in tool_call["function"]:
-                                tool_call_data["function_name"] = tool_call["function"]["name"]
-                            if "arguments" in tool_call["function"]:
-                                tool_call_data["arguments"] += tool_call["function"]["arguments"]
-                
-                if chunk_content:
-                    complete_response.append(chunk_content)
-                    
-                # Keep original structure but add tool calls data
-                chunk_data = {
-                    "id": None,
-                    "object": None,
-                    "created": response_chunk["created_at"],
-                    "model": response_chunk["model"],
-                    "choices": [
-                        {
-                            "index": 0,
-                            "delta": {
-                                "content": chunk_content,
-                                "role": response_chunk["message"]["role"],
-                            },
-                            "finish_reason": response_chunk.get("done_reason"),
-                        }
-                    ],
-                }
-                yield f"data: {json.dumps(chunk_data)}\n\n"
-
-            else:
-                # For LiteLLM format
-                chunk_content = ""
-                reasoning_content = ""
-                
-                # Extract tool call info for LiteLLM
-                for choice in response_chunk.choices:
-                    if hasattr(choice.delta, "tool_calls") and choice.delta.tool_calls:
-                        for tool_call in choice.delta.tool_calls:
-                            if tool_call.id:
-                                tool_call_data["id"] = tool_call.id
-                            if tool_call.function:
-                                if hasattr(tool_call.function, "name") and tool_call.function.name:
-                                    tool_call_data["function_name"] = tool_call.function.name
-                                if hasattr(tool_call.function, "arguments") and tool_call.function.arguments:
-                                    tool_call_data["arguments"] += tool_call.function.arguments
-                
-                # Check for reasoning content (thoughts)
-                for choice in response_chunk.choices:
-                    if hasattr(choice.delta, "reasoning_content"):
-                        reasoning_content += choice.delta.reasoning_content
-                
-                # Get regular content
-                chunk_content = "".join(
-                    choice.delta.content
-                    for choice in response_chunk.choices
-                    if choice.delta.content is not None
-                )
-                
-                if chunk_content:
-                    complete_response.append(chunk_content)
-                    
-                # Keep original structure but add reasoning content
-                chunk_data = {
-                    "id": response_chunk.id,
-                    "object": response_chunk.object,
-                    "created": response_chunk.created,
-                    "model": response_chunk.model,
-                    "choices": [
-                        {
-                            "index": choice.index,
-                            "delta": {
-                                "content": choice.delta.content,
-                                "role": choice.delta.role,
-                                "reasoning_content": reasoning_content if hasattr(choice.delta, "reasoning_content") else None,
-                            },
-                            "finish_reason": choice.finish_reason,
-                        }
-                        for choice in response_chunk.choices
-                    ],
-                }
-                yield f"data: {json.dumps(chunk_data)}\n\n"
-                save_conversation_message(
-                    command_history,
-                    conversation_id,
-                    "assistant",
-                    chunk_content,
-                    wd=current_path,
-                    model=model,
-                    provider=provider,
-                    npc = npc.name or '',
-                    team=team,
-                    message_id=message_id,  # Save with the same message_id
-                )
-
-        # Clear and render markdown
-        if tool_call_data["id"] or tool_call_data["function_name"] or tool_call_data["arguments"]:
-            str_output += "\n\n### Jinx Call Data\n"
-            if tool_call_data["id"]:
-                str_output += f"**ID:** {tool_call_data['id']}\n\n"
-            if tool_call_data["function_name"]:
-                str_output += f"**Function:** {tool_call_data['function_name']}\n\n"
-            if tool_call_data["arguments"]:
-                try:
-                    import json
-                    args_parsed = json.loads(tool_call_data["arguments"])
-                    str_output += f"**Arguments:**\n```json\n{json.dumps(args_parsed, indent=2)}\n```"
-                except:
-                    str_output += f"**Arguments:** `{tool_call_data['arguments']}`"
-        
-        yield f"data: {json.dumps({'type': 'message_stop'})}\n\n"
-        full_content = command_history.get_full_message_content(message_id)
-        command_history.update_message_content(message_id, full_content)
-
-    response = Response(event_stream(), mimetype="text/event-stream")
-    return response
-
 
 
 @app.after_request
@@ -1711,7 +1616,6 @@ def start_flask_server(
 
         # Only apply CORS if origins are specified
         if cors_origins:
-            from flask_cors import CORS
 
             CORS(
                 app,

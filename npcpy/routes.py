@@ -382,6 +382,7 @@ def brainblast_handler(command: str, **kwargs):
     parts = shlex.split(command)
     search_query = " ".join(parts[1:]) if len(parts) > 1 else ""
     
+    
     if not search_query:
         return {"output": "Usage: /brainblast <search_terms>", "messages": messages}
     

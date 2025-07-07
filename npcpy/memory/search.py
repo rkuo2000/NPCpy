@@ -391,7 +391,8 @@ def execute_brainblast_command(
         chunk_results = {}
         
         for chunk in unique_chunks:
-            results = command_history.search_commands(chunk)
+            results = command_history.search_conversations(chunk)
+            print(results)
             if results:
                 chunk_results[chunk] = results[:top_k]  # Limit results per chunk
                 all_results.extend(results[:top_k])
@@ -431,7 +432,7 @@ def execute_brainblast_command(
                 chunk_display = f"{BOLD}{BLUE}Results for '{chunk}':{RESET}\n"
                 
                 for i, result in enumerate(results[:3], 1):  # Just show top 3 for each chunk
-                    cmd = result.get('command', '')
+                    cmd = result.get('content', '')
                     timestamp = result.get('timestamp', '')
                     
                     chunk_display += f"  {i}. {CYAN}[{timestamp}]{RESET} {cmd}\n"
@@ -448,14 +449,13 @@ def execute_brainblast_command(
         # Prepare the consolidated results for the prompt
         plain_results = []
         for i, result in enumerate(unique_results[:15], 1):  # Limit to 15 total unique results
-            cmd = result.get('command', '')
-            output = result.get('output', '')
+            content = result.get('content', '')
             timestamp = result.get('timestamp', '')
-            location = result.get('location', '')
+            location = result.get('directory_path', '')
             
             # Format without ANSI colors
             plain_results.append(
-                f"{i}. [{timestamp}] Command: {cmd}\n   Location: {location}\n   Output: {output[:150] + ('...' if len(output) > 150 else '')}"
+                f"{i}. [{timestamp}] Command: {cmd}\n   Location: {location}\n   Output: {content[:150] + ('...' if len(content) > 150 else '')}"
             )
         
         # Summary of which terms matched what

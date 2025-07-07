@@ -245,14 +245,10 @@ def breathe(
 
     # Extract facts, mistakes, and lessons learned
     facts = extract_facts(conversation_text, model, provider)
-    mistakes = extract_mistakes(conversation_text, model, provider)
-    lessons = extract_lessons_learned(conversation_text, model, provider)
 
     # Combine results for brevity
     output = {
         "facts": facts,
-        "mistakes": mistakes,
-        "lessons_learned": lessons
     }
 
     return {"output": output, "messages": []}

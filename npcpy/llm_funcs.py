@@ -708,9 +708,9 @@ def check_llm_command(
     tool_map: Dict[str, str] = None,
     images: list = None,
     stream=False,
-    context=None,
-    synthesize=False,
+    context=None,    
     human_in_the_loop=False,
+    shell = False,
 ):
     """This function checks an LLM command.
     Args:
@@ -719,22 +719,20 @@ def check_llm_command(
         model (str): The model to use for checking the command.
         provider (str): The provider to use for checking the command.
         npc (Any): The NPC object.
-        n_docs (int): The number of documents.
+        messages (List[Dict[str, str]]): The message history.
+        stream (bool): Whether to stream the response.
     Returns:
-        Any: The result of checking the LLM command.
+        Any: The result of checking the LLM command or a generator if stream=True.
     """
     if messages is None:
         messages = []
-
+    
     prompt = f"""
     A user submitted this query: {command}
-
-
     """
     
     if tools:
-        #assume the user just wants a tool choice response from LLM 
-        return {'messages': messages, 'output': get_llm_response(
+        result = get_llm_response(
             prompt,
             model=model,
             provider=provider,
@@ -746,23 +744,25 @@ def check_llm_command(
             tool_map=tool_map,
             context=None,
             stream=stream,
-        ).get("response")}
+        )
+        return {
+            'messages': result.get('messages', messages),
+            'output': result.get('response', '')
+        }
+            
     prompt += f"""
-    
     Determine the nature of the user's request:
 
-    1. Should a jinx be invoked to fulfill the request? A jinx is a jinja-template execution script .
+    1. Should a jinx be invoked to fulfill the request? A jinx is a jinja-template execution script.
 
     2. Is it a general question that requires an informative answer or a highly specific question that
-        requires inforrmation on the web?
+        requires information on the web?
 
     3. Would this question be best answered by an alternative NPC?
 
     4. Is it a complex request that actually requires more than one
         jinx to be called, perhaps in a sequence?
         Sequences should only be used for more than one consecutive jinx call. Do not invoke sequences for single jinx calls.
-
-
     """
     if human_in_the_loop:
 
@@ -822,8 +822,7 @@ def check_llm_command(
             prompt += f"""
             Here is a jinx that may be relevant to the user's request:
             {jinx}
-            """
-        
+            """        
     if team is None:
         prompt += "No NPCs available for alternative answers."
     else:
@@ -841,11 +840,8 @@ def check_llm_command(
             Relevant shared context for the team:
             {team.context}
             """
-
-
     action_space = ["invoke_jinx",
                      "answer_question", 
-                     "pass_to_npc", 
                      ]
 
     if human_in_the_loop:
@@ -862,6 +858,7 @@ def check_llm_command(
 
     Only use jinxs or pass to other NPCs when it is obvious that the answer needs to be as up-to-date as possible. For example,
         a question about where mount everest is does not necessarily need to be answered by a jinx call or an agent pass.
+
     Similarly, if a user asks to explain the plot of the aeneid, this can be answered without a jinx call or agent pass.
 
     If a user were to ask for the current weather in tokyo or the current price of bitcoin or who the mayor of a city is,
@@ -869,6 +866,7 @@ def check_llm_command(
 
     jinxs are valuable but their use should be limited and purposeful to
         ensure the best user experience.
+
         If a user asks you to search or to take a screenshot or to open a program or to write a program most likely it is
         appropriate to use a jinx.
     Respond with a JSON object containing:
@@ -876,8 +874,8 @@ def check_llm_command(
     - "jinx_name": : if action is "invoke_jinx": the name of the jinx to use.
                      else if action is "", a list of jinx names to use.
     - "explanation": a brief explanation of why you chose this action.
-    - "npc_name": (if action is "pass_to_npc") the name of the NPC to pass the question , 
 
+    
 
     Return only the JSON object. Do not include any additional text.
 
@@ -886,12 +884,14 @@ def check_llm_command(
         "action": "invoke_jinx" | "answer_question" | "pass_to_npc" |  "request_input",
         "jinx_name": "<jinx_name(s)_if_applicable>",
         "explanation": "<your_explanation>",
-        "npc_name": "<npc_name(s)_if_applicable>"
+
     }}
 
     If you execute a sequence, ensure that you have a specified NPC for each jinx use.
         question answering is not a jinx use.
         "invoke_jinx" should never be used in the list of jinxs when executing a sequence.
+
+
     Remember, do not include ANY ADDITIONAL MARKDOWN FORMATTING.
     There should be no leading ```json.
     
@@ -903,6 +903,7 @@ def check_llm_command(
         {context}
 
         """
+
 
 
     action_response = get_llm_response(
@@ -937,147 +938,158 @@ def check_llm_command(
     #print(prompt)
     action = response_content_parsed.get("action")
     explanation = response_content_parsed.get("explanation")
-    jinx_out = response_content_parsed.get('jinx_name', '')
-    jinx_out = '\n Jinx: ' + str(jinx_out) if jinx_out else ''
+    jinx_name = response_content_parsed.get('jinx_name', '')
+    jinx_name = '\n Jinx: ' + str(jinx_name) if jinx_name else ''
 
-    render_markdown(f"- Action chosen: {action + jinx_out}\n")
+    render_markdown(f"- Action chosen: {action + jinx_name}\n")
     render_markdown(f"- Explanation given: {explanation}\n")
 
-    if action == "execute_command":
 
-        result = execute_llm_command(
-            command,
-            model=model,
-            provider=provider,
-            api_url=api_url,
-            api_key=api_key,
-            messages=[],
-            npc=npc,
-            stream=stream,
-        )
-
-        output = result.get("response", "")
-        messages = result.get("messages", messages)
-        return {"messages": messages, "output": output}
-
-    elif action == "invoke_jinx":
-        jinx_name = response_content_parsed.get("jinx_name")
-        
-        # Check if it's an NPC jinx
+    # Execute the chosen action
+    # Execute the chosen action
+    if action == "invoke_jinx":
         if npc and npc.jinxs_dict and jinx_name in npc.jinxs_dict:
-            result = handle_jinx_call(
+            if stream and not shell:
+                # Create wrapper generator for streaming case
+                def decision_wrapped_gen():
+                    # First yield decision
+                    yield {'role': 'decision', 'content': f"- Action chosen: {action + jinx_name}\n- Explanation given: {explanation}\n"}
+                    # Then execute jinx and yield from its result
+                    result = handle_jinx_call(
+                        command, 
+                        jinx_name,
+                        model=model,
+                        provider=provider,
+                        api_url=api_url, 
+                        api_key=api_key,
+                        messages=messages, 
+                        npc=npc,
+                        stream=stream
+                    )
+                    yield from result['response']
+                return {'messages': messages, 'output': decision_wrapped_gen()}
+            elif stream and shell:
+                result  = handle_jinx_call(
+                    command,
+                    jinx_name, 
+                    model=model, 
+                    provider=provider, 
+                    api_url=api_url, 
+                    api_key=api_key, 
+                    messages=messages, 
+                    npc = npc ,
+                    stream =stream
+                )
+                return {'messages': result.get('messages', messages), 'output': result.get('output', '')}
+            else:
+                # Non-streaming case
+                result = handle_jinx_call(
+                    command, jinx_name,
+                    model=model, provider=provider,
+                    api_url=api_url, api_key=api_key,
+                    messages=messages, npc=npc,
+                    stream=stream
+                )
+                return {'messages': result.get('messages', messages), 'output': result.get('output', '')}
+        else:
+            return {"messages": messages, "output": f"jinx '{jinx_name}' not found"}
+            
+    elif action == "answer_question":
+        if stream and not shell:
+            def decision_wrapped_gen():
+                yield {'role': 'decision',
+                        'content': f"- Action chosen: {action + jinx_name}\n- Explanation given: {explanation}\n"}
+                result = get_llm_response(
+                    command,
+                    model=model, provider=provider,
+                    api_url=api_url, api_key=api_key,
+                    messages=messages, npc=npc,
+                    stream=stream, 
+                    images=images,
+                )
+                yield from result['response']
+            return {'messages': messages, 'output': decision_wrapped_gen()}
+        elif stream and shell:
+            result = get_llm_response(
                 command,
-                jinx_name,
-                model=model,
+                model=model, 
                 provider=provider,
-                api_url=api_url,
+                api_url=api_url, 
                 api_key=api_key,
                 messages=messages,
                 npc=npc,
-                stream=stream,
+                stream=stream, 
+                images=images,
             )
-            return result
-        else:
-            return {"messages": messages, "output": f"jinx '{jinx_name}' not found"}
-    elif action == "answer_question":
 
-        result = get_llm_response(
-            command,
-            model=model,
-            provider=provider,
-            api_url=api_url,
-            api_key=api_key,
-            messages=messages,
-            npc=npc,
-            stream=stream,
-            images=images,
-        )
-        messages = result.get("messages", messages)
-        output = result.get("response", "")
-        return {"messages": messages, "output": output}
-    elif action == "pass_to_npc":
-        npc_to_pass = response_content_parsed.get("npc_name")
-        npc_to_pass_obj = None
 
-        agent_passes = []
-        if team is not None:
-            #print(f"team npcs: {team.npcs}")
-            if isinstance(npc_to_pass, str):
-                
-                match = team.npcs.get(npc_to_pass)
-    
-                if match is not None:
-                    npc_to_pass_obj = match
-                    #print(type(npc_to_pass_obj))
-                    agent_passes.append(
-                        npc.handle_agent_pass(
-                            npc_to_pass_obj,
-                            command,
-                            messages=messages,
-                        )
-                    )
-            elif isinstance(npc_to_pass, list):
-                for npc_name in npc_to_pass:
-                    match = team.npcs.get(npc_name)
-                    if match is not None:
-                        npc_to_pass_obj = match
-                        agent_passes.append(
-                            npc.handle_agent_pass(
-                                npc_to_pass_obj,
-                                command,
-                                messages=messages,
-                            )
-                        )
+            return {'messages': result.get('messages', messages), 'output': result.get('response', '')}
+
+
         else:
-            print(f"NPC to pass not found: {npc_to_pass}")
-            
-        output = ""
-        #print(agent_passes)
-        for agent_pass in agent_passes:
-            output += str(agent_pass.get("output"))
-        #import pdb
-        #pdb.set_trace()
-        return {"messages": messages, "output": output}
+            result = get_llm_response(
+                command,
+                model=model, provider=provider,
+                api_url=api_url, api_key=api_key,
+                messages=messages, npc=npc,
+                stream=stream, images=images,
+            )
+            return {'messages': result.get('messages', messages), 'output': result.get('response', '')}
+
+
     elif action == "request_input":
         explanation = response_content_parsed.get("explanation")
-
         request_input = handle_request_input(
             f"Explanation from check_llm_command:  {explanation} \n for the user input command: {command}",
             model=model,
             provider=provider,
         )
-        # pass it back through with the request input added to the end of the messages
-        # so that we can re-pass the result through the check_llm_command.
-
-        messages.append(
+        
+        messages.extend([
             {
                 "role": "assistant",
-                "content": f"""its clear that extra input is required.
-                                could you please provide it? Here is the reason:
-
-                                {explanation},
-
-                                and the prompt: {command}""",
-            }
-        )
-        messages.append(
+                "content": f"""It's clear that extra input is required.
+                             Could you please provide it? Here is the reason:
+                             {explanation},
+                             and the prompt: {command}"""
+            },
             {
                 "role": "user",
-                "content": command + " \n \n \n extra context: " + request_input,
+                "content": command + " \n \n \n extra context: " + request_input
             }
-        )
+        ])
+        
+        if stream and not shell:
+            def decision_wrapped_gen():
+                yield {'role': 'decision', 'content': f"- Action chosen: {action + jinx_name}\n- Explanation given: {explanation}\n"}
+                result = check_llm_command(
+                    command + " \n \n \n extra context: " + request_input,
+                    model=model, provider=provider,
+                    api_url=api_url, api_key=api_key,
+                    npc=npc, messages=messages,
+                    stream=stream, 
+                    shell = shell
+                )
+                yield from result['output']
+            return {'messages': messages, 'output': decision_wrapped_gen()}
+        elif stream and shell:
+            return check_llm_command(
+                    command + " \n \n \n extra context: " + request_input,
+                    model=model, provider=provider,
+                    api_url=api_url, api_key=api_key,
+                    npc=npc, messages=messages,
+                    stream=stream, shell = shell
+                )
 
-        return check_llm_command(
-            command + " \n \n \n extra context: " + request_input,
-            model=model,
-            provider=provider,
-            api_url=api_url,
-            api_key=api_key,
-            npc=npc,
-            messages=messages,
-            stream=stream,
-        )
-
+        else:
+            return check_llm_command(
+                command + " \n \n \n extra context: " + request_input,
+                model=model, provider=provider,
+                api_url=api_url, api_key=api_key,
+                npc=npc, messages=messages,
+                stream = stream,
+                shell = shell
+            )
     else:
         print("Error: Invalid action in LLM response")
-        return "Error: Invalid action in LLM response"
+        return {"messages": messages, "output": "Error: Invalid action in LLM response"}

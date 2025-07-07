@@ -628,8 +628,6 @@ class CommandHistory:
              print(f"Error fetching command patterns with pandas: {e}")
              return pd.DataFrame(columns=['time_period', 'command', 'count'])
 
-    # --- Implementation for search_commands and get_all_commands (used by show_history) ---
-    # These are examples; adjust based on your needs.
     def search_commands(self, search_term: str) -> List[Dict]:
         """Searches command history table for a term."""
         # Use LOWER() for case-insensitive search
@@ -642,7 +640,19 @@ class CommandHistory:
         """
         like_term = f"%{search_term}%"
         return self._fetch_all(sql, (like_term, like_term))
-
+    def search_conversations(self, search_term:str) -> List[Dict]:
+        """Searches conversation history table for a term."""
+        # Use LOWER() for case-insensitive search
+        sql = """
+            SELECT id, message_id, timestamp, role, content, conversation_id, directory_path, model, provider, npc, team
+            FROM conversation_history
+            WHERE LOWER(content) LIKE LOWER(?)
+            ORDER BY timestamp DESC
+            LIMIT 5
+        """
+        like_term = f"%{search_term}%"
+        return self._fetch_all(sql, (like_term,))
+    
     def get_all_commands(self, limit: int = 100) -> List[Dict]:
         """Gets the most recent commands."""
         sql = """

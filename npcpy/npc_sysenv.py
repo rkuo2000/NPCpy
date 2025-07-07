@@ -160,7 +160,8 @@ def get_locally_available_models(project_directory):
                 for action in m.supported_actions:
                     if action == "generateContent":
                         if 'models/' in m.name:
-                            models.append(m.name.split('/')[1])
+                            if m.name.split('/')[1] in ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-2.0-pro', 'gemini-1.5-pro', 'gemini-1.5-flash']:
+                                models.append(m.name.split('/')[1])
             for model in set(models):
                 if "gemini" in model:
                     available_models[model] = "gemini"
