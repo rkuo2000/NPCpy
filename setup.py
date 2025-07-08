@@ -98,7 +98,7 @@ setup(
     description="npcpy is a python library for orchestrating AI agents.",
     long_description=open("README.md").read(),
     long_description_content_type="text/markdown",
-    url="https://github.com/cagostino/npcpy",
+    url="https://github.com/NPC-Worldwide/npcpy",
     classifiers=[
         "Programming Language :: Python :: 3",
         "License :: OSI Approved :: MIT License",
