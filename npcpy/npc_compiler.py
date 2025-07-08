@@ -1,4 +1,3 @@
-from email import message
 import os
 from pyexpat.errors import messages
 import yaml
@@ -13,7 +12,6 @@ from datetime import datetime
 import hashlib
 import pathlib
 import fnmatch
-import traceback
 import subprocess
 from typing import Any, Dict, List, Optional, Union
 from jinja2 import Environment, FileSystemLoader, Template, Undefined
@@ -25,7 +23,6 @@ from npcpy.npc_sysenv import (
     ensure_dirs_exist, 
     get_npc_path,
     init_db_tables,
-    print_and_process_stream_with_markdown, 
     get_system_message
     )
 from npcpy.memory.command_history import CommandHistory

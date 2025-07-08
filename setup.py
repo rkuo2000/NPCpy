@@ -83,7 +83,7 @@ extra_files = package_files("npcpy/npc_team/")
 
 setup(
     name="npcpy",
-    version="1.0.26",
+    version="1.0.27",
     packages=find_packages(exclude=["tests*"]),
     install_requires=base_requirements,  # Only install base requirements by default
     extras_require={
@@ -92,20 +92,6 @@ setup(
         "yap": voice_requirements,  # Voice/Audio features
         "mcp": mcp_requirements,  # MCP integration
         "all": api_requirements + local_requirements + voice_requirements + mcp_requirements,  # Everything
-    },
-    entry_points={
-        "console_scripts": [
-            "npcsh=npcpy.modes.npcsh:main",
-            "npcsh-mcp=npcpy.modes.mcp_npcsh:main",            
-            "npc=npcpy.modes.npc:main",
-            "yap=npcpy.modes.yap:main",
-            "pti=npcpy.modes.pti:main",
-            "guac=npcpy.modes.guac:main",
-            "wander=npcpy.modes.wander:main",
-            "deep_research=npcpy.modes.deep_search:main",
-            "spool=npcpy.modes.spool:main",
-            "sleep=npcpy.modes.sleep:main",
-        ],
     },
     author="Christopher Agostino",
     author_email="info@npcworldwi.de",
