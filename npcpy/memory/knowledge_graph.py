@@ -1632,11 +1632,10 @@ def get_facts_for_rag(
 
 def answer_with_rag(
     query: str,
-    kuzu_db_path: str = os.path.expanduser("~/npcsh_graph.db"),
-    chroma_db_path: str = os.path.expanduser("~/npcsh_chroma.db"),
-    model: str = "ollama",
-    provider: str = "llama3.2",
-    embedding_model: str = "text-embedding-3-small",
+    kuzu_db_path,
+    chroma_db_path,
+    model,
+    provider,    
 ) -> str:
     """Answer a query using RAG with facts from the knowledge base
 
