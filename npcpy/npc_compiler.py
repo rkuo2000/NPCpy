@@ -21,7 +21,6 @@ import npcpy as npy
 
 from npcpy.npc_sysenv import (
     ensure_dirs_exist, 
-    get_npc_path,
     init_db_tables,
     get_system_message
     )
@@ -620,16 +619,7 @@ class NPC:
         if isinstance(npc_to_pass, NPC):
             target_npc = npc_to_pass
         else:
-            # Try to find the NPC by name
-            try:
-                npc_path = get_npc_path(npc_to_pass, "~/npcsh_history.db")
-                if not npc_path:
-                    return {"error": f"NPC '{npc_to_pass}' not found"}
-                    
-                target_npc = NPC(npc_path, db_conn=self.db_conn)
-            except Exception as e:
-                return {"error": f"Error loading NPC '{npc_to_pass}': {e}"}
-        
+            return {"error": "Invalid NPC to pass command to"}
         # Update shared context
         if shared_context is not None:
             self.shared_context = shared_context
