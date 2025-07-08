@@ -5,10 +5,7 @@
 
 # npcpy
 
-Welcome to `npcpy`, the python library for the NPC Toolkit and the home of the core command-line programs that make up the NPC Shell (`npcsh`). 
-
-
-`npcpy` is a python framework for building systems with LLMs that can generate text, images, and videos while allowing users to easily integrate data sources in their response handling.
+Welcome to `npcpy`, the python library for the NPC Toolkit that supercharges natural language processing pipelines and agent tooling. `npcpy` is a python framework for building systems with LLMs that can generate text, images, and videos while allowing users to easily integrate data sources in their response handling.
 
 
 <p align="center">
@@ -330,7 +327,6 @@ pip install npcpy[yap]
 # if you want everything:
 pip install npcpy[all]
 ```
-As of now, npcsh appears to work well with some of the core functionalities like /ots and /yap.
 
 </details>
 
