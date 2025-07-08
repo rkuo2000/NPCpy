@@ -8,7 +8,8 @@
 Welcome to `npcpy`, the python library for the NPC Toolkit and the home of the core command-line programs that make up the NPC Shell (`npcsh`). 
 
 
-`npcpy` is an AI framework for AI response handling and agent orchestration, designed to easily integrate AI models into one's daily workflow and it does this by providing users with a variety of interfaces through which they can use, test, and explore the capabilities of AI models, agents, and agent systems. 
+`npcpy` is a python framework for building systems with LLMs that can generate text, images, and videos while allowing users to easily integrate data sources in their response handling.
+
 
 <p align="center">
   <a href= "https://github.com/cagostino/npcpy/blob/main/docs/npcpy.md"> 
@@ -228,13 +229,7 @@ The NPC shell is a suite of executable command-line programs that allow users to
 - `npcpy` is a framework that speeds up and simplifies the development of NLP-based or Agent-based applications and provides developers and researchers with methods to explore and test across dozens of models, providers, and personas as well as other model-level hyperparameters (e.g. `temperature`, `top_k`, etc.), incorporating an array of data sources and common tools.
 - The `npcpy` agent data layer makes it easy to set up teams and serve them so you can focus more on the agent personas and less on the nitty gritty of inference.
 - `npcpy` provides pioneering methods in the construction and updating of knowledge graphs as well as in the development and testing of novel mixture of agent scenarios.
-- The agentic interfaces (`npcsh`, `guac`, etc.) provided as part of `npcpy` can serve as templates for developers to modify in order to create their own specialized loops that fit their own workflow best or to adapt even to their own full stack application. 
-
 - In `npcpy`, all agentic capabilities are developed and tested using small local models (like `llama3.2`, `gemma3`) to ensure it can function reliably at the edge of computing.
-
-
-
-
 
 
 
@@ -349,31 +344,6 @@ python-tkinter (pyautogui)
 
 </details>
 
-## Startup Configuration and Project Structure
-After `npcpy` has been pip installed, `npcsh`, `guac`, `pti`, `spool`, `yap` and the `npc` CLI can be used as command line tools. To initialize these correctly, first start by starting the NPC shell:
-```bash
-npcsh
-```
-When initialized, `npcsh` will generate a .npcshrc file in your home directory that stores your npcsh settings.
-Here is an example of what the .npcshrc file might look like after this has been run.
-```bash
-# NPCSH Configuration File
-export NPCSH_INITIALIZED=1
-export NPCSH_CHAT_PROVIDER='ollama'
-export NPCSH_CHAT_MODEL='llama3.2'
-export NPCSH_DB_PATH='~/npcsh_history.db'
-```
-
-`npcsh` also comes with a set of jinxs and NPCs that are used in processing. It will generate a folder at ~/.npcsh/ that contains the tools and NPCs that are used in the shell and these will be used in the absence of other project-specific ones. Additionally, `npcsh` records interactions and compiled information about npcs within a local SQLite database at the path specified in the .npcshrc file. This will default to ~/npcsh_history.db if not specified. When the data mode is used to load or analyze data in CSVs or PDFs, these data will be stored in the same database for future reference.
-
-The installer will automatically add this file to your shell config, but if it does not do so successfully for whatever reason you can add the following to your .bashrc or .zshrc:
-
-```bash
-# Source NPCSH configuration
-if [ -f ~/.npcshrc ]; then
-    . ~/.npcshrc
-fi
-```
 
 We support inference via all providers supported by litellm. For openai-compatible providers that are not explicitly named in litellm, use simply `openai-like` as the provider. The default provider must be one of `['openai','anthropic','ollama', 'gemini', 'deepseek', 'openai-like']` and the model must be one available from those providers.
 
@@ -389,15 +359,9 @@ export PERPLEXITY_API_KEY='your_perplexity_key'
 
 
  Individual npcs can also be set to use different models and providers by setting the `model` and `provider` keys in the npc files.
- Once initialized and set up, you will find the following in your ~/.npcsh directory:
-```bash
-~/.npcsh/
-├── npc_team/           # Global NPCs
-│   ├── jinxs/          # Global tools
-│   └── assembly_lines/ # Workflow pipelines
 
-```
-For cases where you wish to set up a project specific set of NPCs, jinxs, and assembly lines, add a `npc_team` directory to your project and `npcsh` should be able to pick up on its presence, like so:
+
+For cases where you wish to set up a team of NPCs, jinxs, and assembly lines, add a `npc_team` directory to your project and then initialize an NPC Team.
 ```bash
 ./npc_team/            # Project-specific NPCs
 ├── jinxs/             # Project jinxs #example jinx next
@@ -413,26 +377,6 @@ For cases where you wish to set up a project specific set of NPCs, jinxs, and as
 
 ```
 
-### Migrations and deprecations and major changes
-### v0.3.37
-<details>  <summary> Toggle </summary>
-- added team to the conversation history table. 
-
- </details>
-
-### v0.3.35
-<details>  <summary> Toggle </summary>
--In v0.3.35, there were many significant changes to the structure of npcpy, introducing various new submodules for data I/O (`data`), AI model generation and inference (`gen`), command history, knowledge graph, and search features (`memory`), mixture of agents methods and schemes (`mix`), modes for interaction like `spool`, `guac`, `wander`, `yap`, `pti`, and more (`modes`), SQL-focused tooling (`sql`) and computer automations like `cron`, `systemctl`, `pyautogui`, etc (`work`) .
-
- </details>
- 
-### v0.3.33
-<details>  <summary> Toggle </summary>
--In v0.3.33, the NPCCompiler object was phased out and the global/project dichotomy was removed. 
--the primary python package entrypoint was renamed from npcsh to npcpy
--npcsh is still automatically installed and available, but we will have a better separation of responsibilities in the NPC framework when the shell handles these rather than integrating it across the library.
--context files are being introduced.
- </details>
 
 ## Contributing
 Contributions are welcome! Please submit issues and pull requests on the GitHub repository.
