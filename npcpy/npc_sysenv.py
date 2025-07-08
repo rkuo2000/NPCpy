@@ -415,7 +415,10 @@ def print_and_process_stream_with_markdown(response, model, provider):
     str_output = ""
     dot_count = 0  # Keep track of how many dots we've printed
     tool_call_data = {"id": None, "function_name": None, "arguments": ""}
-
+    if isinstance(response, str):
+        render_markdown(response)  # If response is a string, render it directly
+        print('\n') 
+        return response  # If response is a string, return it directly
     for chunk in response:
         # Get chunk content based on provider
         print('.', end="", flush=True)
