@@ -1,6 +1,5 @@
 from setuptools import setup, find_packages
-import site
-import platform
+
 from pathlib import Path
 import os
 
@@ -104,7 +103,6 @@ setup(
         "License :: OSI Approved :: MIT License",
     ],
     include_package_data=True,
-    data_files=[("npcpy/npc_team", extra_files)],
     python_requires=">=3.10",
 )
 
