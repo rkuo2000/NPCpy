@@ -1,6 +1,5 @@
 from setuptools import setup, find_packages
-import site
-import platform
+
 from pathlib import Path
 import os
 
@@ -83,7 +82,7 @@ extra_files = package_files("npcpy/npc_team/")
 
 setup(
     name="npcpy",
-    version="1.0.26",
+    version="1.0.27",
     packages=find_packages(exclude=["tests*"]),
     install_requires=base_requirements,  # Only install base requirements by default
     extras_require={
@@ -93,32 +92,17 @@ setup(
         "mcp": mcp_requirements,  # MCP integration
         "all": api_requirements + local_requirements + voice_requirements + mcp_requirements,  # Everything
     },
-    entry_points={
-        "console_scripts": [
-            "npcsh=npcpy.modes.npcsh:main",
-            "npcsh-mcp=npcpy.modes.mcp_npcsh:main",            
-            "npc=npcpy.modes.npc:main",
-            "yap=npcpy.modes.yap:main",
-            "pti=npcpy.modes.pti:main",
-            "guac=npcpy.modes.guac:main",
-            "wander=npcpy.modes.wander:main",
-            "deep_research=npcpy.modes.deep_search:main",
-            "spool=npcpy.modes.spool:main",
-            "sleep=npcpy.modes.sleep:main",
-        ],
-    },
     author="Christopher Agostino",
     author_email="info@npcworldwi.de",
     description="npcpy is a python library for orchestrating AI agents.",
     long_description=open("README.md").read(),
     long_description_content_type="text/markdown",
-    url="https://github.com/cagostino/npcpy",
+    url="https://github.com/NPC-Worldwide/npcpy",
     classifiers=[
         "Programming Language :: Python :: 3",
         "License :: OSI Approved :: MIT License",
     ],
     include_package_data=True,
-    data_files=[("npcpy/npc_team", extra_files)],
     python_requires=">=3.10",
 )
 

@@ -1,6 +1,0 @@
-name: presenter
-primary_directive: Create a presentation deck summarizing the analysis.
-jinxs:
-  - deck_creator
-model: claude-3-haiku-20240307
-provider: anthropic

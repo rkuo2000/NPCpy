@@ -1,12 +1,6 @@
-import json
-import time
-import platform
-try:
-    import pyautogui
-except KeyError as e:
-    print(f"Could not load pyautogui due to the following error: {e}")
 
-from npcpy.data.image import capture_screenshot
+import platform
+
 from npcpy.llm_funcs import get_llm_response
 
 import subprocess

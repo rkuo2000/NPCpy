@@ -40,13 +40,13 @@ response = get_llm_response("What is the capital of France? Respond with a json 
 
 
 
-# alternatively, if you have NPCSH_CHAT_MODEL / NPCSH_CHAT_PROVIDER set in your ~/.npcshrc, it will use those values
 response = get_llm_response("What is the capital of France? Respond with a json object containing 'capital' as the key and the capital as the value.",
-                            format='json')
+                            format='json',
+                            model='gemma3:4b', 
+                            provider='ollama')
 
 
 # with stream
-# alternatively, if you have NPCSH_CHAT_MODEL / NPCSH_CHAT_PROVIDER set in your ~/.npcshrc, it will use those values
 response = get_llm_response("whats going on tonight?",
                             model='gpt-4o-mini',
                             provider='openai',
