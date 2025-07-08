@@ -1,5 +1,5 @@
 def main():
-    print("Hello from npcsh!")
+    print("Hello from npcpy!")
 
 if __name__ == "__main__":
     main()
