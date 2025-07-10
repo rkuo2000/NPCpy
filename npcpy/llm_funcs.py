@@ -364,6 +364,16 @@ def handle_jinx_call(
             jinx = npc.jinxs_dict[jinx_name]
         render_markdown(f"jinx found: {jinx.jinx_name}")
         jinja_env = Environment(loader=FileSystemLoader("."), undefined=Undefined)
+        example_format = {}
+        for inp in jinx.inputs:
+            if isinstance(inp, str):
+                example_format[inp] = f"<value for {inp}>"
+            elif isinstance(inp, dict):
+                key = list(inp.keys())[0]
+                example_format[key] = f"<value for {key}>"
+        
+        json_format_str = json.dumps(example_format, indent=4)
+        
 
         prompt = f"""
         The user wants to use the jinx '{jinx_name}' with the following request:
@@ -375,12 +385,19 @@ def handle_jinx_call(
 
         Please determine the required inputs for the jinx as a JSON object.
         
-        
         They must be exactly as they are named in the jinx.
         For example, if the jinx has three inputs, you should respond with a list of three values that will pass for those args.
         
+        If the jinx requires a file path, you must include an absolute path to the file including an extension.
+        If the jinx requires code to be generated, you must generate it exactly according to the instructions.
+        Your inputs must satisfy the jinx's requirements.
+
         Return only the JSON object without any markdown formatting.
 
+        The format of the JSON object is:
+        {{
+        {json_format_str}
+        }}
         """
 
         if npc and hasattr(npc, "shared_context"):
@@ -400,6 +417,7 @@ def handle_jinx_call(
             npc=npc,
             context=context
         )
+
         try:
             response_text = response.get("response", "{}")
             if isinstance(response_text, str):
@@ -450,10 +468,6 @@ def handle_jinx_call(
                 "messages": messages,
             }
 
-        # try:
-        print(npc.name+'>',end='')
-
-        print("Executing jinx with input values:", end='')
         
         render_markdown( "\n".join(['\n - ' + str(key) + ': ' +str(val) for key, val in input_values.items()]))
 
@@ -471,6 +485,7 @@ def handle_jinx_call(
         except Exception as e:
             print(f"An error occurred while executing the jinx: {e}")
             print(f"trying again, attempt {attempt+1}")
+            print('command', command)
             if attempt < n_attempts:
                 jinx_output = handle_jinx_call(
                     command,
@@ -590,7 +605,6 @@ def check_llm_command(
     images: list = None,
     stream=False,
     context=None,    
-    human_in_the_loop=False,
     shell = False,
 ):
     """This function checks an LLM command.
@@ -620,7 +634,7 @@ def check_llm_command(
             api_url=api_url,
             api_key=api_key,
             npc=npc,
-            messages=[],
+            messages=messages,
             tools=tools,
             tool_map=tool_map,
             context=None,
@@ -639,42 +653,10 @@ def check_llm_command(
     2. Is it a general question that requires an informative answer or a highly specific question that
         requires information on the web?
 
-    3. Would this question be best answered by an alternative NPC?
-
-    4. Is it a complex request that actually requires more than one
-        jinx to be called, perhaps in a sequence?
-        Sequences should only be used for more than one consecutive jinx call. Do not invoke sequences for single jinx calls.
     """
-    if human_in_the_loop and shell:
 
-        prompt+= f"""
-            5. is there a high amount of ambiguity in the user's request?  If so, ask the user for more information.
-            
-            in your response, consider as well the following guidelines for whether to request input:
-            
-                Here are some examples of ambiguous and non-ambiguous requests:
-
-                For exmaple,
-                    "tell me a joke about my favorite city" is ambiguous because the user
-                    did not specify the city. In this case, ask the user for more information.
-
-                    "tell me a joke about the weather" is not ambiguous because the user
-                    specified the topic of the joke. In this case, you can answer the question
-                    without asking for more information.
-
-                    "take a screenshot of my screen" is not ambiguous because the user
-                    specified the action they want to take. In this case, you can carry out the action without asking for more information.
-
-                    ambiguous: "whats happening tonight in my city" is ambiguous because the user 
-                    did not specify the city. In this case, ask the user for more information.
-                    not ambiguous: "whats happening tonight in new york" is not ambiguous because the user
-                    specified the city. In this case, you can answer the question without asking for more information.
-                        
-                Please limit requests for input to only the most ambiguous requests to ensure the optimal user experience.
-            
-            """
         
-
+    jinx_component = ''
     if npc is not None:
         if npc.shared_context:
             prompt += f"""
@@ -683,16 +665,17 @@ def check_llm_command(
             """
 
         if npc.jinxs_dict is None :
-            prompt += "No NPC jinxs available. Do not invoke jinxs."
+            jinx_component += "No NPC jinxs available. Do not invoke jinxs."
         else:
-            prompt += "Available jinxs: \n"
+            jinx_component += "Available jinxs: \n"
             jinxs_set = {}
             if npc.jinxs_dict is not None:
                 for jinx_name, jinx in npc.jinxs_dict.items():
                     if jinx_name not in jinxs_set:
                         jinxs_set[jinx_name] = jinx.description
             for jinx_name, jinx_description in jinxs_set.items():
-                prompt += f"""
+
+                jinx_component += f"""
                             {jinx_name} : {jinx_description} \n
 
                             """
@@ -700,7 +683,7 @@ def check_llm_command(
         #pdb.set_trace()
     if jinxs is not None:
         for jinx in jinxs:
-            prompt += f"""
+            jinx_component += f"""
             Here is a jinx that may be relevant to the user's request:
             {jinx}
             """        
@@ -725,54 +708,50 @@ def check_llm_command(
     action_space = ["invoke_jinx",
                      "answer_question", 
                      ]
-
-    if human_in_the_loop:
-        action_space.append("request_input")
     prompt += f"""
+    These were the most recent 5 messages in the conversation which should help you respond appropriately:
+    {messages[-5:] if len(messages) > 5 else messages}
+
+
     In considering how to answer this, consider:
 
     - Whether a jinx should be used.
-
-    Excluding time-sensitive phenomena or ones that require external data inputs /information,
-    most general questions can be answered without any extra jinxs.
-
-    
-
-    Only use jinxs when it is obvious that the answer needs to be as up-to-date as possible. For example,
+    Use jinxs when it is obvious that the answer needs to be as up-to-date as possible. For example,
         a question about where mount everest is does not necessarily need to be answered by a jinx call or an agent pass.
 
-    Similarly, if a user asks to explain the plot of the aeneid, this can be answered without a jinx call or agent pass.
-
+    If a user asks to explain the plot of the aeneid, this can be answered without a jinx call or agent pass.
+    
     If a user were to ask for the current weather in tokyo or the current price of bitcoin or who the mayor of a city is,
-        then a jinx call may be appropriate.
+        then a jinx call is appropriate.
 
-    jinxs are valuable but their use should be limited and purposeful to
-        ensure the best user experience.
+    If the user wants you to read a file, it must use a jinx to read the file.
 
-        If a user asks you to search or to take a screenshot or to open a program or to write a program most likely it is
-        appropriate to use a jinx.
+    If the user asks you to edit a file, you must use a jinx to edit the file.
+
+    If the user asks you to take a screenshot, you must to use a jinx to take the screenshot if available
+    
+    If a user asks you to search or to take a screenshot or to open a program or to write a program most likely it is
+    appropriate to use a jinx. 
+
+    Here are the jinxs that are available to you:
+    {jinx_component}
+
     Respond with a JSON object containing:
     - "action": one of {action_space}
     - "jinx_name": : if action is "invoke_jinx": the name of the jinx to use.
-                     else if action is "", a list of jinx names to use.
     - "explanation": a brief explanation of why you chose this action.
 
-    
+    Remember, use a jinx if appropriate.
 
     Return only the JSON object. Do not include any additional text.
 
     The format of the JSON object is:
     {{
-        "action": "invoke_jinx" | "answer_question"  |  "request_input",
-        "jinx_name": "<jinx_name(s)_if_applicable>",
+        "action": "invoke_jinx" | "answer_question"  ,
+        "jinx_name": "<jinx_name(s)_if and only if the action is invoke_jinx>",
         "explanation": "<your_explanation>",
 
     }}
-
-    If you execute a sequence, ensure that you have a specified NPC for each jinx use.
-        question answering is not a jinx use.
-        "invoke_jinx" should never be used in the list of jinxs when executing a sequence.
-
 
     Remember, do not include ANY ADDITIONAL MARKDOWN FORMATTING.
     There should be no leading ```json.
@@ -785,9 +764,7 @@ def check_llm_command(
         {context}
 
         """
-
-
-
+    
     action_response = get_llm_response(
         prompt,
         model=model,
@@ -799,7 +776,7 @@ def check_llm_command(
         messages=[],
         context=None,
     )
-    
+
     if "Error" in action_response:
         print(f"LLM Error: {action_response['error']}")
         return action_response["error"]
@@ -818,17 +795,24 @@ def check_llm_command(
         response_content_parsed = response_content
 
     #print(prompt)
-    action = response_content_parsed.get("action")
-    explanation = response_content_parsed.get("explanation")
-    jinx_name = response_content_parsed.get('jinx_name', '')
-    jinx_name = '\n Jinx: ' + str(jinx_name) if jinx_name else ''
+    action = response_content_parsed.get("action").strip()
+    explanation = response_content_parsed.get("explanation").strip()
+    jinx_name = response_content_parsed.get('jinx_name', '').strip()
+    print(response_content_parsed)
+    jinx_name_print = '\n Jinx: ' + str(jinx_name) if jinx_name else ''
 
-    render_markdown(f"- Action chosen: {action + jinx_name}\n")
+    render_markdown(f"- Action chosen: {action + jinx_name_print}\n")
     render_markdown(f"- Explanation given: {explanation}\n")
 
+    command_with_action_response = f"""
+    Here is the user question: {command}
+    The action chosen by the agent is: {action}
+    The explanation provided by the agent is: {explanation}
+    The available jinxs were: {jinx_component}
+    The jinx name chosen by the agent is: {jinx_name} (if invoke_jinx was used, otherwise this will be empty)
+    
+    """
 
-    # Execute the chosen action
-    # Execute the chosen action
     if action == "invoke_jinx":
         if npc and npc.jinxs_dict and jinx_name in npc.jinxs_dict:
             if stream and not shell:
@@ -875,17 +859,20 @@ def check_llm_command(
                 return {'messages': result.get('messages', messages), 'output': result.get('output', '')}
         else:
             return {"messages": messages, "output": f"jinx '{jinx_name}' not found"}
-            
+    
     elif action == "answer_question":
         if stream and not shell:
             def decision_wrapped_gen():
                 yield {'role': 'decision',
                         'content': f"- Action chosen: {action + jinx_name}\n- Explanation given: {explanation}\n"}
                 result = get_llm_response(
-                    command,
-                    model=model, provider=provider,
-                    api_url=api_url, api_key=api_key,
-                    messages=messages, npc=npc,
+                    command_with_action_response,
+                    model=model,
+                    provider=provider,
+                    api_url=api_url, 
+                    api_key=api_key,
+                    messages=messages, 
+                    npc=npc,
                     stream=stream, 
                     images=images,
                 )
@@ -893,7 +880,7 @@ def check_llm_command(
             return {'messages': messages, 'output': decision_wrapped_gen()}
         elif stream and shell:
             result = get_llm_response(
-                command,
+                command_with_action_response,
                 model=model, 
                 provider=provider,
                 api_url=api_url, 
@@ -910,11 +897,15 @@ def check_llm_command(
 
         else:
             result = get_llm_response(
-                command,
-                model=model, provider=provider,
-                api_url=api_url, api_key=api_key,
-                messages=messages, npc=npc,
-                stream=stream, images=images,
+                command_with_action_response,
+                model=model, 
+                provider=provider,
+                api_url=api_url, 
+                api_key=api_key,
+                messages=messages, 
+                npc=npc,
+                stream=stream, 
+                images=images,
             )
             return {'messages': result.get('messages', messages), 'output': result.get('response', '')}
 
@@ -945,7 +936,7 @@ def check_llm_command(
             def decision_wrapped_gen():
                 yield {'role': 'decision', 'content': f"- Action chosen: {action + jinx_name}\n- Explanation given: {explanation}\n"}
                 result = check_llm_command(
-                    command + " \n \n \n extra context: " + request_input,
+                    command_with_action_response + " \n \n \n extra context: " + request_input,
                     model=model, provider=provider,
                     api_url=api_url, api_key=api_key,
                     npc=npc, messages=messages,
@@ -956,7 +947,7 @@ def check_llm_command(
             return {'messages': messages, 'output': decision_wrapped_gen()}
         elif stream and shell:
             return check_llm_command(
-                    command + " \n \n \n extra context: " + request_input,
+                    command_with_action_response + " \n \n \n extra context: " + request_input,
                     model=model, provider=provider,
                     api_url=api_url, api_key=api_key,
                     npc=npc, messages=messages,
@@ -965,7 +956,7 @@ def check_llm_command(
 
         else:
             return check_llm_command(
-                command + " \n \n \n extra context: " + request_input,
+                command_with_action_response + " \n \n \n extra context: " + request_input,
                 model=model, provider=provider,
                 api_url=api_url, api_key=api_key,
                 npc=npc, messages=messages,
