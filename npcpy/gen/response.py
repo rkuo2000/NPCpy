@@ -135,12 +135,32 @@ def get_ollama_response(
             last_user_idx = len(messages) - 1
         messages[last_user_idx]["images"] = image_paths
     
-    api_params = {"model": model, "messages": messages}
+    api_params = {
+        "model": model,
+        "messages": messages,
+        "stream": stream,
+    }
+
     
     if tools:
         api_params["tools"] = tools
     if tool_choice:
         api_params["tool_choice"] = tool_choice
+    options = {}
+    for key, value in kwargs.items():
+        if key in [
+            "stop", "temperature", "top_p", "max_tokens", "max_completion_tokens",
+            "tools", "tool_choice", "extra_headers", "parallel_tool_calls",
+            "response_format", "user",
+        ]:
+            options[key] = value
+
+    if isinstance(format, type) and not stream:
+        api_params["format"] = format.model_json_schema()
+    elif isinstance(format, str) and format == "json" and not stream:
+        api_params["format"] = "json"
+    
+
 
     options = {}
     for key, value in kwargs.items():
@@ -156,7 +176,22 @@ def get_ollama_response(
     elif isinstance(format, str) and format == "json" and not stream:
         api_params["format"] = "json"
 
-    res = ollama.chat(**api_params, options=options)
+    # Create standardized response structure
+    result = {
+        "response": None,
+        "messages": messages.copy(),
+        "raw_response": None,
+        "tool_calls": []
+    }
+    
+    # Handle streaming
+    if stream:
+        result["response"] = ollama.chat(**api_params, options=options)
+        return result
+    
+    # Non-streaming case
+    res = ollama.chat(**api_params, options = options)
+    result["raw_response"] = res
 
     if tools and hasattr(res.get('message', {}), 'tool_calls') and res['message']['tool_calls']:
         if tool_map:

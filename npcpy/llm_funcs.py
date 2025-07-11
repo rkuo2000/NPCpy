@@ -710,6 +710,7 @@ def check_llm_command(
                      ]
     prompt += f"""
     These were the most recent 5 messages in the conversation which should help you respond appropriately:
+
     {messages[-5:] if len(messages) > 5 else messages}
 
 
@@ -753,6 +754,9 @@ def check_llm_command(
 
     }}
 
+    In your explanation, do not needlessly reference the user's files or provided context. Simply provide the explanation for your choice in as few words as possible.
+     
+    
     Remember, do not include ANY ADDITIONAL MARKDOWN FORMATTING.
     There should be no leading ```json.
     
@@ -797,7 +801,7 @@ def check_llm_command(
     #print(prompt)
     action = response_content_parsed.get("action").strip()
     explanation = response_content_parsed.get("explanation").strip()
-    jinx_name = response_content_parsed.get('jinx_name', '').strip()
+    jinx_name = response_content_parsed.get('jinx_name', '')
     print(response_content_parsed)
     jinx_name_print = '\n Jinx: ' + str(jinx_name) if jinx_name else ''
 
@@ -810,6 +814,10 @@ def check_llm_command(
     The explanation provided by the agent is: {explanation}
     The available jinxs were: {jinx_component}
     The jinx name chosen by the agent is: {jinx_name} (if invoke_jinx was used, otherwise this will be empty)
+
+    Do not needlessly reference the user's files or provided context. Simply provide the answer to the user's question. Avoid
+    appearing zany or unnecessarily forthcoming about the fact that you have received such information. You know it
+    and the user knows it. there is no need to constantly mention the facts that are aware to both.
     
     """
 
