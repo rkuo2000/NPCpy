@@ -1,6 +1,10 @@
 from flask import Flask, request, jsonify, Response
 from flask_sse import sse
 import redis
+import threading
+import uuid
+import traceback
+
 
 from flask_cors import CORS
 import os
@@ -40,6 +44,12 @@ db_path = os.path.expanduser("~/npcsh_history.db")
 user_npc_directory = os.path.expanduser("~/.npcsh/npc_team")
 # Make project_npc_directory a function that updates based on current path
 # instead of a static path relative to server launch directory
+
+
+# --- NEW: Global dictionary to track stream cancellation requests ---
+cancellation_flags = {}
+cancellation_lock = threading.Lock()
+
 def get_project_npc_directory(current_path=None):
     """
     Get the project NPC directory based on the current path
@@ -101,7 +111,7 @@ def load_project_env(current_path):
 
 app = Flask(__name__)
 app.config["REDIS_URL"] = "redis://localhost:6379"
-app.register_blueprint(sse, url_prefix="/stream")
+
 
 redis_client = redis.Redis(host="localhost", port=6379, decode_responses=True)
 
@@ -518,268 +528,6 @@ def api_command(command):
         return jsonify(result)
     except Exception as e:
         return jsonify({"error": str(e)})
-@app.route("/api/stream", methods=["POST"])
-def stream():
-    data = request.json
-    print(data)
-    commandstr = data.get("commandstr")
-    conversation_id = data.get("conversationId")
-    model = data.get("model", None)
-    provider = data.get("provider", None)
-    if provider is None:
-        provider = available_models.get(model)
-        
-    npc_name = data.get("npc", None)
-    npc_source = data.get("npcSource", "global")  # Default to global if not specified
-    team = data.get("team", None)
-    current_path = data.get("currentPath")
-    
-    # Load project-specific environment variables if currentPath is provided
-    if current_path:
-        loaded_vars = load_project_env(current_path)
-        print(f"Loaded project env variables for stream request: {list(loaded_vars.keys())}")
-    
-    # Load the NPC if a name was provided
-    npc_object = None
-    if npc_name:
-        db_conn = get_db_connection()
-        # Pass the current_path parameter when loading project NPCs
-        npc_object = load_npc_by_name_and_source(npc_name, npc_source, db_conn, current_path)
-        
-        if not npc_object and npc_source == 'project':
-            # Try global as fallback
-            print(f"NPC {npc_name} not found in project directory, trying global...")
-            npc_object = load_npc_by_name_and_source(npc_name, 'global', db_conn)
-            
-        if npc_object:
-            print(f"Successfully loaded NPC {npc_name} from {npc_source} directory")
-        else:
-            print(f"Warning: Could not load NPC {npc_name}")
-    print(npc_object, type(npc_object))
-    attachments = data.get("attachments", [])
-
-    command_history = CommandHistory(db_path)
-
-    # Process attachments and save them properly
-    images = []
-    print(attachments)
-
-
-
-    attachments_loaded = []
-
-    if attachments:
-        for attachment in attachments:
-            extension = attachment["name"].split(".")[-1]
-            extension_mapped = extension_map.get(extension.upper(), "others")
-            file_path = os.path.expanduser(
-                "~/.npcsh/" + extension_mapped + "/" + attachment["name"]
-            )
-
-            if extension_mapped == "images":
-                # Open the image file and save it to the file path
-                ImageFile.LOAD_TRUNCATED_IMAGES = True
-                img = Image.open(attachment["path"])
-
-                # Save the image to a BytesIO buffer (to extract binary data)
-                img_byte_arr = BytesIO()
-                img.save(img_byte_arr, format="PNG")  # or the appropriate format
-                img_byte_arr.seek(0)  # Rewind the buffer to the beginning
-
-                # Save the image to a file
-                img.save(file_path, optimize=True, quality=50)
-
-                # Add to images list for LLM processing
-                images.append({"filename": attachment["name"], "file_path": file_path})
-
-                # Add the image data (in binary form) to attachments_loaded
-                attachments_loaded.append(
-                    {
-                        "name": attachment["name"],
-                        "type": extension_mapped,
-                        "data": img_byte_arr.read(),  # Read binary data from the buffer
-                        "size": os.path.getsize(file_path),
-                    }
-                )
-
-    messages = fetch_messages_for_conversation(conversation_id)
-    if len(messages) == 0 and npc_object is not None:
-        messages = [{'role': 'system', 'content': npc_object.get_system_prompt()}]
-    elif len(messages)>0 and messages[0]['role'] != 'system' and npc_object is not None:
-        # If the first message is not a system prompt, we need to add it
-        messages.insert(0, {'role': 'system', 'content': npc_object.get_system_prompt()})
-    elif len(messages) > 0 and npc_object is not None:
-        messages[0]['content'] = npc_object.get_system_prompt() 
-    # if we switch between npcs mid conversation, need to change the system prompt
-    if npc_object is not None and messages and messages[0]['role'] == 'system':
-        messages[0]['content'] = npc_object.get_system_prompt()
-    print("messages ", messages)
-    print("commandstr ", commandstr)
-    message_id = command_history.generate_message_id()
-
-    save_conversation_message(
-        command_history,
-        conversation_id,
-        "user",
-        commandstr,
-        wd=current_path,
-        model=model,
-        provider=provider,
-        npc=npc_name,
-        team=team,
-        attachments=attachments_loaded,
-        message_id=message_id,
-    )
-    message_id = command_history.generate_message_id()
-
-    stream_response = get_llm_response(
-        commandstr,
-        messages=messages,
-        images=images,
-        model=model,
-        provider=provider,
-        npc=npc_object,  # Pass the NPC object instead of just the name
-        stream=True,
-    )
-
-
-    def event_stream():
-        complete_response = []
-        dot_count = 0
-        tool_call_data = {"id": None, "function_name": None, "arguments": ""}
-
-        for response_chunk in stream_response['response']:
-            # Print progress dots for terminal feedback
-            print('.', end="", flush=True)
-            dot_count += 1
-
-            
-            if "hf.co" in model or provider == 'ollama':
-                #print("streaming from hf model through ollama")
-                chunk_content = response_chunk["message"]["content"] if "message" in response_chunk and "content" in response_chunk["message"] else ""
-                
-                # Extract tool call info for Ollama
-                if "message" in response_chunk and "tool_calls" in response_chunk["message"]:
-                    for tool_call in response_chunk["message"]["tool_calls"]:
-                        if "id" in tool_call:
-                            tool_call_data["id"] = tool_call["id"]
-                        if "function" in tool_call:
-                            if "name" in tool_call["function"]:
-                                tool_call_data["function_name"] = tool_call["function"]["name"]
-                            if "arguments" in tool_call["function"]:
-                                tool_call_data["arguments"] += tool_call["function"]["arguments"]
-                
-                if chunk_content:
-                    complete_response.append(chunk_content)
-                    
-                # Keep original structure but add tool calls data
-                chunk_data = {
-                    "id": None,
-                    "object": None,
-                    "created": response_chunk["created_at"],
-                    "model": response_chunk["model"],
-                    "choices": [
-                        {
-                            "index": 0,
-                            "delta": {
-                                "content": chunk_content,
-                                "role": response_chunk["message"]["role"],
-                            },
-                            "finish_reason": response_chunk.get("done_reason"),
-                        }
-                    ],
-                }
-                yield f"data: {json.dumps(chunk_data)}\n\n"
-
-            else:
-                # For LiteLLM format
-                chunk_content = ""
-                reasoning_content = ""
-                
-                # Extract tool call info for LiteLLM
-                for choice in response_chunk.choices:
-                    if hasattr(choice.delta, "tool_calls") and choice.delta.tool_calls:
-                        for tool_call in choice.delta.tool_calls:
-                            if tool_call.id:
-                                tool_call_data["id"] = tool_call.id
-                            if tool_call.function:
-                                if hasattr(tool_call.function, "name") and tool_call.function.name:
-                                    tool_call_data["function_name"] = tool_call.function.name
-                                if hasattr(tool_call.function, "arguments") and tool_call.function.arguments:
-                                    tool_call_data["arguments"] += tool_call.function.arguments
-                
-                # Check for reasoning content (thoughts)
-                for choice in response_chunk.choices:
-                    if hasattr(choice.delta, "reasoning_content"):
-                        reasoning_content += choice.delta.reasoning_content
-                
-                # Get regular content
-                chunk_content = "".join(
-                    choice.delta.content
-                    for choice in response_chunk.choices
-                    if choice.delta.content is not None
-                )
-                
-                if chunk_content:
-                    complete_response.append(chunk_content)
-                    
-                # Keep original structure but add reasoning content
-                chunk_data = {
-                    "id": response_chunk.id,
-                    "object": response_chunk.object,
-                    "created": response_chunk.created,
-                    "model": response_chunk.model,
-                    "choices": [
-                        {
-                            "index": choice.index,
-                            "delta": {
-                                "content": choice.delta.content,
-                                "role": choice.delta.role,
-                                "reasoning_content": reasoning_content if hasattr(choice.delta, "reasoning_content") else None,
-                            },
-                            "finish_reason": choice.finish_reason,
-                        }
-                        for choice in response_chunk.choices
-                    ],
-                }
-                yield f"data: {json.dumps(chunk_data)}\n\n"
-                save_conversation_message(
-                    command_history,
-                    conversation_id,
-                    "assistant",
-                    ''.join(complete_response),
-                    wd=current_path,
-                    model=model,
-                    provider=provider,
-                    npc = npc_object.name or '',
-                    team=team,
-                    message_id=message_id,  # Save with the same message_id
-                )
-
-        # Clear the dots by returning to the start of line and printing spaces
-        print('\r' + ' ' * dot_count*2 + '\r', end="", flush=True)
-        print('\n')
-
-        # Send completion message
-        yield f"data: {json.dumps({'type': 'message_stop'})}\n\n"
-        save_conversation_message(
-            command_history,
-            conversation_id,
-            "assistant",
-            ''.join(complete_response),
-            wd=current_path,
-            model=model,
-            provider=provider,
-            npc=npc_object.name or '',
-            team=team,
-            message_id=message_id,
-        )
-        
-    response = Response(event_stream(), mimetype="text/event-stream")
-
-    return response
-
-
 @app.route("/api/npc_team_global")
 def get_npc_team_global():
     try:
@@ -1091,10 +839,201 @@ def get_attachment_response():
         }
     )
 
+@app.route("/api/stream", methods=["POST"])
+def stream():
+    data = request.json
+    
+    stream_id = data.get("streamId")
+    if not stream_id:
+        import uuid
+        stream_id = str(uuid.uuid4())
+
+    # --- NEW: Set the initial cancellation state for this new stream ---
+    with cancellation_lock:
+        cancellation_flags[stream_id] = False
+    print(f"Starting stream with ID: {stream_id}")
+    
+    # Your original code...
+    commandstr = data.get("commandstr")
+    conversation_id = data.get("conversationId")
+    model = data.get("model", None)
+    provider = data.get("provider", None)
+    if provider is None:
+        provider = available_models.get(model)
+        
+    npc_name = data.get("npc", None)
+    npc_source = data.get("npcSource", "global")
+    team = data.get("team", None)
+    current_path = data.get("currentPath")
+    
+    if current_path:
+        loaded_vars = load_project_env(current_path)
+        print(f"Loaded project env variables for stream request: {list(loaded_vars.keys())}")
+    
+    npc_object = None
+    if npc_name:
+        db_conn = get_db_connection()
+        npc_object = load_npc_by_name_and_source(npc_name, npc_source, db_conn, current_path)
+        if not npc_object and npc_source == 'project':
+            print(f"NPC {npc_name} not found in project directory, trying global...")
+            npc_object = load_npc_by_name_and_source(npc_name, 'global', db_conn)
+        if npc_object:
+            print(f"Successfully loaded NPC {npc_name} from {npc_source} directory")
+        else:
+            print(f"Warning: Could not load NPC {npc_name}")
+
+    attachments = data.get("attachments", [])
+    command_history = CommandHistory(db_path)
+    images = []
+    attachments_loaded = []
+
+    if attachments:
+        for attachment in attachments:
+            extension = attachment["name"].split(".")[-1]
+            extension_mapped = extension_map.get(extension.upper(), "others")
+            file_path = os.path.expanduser("~/.npcsh/" + extension_mapped + "/" + attachment["name"])
+            if extension_mapped == "images":
+                ImageFile.LOAD_TRUNCATED_IMAGES = True
+                img = Image.open(attachment["path"])
+                img_byte_arr = BytesIO()
+                img.save(img_byte_arr, format="PNG")
+                img_byte_arr.seek(0)
+                img.save(file_path, optimize=True, quality=50)
+                images.append({"filename": attachment["name"], "file_path": file_path})
+                attachments_loaded.append({
+                    "name": attachment["name"], "type": extension_mapped,
+                    "data": img_byte_arr.read(), "size": os.path.getsize(file_path)
+                })
+
+    messages = fetch_messages_for_conversation(conversation_id)
+    if len(messages) == 0 and npc_object is not None:
+        messages = [{'role': 'system', 'content': npc_object.get_system_prompt()}]
+    elif len(messages) > 0 and messages[0]['role'] != 'system' and npc_object is not None:
+        messages.insert(0, {'role': 'system', 'content': npc_object.get_system_prompt()})
+    elif len(messages) > 0 and npc_object is not None:
+        messages[0]['content'] = npc_object.get_system_prompt()
+    if npc_object is not None and messages and messages[0]['role'] == 'system':
+        messages[0]['content'] = npc_object.get_system_prompt()
+
+    message_id = command_history.generate_message_id()
+    save_conversation_message(
+        command_history, conversation_id, "user", commandstr,
+        wd=current_path, model=model, provider=provider, npc=npc_name,
+        team=team, attachments=attachments_loaded, message_id=message_id,
+    )
+
+    stream_response = get_llm_response(
+        commandstr, messages=messages, images=images, model=model,
+        provider=provider, npc=npc_object, stream=True,
+    )
+    message_id = command_history.generate_message_id()
+
+    def event_stream(current_stream_id):
+        complete_response = []
+        dot_count = 0
+        interrupted = False
+        tool_call_data = {"id": None, "function_name": None, "arguments": ""}
+
+        try:
+            for response_chunk in stream_response['response']:
+                # --- NEW: Check the cancellation flag on every iteration ---
+                with cancellation_lock:
+                    if cancellation_flags.get(current_stream_id, False):
+                        print(f"Cancellation flag triggered for {current_stream_id}. Breaking loop.")
+                        interrupted = True
+                        break
+
+                print('.', end="", flush=True)
+                dot_count += 1
+
+                if "hf.co" in model or provider == 'ollama':
+                    chunk_content = response_chunk["message"]["content"] if "message" in response_chunk and "content" in response_chunk["message"] else ""
+                    if "message" in response_chunk and "tool_calls" in response_chunk["message"]:
+                        for tool_call in response_chunk["message"]["tool_calls"]:
+                            if "id" in tool_call:
+                                tool_call_data["id"] = tool_call["id"]
+                            if "function" in tool_call:
+                                if "name" in tool_call["function"]:
+                                    tool_call_data["function_name"] = tool_call["function"]["name"]
+                                if "arguments" in tool_call["function"]:
+                                    tool_call_data["arguments"] += tool_call["function"]["arguments"]
+                    if chunk_content:
+                        complete_response.append(chunk_content)
+                    chunk_data = {
+                        "id": None, "object": None, "created": response_chunk["created_at"], "model": response_chunk["model"],
+                        "choices": [{"index": 0, "delta": {"content": chunk_content, "role": response_chunk["message"]["role"]}, "finish_reason": response_chunk.get("done_reason")}]
+                    }
+                    yield f"data: {json.dumps(chunk_data)}\n\n"
+                else:
+                    chunk_content = ""
+                    reasoning_content = ""
+                    for choice in response_chunk.choices:
+                        if hasattr(choice.delta, "tool_calls") and choice.delta.tool_calls:
+                            for tool_call in choice.delta.tool_calls:
+                                if tool_call.id:
+                                    tool_call_data["id"] = tool_call.id
+                                if tool_call.function:
+                                    if hasattr(tool_call.function, "name") and tool_call.function.name:
+                                        tool_call_data["function_name"] = tool_call.function.name
+                                    if hasattr(tool_call.function, "arguments") and tool_call.function.arguments:
+                                        tool_call_data["arguments"] += tool_call.function.arguments
+                    for choice in response_chunk.choices:
+                        if hasattr(choice.delta, "reasoning_content"):
+                            reasoning_content += choice.delta.reasoning_content
+                    chunk_content = "".join(choice.delta.content for choice in response_chunk.choices if choice.delta.content is not None)
+                    if chunk_content:
+                        complete_response.append(chunk_content)
+                    chunk_data = {
+                        "id": response_chunk.id, "object": response_chunk.object, "created": response_chunk.created, "model": response_chunk.model,
+                        "choices": [{"index": choice.index, "delta": {"content": choice.delta.content, "role": choice.delta.role, "reasoning_content": reasoning_content if hasattr(choice.delta, "reasoning_content") else None}, "finish_reason": choice.finish_reason} for choice in response_chunk.choices]
+                    }
+                    yield f"data: {json.dumps(chunk_data)}\n\n"
+
+        except Exception as e:
+            print(f"\nAn exception occurred during streaming for {current_stream_id}: {e}")
+            traceback.print_exc()
+            interrupted = True
+        
+        finally:
+            print(f"\nStream {current_stream_id} finished. Interrupted: {interrupted}")
+            print('\r' + ' ' * dot_count*2 + '\r', end="", flush=True)
+
+            final_response_text = ''.join(complete_response)
+            yield f"data: {json.dumps({'type': 'message_stop'})}\n\n"
+            
+            npc_name_to_save = npc_object.name if npc_object else ''
+            save_conversation_message(
+                command_history, conversation_id, "assistant", final_response_text,
+                wd=current_path, model=model, provider=provider,
+                npc=npc_name_to_save, team=team, message_id=message_id,
+            )
+
+            with cancellation_lock:
+                if current_stream_id in cancellation_flags:
+                    del cancellation_flags[current_stream_id]
+                    print(f"Cleaned up cancellation flag for stream ID: {current_stream_id}")
+                    
+    return Response(event_stream(stream_id), mimetype="text/event-stream")
+
+
+
+
 @app.route("/api/execute", methods=["POST"])
 def execute():
     data = request.json
-    print(data)
+    
+    # --- MODIFIED: Get or create a stream_id for cancellation tracking ---
+    stream_id = data.get("streamId")
+    if not stream_id:
+        import uuid
+        stream_id = str(uuid.uuid4())
+
+    # --- NEW: Set the initial cancellation state for this new stream ---
+    with cancellation_lock:
+        cancellation_flags[stream_id] = False
+    print(f"Starting execute stream with ID: {stream_id}")
+
+    # Your original code...
     commandstr = data.get("commandstr")
     conversation_id = data.get("conversationId")
     model = data.get("model", 'llama3.2')
@@ -1103,279 +1042,178 @@ def execute():
         provider = available_models.get(model)
         
     npc_name = data.get("npc", None)
-    npc_source = data.get("npcSource", "global")  # Default to global if not specified
+    npc_source = data.get("npcSource", "global")
     team = data.get("team", None)
     current_path = data.get("currentPath")
     
-    # Load project-specific environment variables if currentPath is provided
     if current_path:
         loaded_vars = load_project_env(current_path)
         print(f"Loaded project env variables for stream request: {list(loaded_vars.keys())}")
     
-    # Load the NPC if a name was provided
     npc_object = None
     if npc_name:
         db_conn = get_db_connection()
-        # Pass the current_path parameter when loading project NPCs
         npc_object = load_npc_by_name_and_source(npc_name, npc_source, db_conn, current_path)
-        
         if not npc_object and npc_source == 'project':
-            # Try global as fallback
             print(f"NPC {npc_name} not found in project directory, trying global...")
             npc_object = load_npc_by_name_and_source(npc_name, 'global', db_conn)
-            
         if npc_object:
             print(f"Successfully loaded NPC {npc_name} from {npc_source} directory")
         else:
             print(f"Warning: Could not load NPC {npc_name}")
-    print(npc_object, type(npc_object))
+
     attachments = data.get("attachments", [])
-
     command_history = CommandHistory(db_path)
-
-    # Process attachments and save them properly
     images = []
-    print(attachments)
     attachments_loaded = []
 
     if attachments:
         for attachment in attachments:
             extension = attachment["name"].split(".")[-1]
             extension_mapped = extension_map.get(extension.upper(), "others")
-            file_path = os.path.expanduser(
-                "~/.npcsh/" + extension_mapped + "/" + attachment["name"]
-            )
-
+            file_path = os.path.expanduser("~/.npcsh/" + extension_mapped + "/" + attachment["name"])
             if extension_mapped == "images":
-                # Open the image file and save it to the file path
                 ImageFile.LOAD_TRUNCATED_IMAGES = True
                 img = Image.open(attachment["path"])
-
-                # Save the image to a BytesIO buffer (to extract binary data)
                 img_byte_arr = BytesIO()
-                img.save(img_byte_arr, format="PNG")  # or the appropriate format
-                img_byte_arr.seek(0)  # Rewind the buffer to the beginning
-
-                # Save the image to a file
+                img.save(img_byte_arr, format="PNG")
+                img_byte_arr.seek(0)
                 img.save(file_path, optimize=True, quality=50)
-
-                # Add to images list for LLM processing
                 images.append({"filename": attachment["name"], "file_path": file_path})
-
-                # Add the image data (in binary form) to attachments_loaded
-                attachments_loaded.append(
-                    {
-                        "name": attachment["name"],
-                        "type": extension_mapped,
-                        "data": img_byte_arr.read(),  # Read binary data from the buffer
-                        "size": os.path.getsize(file_path),
-                    }
-                )
+                attachments_loaded.append({
+                    "name": attachment["name"], "type": extension_mapped,
+                    "data": img_byte_arr.read(), "size": os.path.getsize(file_path)
+                })
 
     messages = fetch_messages_for_conversation(conversation_id)
     if len(messages) == 0 and npc_object is not None:
         messages = [{'role': 'system', 'content': npc_object.get_system_prompt()}]
     elif len(messages)>0 and messages[0]['role'] != 'system' and npc_object is not None:
-        # If the first message is not a system prompt, we need to add it
         messages.insert(0, {'role': 'system', 'content': npc_object.get_system_prompt()})
     elif len(messages) > 0 and npc_object is not None:
-        messages[0]['content'] = npc_object.get_system_prompt() 
-    # if we switch between npcs mid conversation, need to change the system prompt
+        messages[0]['content'] = npc_object.get_system_prompt()
     if npc_object is not None and messages and messages[0]['role'] == 'system':
         messages[0]['content'] = npc_object.get_system_prompt()
-    print("messages ", messages)
-    print("commandstr ", commandstr)
-    message_id = command_history.generate_message_id()
 
-    save_conversation_message(
-        command_history,
-        conversation_id,
-        "user",
-        commandstr,
-        wd=current_path,
-        model=model,
-        provider=provider,
-        npc=npc_name,
-        team=team,
-        attachments=attachments_loaded,
-        message_id=message_id,
-    )
     message_id = command_history.generate_message_id()
+    save_conversation_message(
+        command_history, conversation_id, "user", commandstr,
+        wd=current_path, model=model, provider=provider, npc=npc_name,
+        team=team, attachments=attachments_loaded, message_id=message_id,
+    )
 
     response_gen = check_llm_command(
-        commandstr,
-        messages=messages,
-        images=images,
-        model=model,
-        provider=provider,
-        npc=npc_object,  # Pass the NPC object instead of just the name
-        stream=True,
+        commandstr, messages=messages, images=images, model=model,
+        provider=provider, npc=npc_object, stream=True
     )
-    def event_stream():
+    message_id = command_history.generate_message_id()
+
+    def event_stream(current_stream_id):
         complete_response = []
         dot_count = 0
-        tool_call_data = {"id": None, "function_name": None, "arguments": ""}
+        interrupted = False
         decision = ''
         first_chunk = True
-        for response_chunk in response_gen['output']:
+        tool_call_data = {"id": None, "function_name": None, "arguments": ""}
 
-            # Print progress dots for terminal feedback
-            print('.', end="", flush=True)
-            dot_count += 1
+        try:
+            for response_chunk in response_gen['output']:
+                # --- NEW: Check the cancellation flag on every iteration ---
+                with cancellation_lock:
+                    if cancellation_flags.get(current_stream_id, False):
+                        print(f"Cancellation flag triggered for {current_stream_id}. Breaking loop.")
+                        interrupted = True
+                        break
 
-            # Handle decision events that come before action execution
-            if isinstance(response_chunk, dict) and response_chunk.get("role") == "decision":
-                chunk_data = {
-                    "id": None,
-                    "object": None,
-                    "created": None,
-                    "model": model,
-                    "choices": [
-                        {
-                            "index": 0,
-                            "delta": {
-                                "content": response_chunk.get('content'),
-                                "role": response_chunk.get('role'),
-                            },
-                            "finish_reason": None,
-                        }
-                    ],
-                }
-                if response_chunk.get('content'):
-                    decision = response_chunk.get('content')
+                print('.', end="", flush=True)
+                dot_count += 1
 
-
-            elif "hf.co" in model or provider == 'ollama':
-                #print("streaming from hf model through ollama")
-                
-                chunk_content = response_chunk["message"]["content"] if "message" in response_chunk and "content" in response_chunk["message"] else ""
-                if first_chunk:
-                    chunk_content = decision + '\n' + chunk_content
-                    first_chunk = False
-                # Extract tool call info for Ollama
-                if "message" in response_chunk and "tool_calls" in response_chunk["message"]:
-                    for tool_call in response_chunk["message"]["tool_calls"]:
-                        if "id" in tool_call:
-                            tool_call_data["id"] = tool_call["id"]
-                        if "function" in tool_call:
-                            if "name" in tool_call["function"]:
-                                tool_call_data["function_name"] = tool_call["function"]["name"]
-                            if "arguments" in tool_call["function"]:
-                                tool_call_data["arguments"] += tool_call["function"]["arguments"]
-                
-                if chunk_content:
-                    complete_response.append(chunk_content)
-                    
-                # Keep original structure but add tool calls data
-                chunk_data = {
-                    "id": None,
-                    "object": None,
-                    "created": response_chunk["created_at"],
-                    "model": response_chunk["model"],
-                    "choices": [
-                        {
-                            "index": 0,
-                            "delta": {
-                                "content": chunk_content,
-                                "role": response_chunk["message"]["role"],
-                            },
-                            "finish_reason": response_chunk.get("done_reason"),
-                        }
-                    ],
-                }
-                yield f"data: {json.dumps(chunk_data)}\n\n"
-
-            else:
-                # For LiteLLM format
                 chunk_content = ""
-                reasoning_content = ""
-                # Replace the print(response_chunk.) line with:
-                # Extract tool call info for LiteLLM
+                if isinstance(response_chunk, dict) and response_chunk.get("role") == "decision":
+                    chunk_data = response_chunk
+                    if response_chunk.get('content'):
+                        decision = response_chunk.get('content')
+                elif "hf.co" in model or provider == 'ollama':
+                    chunk_content = response_chunk["message"]["content"] if "message" in response_chunk and "content" in response_chunk["message"] else ""
+                    if first_chunk:
+                        chunk_content = decision + '\n' + chunk_content
+                    if "message" in response_chunk and "tool_calls" in response_chunk["message"]:
+                        for tool_call in response_chunk["message"]["tool_calls"]:
+                            if "id" in tool_call:
+                                tool_call_data["id"] = tool_call["id"]
+                            if "function" in tool_call:
+                                if "name" in tool_call["function"]:
+                                    tool_call_data["function_name"] = tool_call["function"]["name"]
+                                if "arguments" in tool_call["function"]:
+                                    tool_call_data["arguments"] += tool_call["function"]["arguments"]
+                    if chunk_content:
+                        complete_response.append(chunk_content)
+                    chunk_data = response_chunk
+                    chunk_data["message"]["content"] = chunk_content
+                else:
+                    for choice in response_chunk.choices:
+                        if hasattr(choice.delta, "tool_calls") and choice.delta.tool_calls:
+                            for tool_call in choice.delta.tool_calls:
+                                if tool_call.id:
+                                    tool_call_data["id"] = tool_call.id
+                                if tool_call.function:
+                                    if hasattr(tool_call.function, "name") and tool_call.function.name:
+                                        tool_call_data["function_name"] = tool_call.function.name
+                                    if hasattr(tool_call.function, "arguments") and tool_call.function.arguments:
+                                        tool_call_data["arguments"] += tool_call.function.arguments
+                    reasoning_content = "".join(getattr(choice.delta, "reasoning_content", "") for choice in response_chunk.choices if getattr(choice.delta, "reasoning_content", None))
+                    chunk_content = "".join(choice.delta.content for choice in response_chunk.choices if choice.delta.content is not None)
+                    if first_chunk:
+                        chunk_content = decision + '\n' + chunk_content
+                    if chunk_content:
+                        complete_response.append(chunk_content)
+                    chunk_data = response_chunk.dict() # pydantic model to dict
+                    chunk_data["choices"][0]["delta"]["content"] = chunk_content
 
-                for choice in response_chunk.choices:
-                    if hasattr(choice.delta, "tool_calls") and choice.delta.tool_calls:
-                        for tool_call in choice.delta.tool_calls:
-                            if tool_call.id:
-                                tool_call_data["id"] = tool_call.id
-                            if tool_call.function:
-                                if hasattr(tool_call.function, "name") and tool_call.function.name:
-                                    tool_call_data["function_name"] = tool_call.function.name
-                                if hasattr(tool_call.function, "arguments") and tool_call.function.arguments:
-                                    tool_call_data["arguments"] += tool_call.function.arguments
+                if first_chunk and chunk_content:
+                    first_chunk = False
                 
-                # Check for reasoning content (thoughts)
-                for choice in response_chunk.choices:
-                    if hasattr(choice.delta, "reasoning_content"):
-                        reasoning_content += choice.delta.reasoning_content
-                
-                # Get regular content
-                chunk_content = "".join(
-                    choice.delta.content
-                    for choice in response_chunk.choices
-                    if choice.delta.content is not None
-                )
-                
-                if first_chunk:
-                    chunk_content = decision + '\n' + chunk_content    
-                    first_chunk = False            
-                if chunk_content:
-                    complete_response.append(chunk_content)
-                    
-                # Keep original structure but add reasoning content
-                chunk_data = {
-                    "id": response_chunk.id,
-                    "object": response_chunk.object,
-                    "created": response_chunk.created,
-                    "model": response_chunk.model,
-                    "choices": [
-                        {
-                            "index": choice.index,
-                            "delta": {
-                                "content": choice.delta.content,
-                                "role": choice.delta.role,
-                                "reasoning_content": reasoning_content if hasattr(choice.delta, "reasoning_content") else None,
-                            },
-                            "finish_reason": choice.finish_reason,
-                        }
-                        for choice in response_chunk.choices
-                    ],
-                }
                 yield f"data: {json.dumps(chunk_data)}\n\n"
-                save_conversation_message(
-                    command_history,
-                    conversation_id,
-                    "assistant",
-                    ''.join(complete_response),
-                    wd=current_path,
-                    model=model,
-                    provider=provider,
-                    npc = npc_object.name or '',
-                    team=team,
-                    message_id=message_id,  # Save with the same message_id
-                )
 
-        # Clear the dots by returning to the start of line and printing spaces
-        print('\r' + ' ' * dot_count*2 + '\r', end="", flush=True)
-        print('\n')
-
-        # Send completion message
-        yield f"data: {json.dumps({'type': 'message_stop'})}\n\n"
-        npc_name = '' if npc_object is None else npc_object.name
-        save_conversation_message(
-            command_history,
-            conversation_id,
-            "assistant",
-            ''.join(complete_response),
-            wd=current_path,
-            model=model,
-            provider=provider,
-            npc= npc_name,
-            team=team,
-            message_id=message_id,
-        )
+        except Exception as e:
+            print(f"\nAn exception occurred during streaming for {current_stream_id}: {e}")
+            traceback.print_exc()
+            interrupted = True
         
-    response = Response(event_stream(), mimetype="text/event-stream")
-    return response
+        finally:
+            print(f"\nStream {current_stream_id} finished. Interrupted: {interrupted}")
+            print('\r' + ' ' * dot_count*2 + '\r', end="", flush=True)
+
+            final_response_text = ''.join(complete_response)
+            yield f"data: {json.dumps({'type': 'message_stop'})}\n\n"
+            
+            npc_name_to_save = npc_object.name if npc_object else ''
+            save_conversation_message(
+                command_history, conversation_id, "assistant", final_response_text,
+                wd=current_path, model=model, provider=provider,
+                npc=npc_name_to_save, team=team, message_id=message_id,
+            )
+
+            with cancellation_lock:
+                if current_stream_id in cancellation_flags:
+                    del cancellation_flags[current_stream_id]
+                    print(f"Cleaned up cancellation flag for stream ID: {current_stream_id}")
+                    
+    return Response(event_stream(stream_id), mimetype="text/event-stream")
+
+@app.route("/api/interrupt", methods=["POST"])
+def interrupt_stream():
+    data = request.json
+    stream_id_to_cancel = data.get("streamId")
+
+    if not stream_id_to_cancel:
+        return jsonify({"error": "streamId is required"}), 400
+
+    with cancellation_lock:
+        print(f"Received interruption request for stream ID: {stream_id_to_cancel}")
+        cancellation_flags[stream_id_to_cancel] = True
+
+    return jsonify({"success": True, "message": f"Interruption for stream {stream_id_to_cancel} registered."})
 
 def get_conversation_history(conversation_id):
     """Fetch all messages for a conversation in chronological order."""
@@ -1626,7 +1464,7 @@ def start_flask_server(
 
         # Run the Flask app on all interfaces
         print(f"Starting Flask server on http://0.0.0.0:{port}")
-        app.run(host="0.0.0.0", port=port, debug=debug)
+        app.run(host="0.0.0.0", port=port, debug=debug,  threaded=True)
     except Exception as e:
         print(f"Error starting server: {str(e)}")
 
