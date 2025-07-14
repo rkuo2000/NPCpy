@@ -82,7 +82,7 @@ extra_files = package_files("npcpy/npc_team/")
 
 setup(
     name="npcpy",
-    version="1.0.30",
+    version="1.0.31",
     packages=find_packages(exclude=["tests*"]),
     install_requires=base_requirements,  # Only install base requirements by default
     extras_require={
@@ -94,7 +94,7 @@ setup(
     },
     author="Christopher Agostino",
     author_email="info@npcworldwi.de",
-    description="npcpy is a python library for orchestrating AI agents.",
+    description="npcpy is the premier open-source library for integrating LLMs and Agents into python systems.",
     long_description=open("README.md").read(),
     long_description_content_type="text/markdown",
     url="https://github.com/NPC-Worldwide/npcpy",

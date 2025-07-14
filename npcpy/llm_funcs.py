@@ -705,6 +705,12 @@ def check_llm_command(
             Relevant shared context for the team:
             {team.context}
             """
+        if team.preferences is not None:
+            prompt += f"""
+            Relevant team preferences:
+            {team.preferences}
+            """
+
     action_space = ["invoke_jinx",
                      "answer_question", 
                      ]

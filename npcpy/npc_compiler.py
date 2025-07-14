@@ -733,8 +733,7 @@ class Team:
             raise ValueError(f"Team directory not found: {self.team_path}")
         
         # Load team context if available
-        self.context = self._load_team_context()
-        # Load NPCs
+
         for filename in os.listdir(self.team_path):
             print('filename: ', filename)
             if filename.endswith(".npc"):
@@ -745,7 +744,8 @@ class Team:
                     
                 except Exception as e:
                     print(f"Error loading NPC {filename}: {e}")
-        
+        self.context = self._load_team_context()
+
         # Load jinxs from jinxs directory
         jinxs_dir = os.path.join(self.team_path, "jinxs")
         if os.path.exists(jinxs_dir):
@@ -754,7 +754,7 @@ class Team:
         
         # Load sub-teams (subfolders)
         self._load_sub_teams()
-        print(self.jinxs_dict)
+        print('Loaded Jinxs: ', self.jinxs_dict)
     def _load_team_context(self):
         """Load team context from .ctx file"""
 
@@ -763,16 +763,24 @@ class Team:
         for fname in os.listdir(self.team_path):
             if fname.endswith('.ctx'):
                 # do stuff on the file
-                
-                ctx_data = load_yaml_file(os.path.join(self.team_path, fname))
-                
+                ctx_data = load_yaml_file(os.path.join(self.team_path, fname))                
                 if ctx_data is not None:
                     if 'mcp_servers' in ctx_data:
                         self.mcp_servers = ctx_data['mcp_servers']
+                    else:
+                        self.mcp_servers = []
                     if 'databases' in ctx_data:
                         self.databases = ctx_data['databases']
-
-                    # check other potential keys
+                    else:
+                        self.context = []
+                    if 'preferences' in ctx_data:
+                        self.preferences = ctx_data['preferences']
+                    else:
+                        self.preferences = []
+                    if 'forenpc' in ctx_data:
+                        self.forenpc = self.npcs[ctx_data['forenpc']]
+                    else:
+                        self.forenpc = self.npcs[list(self.npcs.keys())[0]] if self.npcs else None
                     for key, item in ctx_data.items():
                         if key not in ['name', 'mcp_servers', 'databases', 'context']:
                             self.shared_context[key] = item
