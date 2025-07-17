@@ -50,7 +50,6 @@ def get_ollama_response(
     messages: List[Dict[str, str]] = None,
     stream: bool = False,
     attachments: List[str] = None,
-    follow_up_with_llm: bool = True,
     **kwargs,
 ) -> Dict[str, Any]:
     """
@@ -171,17 +170,13 @@ def get_ollama_response(
         ]:
             options[key] = value
 
-    if isinstance(format, type) and not stream:
-        api_params["format"] = format.model_json_schema()
-    elif isinstance(format, str) and format == "json" and not stream:
-        api_params["format"] = "json"
-
     # Create standardized response structure
     result = {
         "response": None,
         "messages": messages.copy(),
         "raw_response": None,
-        "tool_calls": []
+        "tool_calls": [], 
+        "tool_results": []
     }
     
     # Handle streaming
@@ -192,6 +187,14 @@ def get_ollama_response(
     # Non-streaming case
     res = ollama.chat(**api_params, options = options)
     result["raw_response"] = res
+    
+    # Extract the response content
+    response_content = res.get("message", {}).get("content")
+    result["response"] = response_content
+        
+    # Append response to messages
+    result["messages"].append({"role": "assistant", "content": response_content})
+
 
     if tools and hasattr(res.get('message', {}), 'tool_calls') and res['message']['tool_calls']:
         if tool_map:
@@ -202,15 +205,23 @@ def get_ollama_response(
                 "tool_calls": res['message']['tool_calls']
             }
             return process_tool_calls(response_for_processing, tool_map, model, 'ollama', messages, stream)
-    
-    final_messages = messages + [{"role": "assistant", "content": res.get('message', {}).get('content')}]
-    return {
-        "response": res.get('message', {}).get('content'),
-        "raw_response": res,
-        "messages": final_messages,
-        "tool_calls": [],
-        "tool_results": []
-    }
+
+    # Handle JSON format if specified
+    if format == "json":
+        try:
+            if isinstance(response_content, str):
+                if response_content.startswith("```json"):
+                    response_content = (
+                        response_content.replace("```json", "")
+                        .replace("```", "")
+                        .strip()
+                    )
+                parsed_response = json.loads(response_content)
+                result["response"] = parsed_response
+        except json.JSONDecodeError:
+            result["error"] = f"Invalid JSON response: {response_content}"
+
+    return result
 
 
 def get_litellm_response(
@@ -233,7 +244,8 @@ def get_litellm_response(
         "response": None,
         "messages": messages.copy() if messages else [],
         "raw_response": None,
-        "tool_calls": []
+        "tool_calls": [], 
+        "tool_results":[],
     }
     
     if provider == "ollama":
@@ -291,9 +303,12 @@ def get_litellm_response(
         provider = os.environ.get("NPCSH_CHAT_PROVIDER", "openai")
 
     api_params["model"] = f"{provider}/{model}" if "/" not in model else model
-    if api_key is not None: api_params["api_key"] = api_key
-    if tools: api_params["tools"] = tools
-    if tool_choice: api_params["tool_choice"] = tool_choice
+    if api_key is not None: 
+        api_params["api_key"] = api_key
+    if tools: 
+        api_params["tools"] = tools
+    if tool_choice: 
+        api_params["tool_choice"] = tool_choice
     
     if kwargs:
         for key, value in kwargs.items():
@@ -321,6 +336,27 @@ def get_litellm_response(
         llm_response = resp.choices[0].message.content
         result["response"] = llm_response
         result["messages"].append({"role": "assistant", "content": llm_response})
+
+    # Handle JSON format requests
+    if format == "json":
+        try:
+            if isinstance(llm_response, str):
+                # Clean up JSON response if needed
+                if llm_response.startswith("```json"):
+                    llm_response = llm_response.replace("```json", "").replace("```", "").strip()
+                parsed_json = json.loads(llm_response)
+                
+                if "json" in parsed_json:
+                    result["response"] = parsed_json["json"]
+                else:
+                    result["response"] = parsed_json
+                
+        except (json.JSONDecodeError, TypeError) as e:
+            print(f"JSON parsing error: {str(e)}")
+            print(f"Raw response: {llm_response}")
+            result["error"] = "Invalid JSON response"
+    
+    
 
     return result
 
