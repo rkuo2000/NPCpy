@@ -50,7 +50,6 @@ def get_ollama_response(
     messages: List[Dict[str, str]] = None,
     stream: bool = False,
     attachments: List[str] = None,
-    context = None,
     **kwargs,
 ) -> Dict[str, Any]:
     """
@@ -98,8 +97,6 @@ def get_ollama_response(
 
 
     if prompt:
-        if context is not None:
-            prompt += f'User Provided Context: {context}'
         if messages and messages[-1]["role"] == "user":
             if isinstance(messages[-1]["content"], str):
                 messages[-1]["content"] = prompt
@@ -242,7 +239,6 @@ def get_litellm_response(
     api_url: str = None,
     stream: bool = False,
     attachments: List[str] = None,
-    context = None,
     **kwargs,
 ) -> Dict[str, Any]:
     result = {
@@ -259,8 +255,7 @@ def get_litellm_response(
             prompt, model, images=images, tools=tools, tool_choice=tool_choice,
             format=format, messages=messages, stream=stream, attachments=attachments, context = context, **kwargs
         )
-    if context is not None:
-        prompt += f'User Provided Context: {context}'
+
     if format == "json" and not stream:
         json_instruction = """If you are a returning a json object, begin directly with the opening {.
             If you are returning a json array, begin directly with the opening [.
@@ -273,7 +268,7 @@ def get_litellm_response(
                 result["messages"][-1]["content"].append({"type": "text", "text": json_instruction})
             elif isinstance(result["messages"][-1]["content"], str):
                 result["messages"][-1]["content"] += "\n" + json_instruction
-    
+
     if images:
         last_user_idx = -1
         for i, msg in enumerate(result["messages"]):
@@ -283,7 +278,11 @@ def get_litellm_response(
             result["messages"].append({"role": "user", "content": []})
             last_user_idx = len(result["messages"]) - 1
         if isinstance(result["messages"][last_user_idx]["content"], str):
-            result["messages"][last_user_idx]["content"] = [{"type": "text", "text": result["messages"][last_user_idx]["content"]}]
+            
+            result["messages"][last_user_idx]["content"] = [{"type": "text", 
+                                                             "text": result["messages"][last_user_idx]["content"]
+                                                             }]
+
         elif not isinstance(result["messages"][last_user_idx]["content"], list):
             result["messages"][last_user_idx]["content"] = []
         for image_path in images:

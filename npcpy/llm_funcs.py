@@ -153,24 +153,25 @@ def get_llm_response(
         else:
             model = "llama3.2"
             
-    # Set up system message
     system_message = get_system_message(npc) if npc else "You are a helpful assistant."
-    
-    # Set up messages
+
+    if context is not None:
+        context_str = f'User Provided Context: {context}'
+    else:
+        context_str = ''
     if messages is None or len(messages) == 0:
         messages = [{"role": "system", "content": system_message}]
         if prompt:
-            messages.append({"role": "user", "content": prompt})
+            messages.append({"role": "user", "content": prompt+context_str})
     elif prompt and messages[-1]["role"] == "user":
-        # If the last message is from user, append to it
+
         if isinstance(messages[-1]["content"], str):
-            messages[-1]["content"] += "\n" + prompt
+            messages[-1]["content"] += "\n" + prompt+context_str
     elif prompt:
-        # Add a new user message
-        messages.append({"role": "user", "content": prompt})
+        messages.append({"role": "user", "content": prompt + context_str})
 
     response = get_litellm_response(
-        prompt=prompt,
+        prompt,
         messages=messages,
         model=model,
         provider=provider,
