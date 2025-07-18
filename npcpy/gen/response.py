@@ -50,6 +50,7 @@ def get_ollama_response(
     messages: List[Dict[str, str]] = None,
     stream: bool = False,
     attachments: List[str] = None,
+    context = None,
     **kwargs,
 ) -> Dict[str, Any]:
     """
@@ -95,7 +96,10 @@ def get_ollama_response(
                     except Exception:
                         pass
 
+
     if prompt:
+        if context is not None:
+            prompt += f'User Provided Context: {context}'
         if messages and messages[-1]["role"] == "user":
             if isinstance(messages[-1]["content"], str):
                 messages[-1]["content"] = prompt
@@ -238,6 +242,7 @@ def get_litellm_response(
     api_url: str = None,
     stream: bool = False,
     attachments: List[str] = None,
+    context = None,
     **kwargs,
 ) -> Dict[str, Any]:
     result = {
@@ -252,9 +257,10 @@ def get_litellm_response(
         kwargs["tool_map"] = tool_map
         return get_ollama_response(
             prompt, model, images=images, tools=tools, tool_choice=tool_choice,
-            format=format, messages=messages, stream=stream, attachments=attachments, **kwargs
+            format=format, messages=messages, stream=stream, attachments=attachments, context = context, **kwargs
         )
-    
+    if context is not None:
+        prompt += f'User Provided Context: {context}'
     if format == "json" and not stream:
         json_instruction = """If you are a returning a json object, begin directly with the opening {.
             If you are returning a json array, begin directly with the opening [.

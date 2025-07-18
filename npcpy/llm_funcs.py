@@ -179,6 +179,7 @@ def get_llm_response(
         images=images,
         attachments=attachments,
         stream=stream,
+        context = context, 
         **kwargs,
     )
     return response
