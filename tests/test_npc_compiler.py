@@ -47,19 +47,16 @@ def test_npc_save_and_load():
 
 def test_npc_get_llm_response():
     """Test NPC LLM response functionality"""
-    try:
-        npc = NPC(
-            name="response_test_npc",
-            primary_directive="You are a helpful math assistant",
-            model="llama3.2:latest",
-            provider="ollama"
-        )
-        
-        response = npc.get_llm_response("What is 3 + 4?")
-        assert response is not None
-        print(f"NPC response: {response}")
-    except Exception as e:
-        print(f"NPC response test failed: {e}")
+    npc = NPC(
+        name="response_test_npc",
+        primary_directive="You are a helpful math assistant",
+        model="llama3.2:latest",
+        provider="ollama"
+    )
+    
+    response = npc.get_llm_response("What is 3 + 4?")
+    assert response is not None
+    print(f"NPC response: {response}")
 
 
 def test_jinx_creation():
@@ -88,32 +85,29 @@ print(output)
 
 def test_jinx_execution():
     """Test Jinx execution"""
-    try:
-        jinx_data = {
-            "jinx_name": "math_jinx",
-            "description": "Math calculation jinx",
-            "inputs": ["number1", "number2"],
-            "steps": [
-                {
-                    "code": """
+    jinx_data = {
+        "jinx_name": "math_jinx",
+        "description": "Math calculation jinx",
+        "inputs": ["number1", "number2"],
+        "steps": [
+            {
+                "code": """
 number1 = int('{{ number1 }}')
 number2 = int('{{ number2 }}')
 output = number1 + number2
 print(f"The sum of {number1} and {number2} is {output}")
 """,
-                    "engine": "python"
-                }
-            ]
-        }
-        
-        jinx = Jinx(jinx_data=jinx_data)
-        input_values = {"number1": "5", "number2": "7"}
-        
-        result = jinx.execute(input_values, {})
-        assert result is not None
-        print(f"Jinx execution result: {result}")
-    except Exception as e:
-        print(f"Jinx execution failed: {e}")
+                "engine": "python"
+            }
+        ]
+    }
+    
+    jinx = Jinx(jinx_data=jinx_data)
+    input_values = {"number1": "5", "number2": "7"}
+    
+    result = jinx.execute(input_values, {})
+    assert result is not None
+    print(f"Jinx execution result: {result}")
 
 
 def test_team_creation():

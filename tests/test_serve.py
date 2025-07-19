@@ -1,6 +1,7 @@
 import requests
 import json
 import time
+import tempfile
 from npcpy.serve import app
 
 
@@ -108,6 +109,8 @@ def test_npc_team_global_endpoint():
 
 def test_save_npc_endpoint():
     """Test save NPC endpoint"""
+    temp_dir = tempfile.mkdtemp()
+    
     try:
         with app.test_client() as client:
             npc_data = {
@@ -117,15 +120,16 @@ def test_save_npc_endpoint():
                     "model": "llama3.2",
                     "provider": "ollama"
                 },
-                "isGlobal": True,
-                "currentPath": "/tmp"
+                "isGlobal": False,  # Changed to False to use project directory
+                "currentPath": temp_dir  # Use temp directory instead of /tmp
             }
             response = client.post('/api/save_npc', 
                                  json=npc_data,
                                  content_type='application/json')
             print(f"Save NPC endpoint status: {response.status_code}")
-    except Exception as e:
-        print(f"Save NPC endpoint test failed: {e}")
+    finally:
+        import shutil
+        shutil.rmtree(temp_dir)
 
 
 def test_project_settings_endpoints():
