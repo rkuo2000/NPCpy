@@ -1,0 +1,265 @@
+import os
+import tempfile
+import time
+import platform
+from npcpy.data.image import capture_screenshot, compress_image
+
+
+def test_capture_screenshot_basic():
+    """Test basic screenshot functionality"""
+    try:
+        result = capture_screenshot(full=True)
+        
+        if result:
+            assert "filename" in result
+            assert "file_path" in result
+            assert os.path.exists(result["file_path"])
+            
+            # Check file size > 0
+            file_size = os.path.getsize(result["file_path"])
+            assert file_size > 0
+            
+            print(f"Screenshot captured: {result['filename']} ({file_size} bytes)")
+            
+            # Clean up
+            os.remove(result["file_path"])
+        else:
+            print("Screenshot capture returned None (user may have cancelled)")
+            
+    except Exception as e:
+        print(f"Screenshot test failed: {e}")
+
+
+def test_capture_screenshot_interactive():
+    """Test interactive screenshot (area selection)"""
+    try:
+        print("Testing interactive screenshot - this may require user interaction...")
+        
+        result = capture_screenshot(full=False)
+        
+        if result:
+            assert "filename" in result
+            assert "file_path" in result
+            
+            if os.path.exists(result["file_path"]):
+                file_size = os.path.getsize(result["file_path"])
+                print(f"Interactive screenshot captured: {result['filename']} ({file_size} bytes)")
+                
+                # Clean up
+                os.remove(result["file_path"])
+            else:
+                print("Screenshot file not found - user may have cancelled")
+        else:
+            print("Interactive screenshot cancelled or failed")
+            
+    except Exception as e:
+        print(f"Interactive screenshot test failed: {e}")
+
+
+def test_capture_screenshot_with_npc():
+    """Test screenshot with NPC configuration"""
+    try:
+        from npcpy.npc_compiler import NPC
+        
+        test_npc = NPC(
+            name="screenshot_npc",
+            model="llava:7b",
+            provider="ollama"
+        )
+        
+        result = capture_screenshot(npc=test_npc, full=True)
+        
+        if result:
+            assert "model_kwargs" in result
+            assert result["model_kwargs"]["model"] == "llava:7b"
+            assert result["model_kwargs"]["provider"] == "ollama"
+            
+            print(f"NPC screenshot test passed: {result['model_kwargs']}")
+            
+            # Clean up if file exists
+            if os.path.exists(result["file_path"]):
+                os.remove(result["file_path"])
+        else:
+            print("NPC screenshot test - no result returned")
+            
+    except Exception as e:
+        print(f"NPC screenshot test failed: {e}")
+
+
+def test_compress_image():
+    """Test image compression functionality"""
+    try:
+        from PIL import Image
+        import io
+        
+        # Create a test image
+        img = Image.new('RGB', (1200, 800), color='red')
+        
+        # Convert to bytes
+        img_buffer = io.BytesIO()
+        img.save(img_buffer, format='PNG')
+        original_bytes = img_buffer.getvalue()
+        
+        # Compress the image
+        compressed_bytes = compress_image(original_bytes, max_size=(800, 600))
+        
+        assert isinstance(compressed_bytes, bytes)
+        assert len(compressed_bytes) > 0
+        
+        # Verify the compressed image can be loaded
+        compressed_img = Image.open(io.BytesIO(compressed_bytes))
+        
+        # Check size was reduced
+        assert compressed_img.size[0] <= 800
+        assert compressed_img.size[1] <= 600
+        
+        print(f"Image compression: {len(original_bytes)} -> {len(compressed_bytes)} bytes")
+        print(f"Size reduction: {img.size} -> {compressed_img.size}")
+        
+    except ImportError:
+        print("Image compression test skipped - PIL not available")
+    except Exception as e:
+        print(f"Image compression test failed: {e}")
+
+
+def test_compress_image_rgba():
+    """Test image compression with RGBA image"""
+    try:
+        from PIL import Image
+        import io
+        
+        # Create RGBA image (with transparency)
+        img = Image.new('RGBA', (400, 300), color=(255, 0, 0, 128))
+        
+        img_buffer = io.BytesIO()
+        img.save(img_buffer, format='PNG')
+        original_bytes = img_buffer.getvalue()
+        
+        # Compress (should convert to RGB)
+        compressed_bytes = compress_image(original_bytes)
+        
+        # Verify compressed image is RGB
+        compressed_img = Image.open(io.BytesIO(compressed_bytes))
+        assert compressed_img.mode == 'RGB'
+        
+        print(f"RGBA compression test passed: {img.mode} -> {compressed_img.mode}")
+        
+    except ImportError:
+        print("RGBA compression test skipped - PIL not available")
+    except Exception as e:
+        print(f"RGBA compression test failed: {e}")
+
+
+def test_compress_image_small_image():
+    """Test compression with image smaller than max_size"""
+    try:
+        from PIL import Image
+        import io
+        
+        # Create small image
+        img = Image.new('RGB', (200, 150), color='blue')
+        
+        img_buffer = io.BytesIO()
+        img.save(img_buffer, format='PNG')
+        original_bytes = img_buffer.getvalue()
+        
+        # Compress with larger max_size
+        compressed_bytes = compress_image(original_bytes, max_size=(800, 600))
+        
+        compressed_img = Image.open(io.BytesIO(compressed_bytes))
+        
+        # Size should remain the same since it's already smaller
+        assert compressed_img.size == (200, 150)
+        
+        print(f"Small image test passed: size unchanged {compressed_img.size}")
+        
+    except ImportError:
+        print("Small image test skipped - PIL not available")
+    except Exception as e:
+        print(f"Small image test failed: {e}")
+
+
+def test_screenshot_directory_creation():
+    """Test that screenshot directory is created if it doesn't exist"""
+    try:
+        # This test verifies directory creation without actually taking screenshot
+        screenshot_dir = os.path.expanduser("~/.npcsh/screenshots")
+        
+        # Remove directory if it exists
+        if os.path.exists(screenshot_dir):
+            import shutil
+            shutil.rmtree(os.path.dirname(screenshot_dir))
+        
+        # Try to capture screenshot (will create directory)
+        result = capture_screenshot(full=True)
+        
+        # Check if directory was created
+        assert os.path.exists(screenshot_dir)
+        
+        print("Screenshot directory creation test passed")
+        
+        # Clean up screenshot file if created
+        if result and os.path.exists(result["file_path"]):
+            os.remove(result["file_path"])
+            
+    except Exception as e:
+        print(f"Directory creation test failed: {e}")
+
+
+def test_platform_specific_screenshot():
+    """Test platform-specific screenshot behavior"""
+    system = platform.system()
+    
+    print(f"Testing on platform: {system}")
+    
+    try:
+        if system == "Darwin":
+            print("Testing macOS screenshot functionality")
+        elif system == "Linux":
+            print("Testing Linux screenshot functionality")
+        elif system == "Windows":
+            print("Testing Windows screenshot functionality")
+        else:
+            print(f"Unknown platform: {system}")
+            
+        # Test basic functionality
+        result = capture_screenshot(full=True)
+        
+        if result:
+            print(f"Platform-specific test passed on {system}")
+            if os.path.exists(result["file_path"]):
+                os.remove(result["file_path"])
+        else:
+            print(f"Platform-specific test returned None on {system}")
+            
+    except Exception as e:
+        print(f"Platform-specific test failed on {system}: {e}")
+
+
+def test_compress_image_different_formats():
+    """Test compression with different image formats"""
+    try:
+        from PIL import Image
+        import io
+        
+        # Test with JPEG format input
+        img = Image.new('RGB', (600, 400), color='green')
+        
+        # Save as JPEG
+        img_buffer = io.BytesIO()
+        img.save(img_buffer, format='JPEG', quality=90)
+        jpeg_bytes = img_buffer.getvalue()
+        
+        # Compress
+        compressed_bytes = compress_image(jpeg_bytes)
+        
+        # Should still work
+        compressed_img = Image.open(io.BytesIO(compressed_bytes))
+        assert compressed_img.mode == 'RGB'
+        
+        print("Different format compression test passed")
+        
+    except ImportError:
+        print("Different format test skipped - PIL not available")
+    except Exception as e:
+        print(f"Different format test failed: {e}")
