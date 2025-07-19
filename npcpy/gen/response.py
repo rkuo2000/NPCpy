@@ -253,7 +253,7 @@ def get_litellm_response(
         kwargs["tool_map"] = tool_map
         return get_ollama_response(
             prompt, model, images=images, tools=tools, tool_choice=tool_choice,
-            format=format, messages=messages, stream=stream, attachments=attachments, context = context, **kwargs
+            format=format, messages=messages, stream=stream, attachments=attachments, **kwargs
         )
 
     if format == "json" and not stream:
