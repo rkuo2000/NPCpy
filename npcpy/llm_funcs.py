@@ -159,6 +159,7 @@ def get_llm_response(
         context_str = f'User Provided Context: {context}'
     else:
         context_str = ''
+
     if messages is None or len(messages) == 0:
         messages = [{"role": "system", "content": system_message}]
         if prompt:
@@ -171,7 +172,7 @@ def get_llm_response(
         messages.append({"role": "user", "content": prompt + context_str})
 
     response = get_litellm_response(
-        prompt,
+        prompt + context_str,
         messages=messages,
         model=model,
         provider=provider,
@@ -180,7 +181,6 @@ def get_llm_response(
         images=images,
         attachments=attachments,
         stream=stream,
-        context = context, 
         **kwargs,
     )
     return response
@@ -337,6 +337,7 @@ def handle_jinx_call(
     messages: List[Dict[str, str]] = None,
     npc: Any = None,
     stream=False,
+    shell=False,
     n_attempts=3,
     attempt=0,
     context=None,
@@ -504,23 +505,30 @@ def handle_jinx_call(
                     context=f""" \n \n \n "jinx failed: {e}  \n \n \n here was the previous attempt: {input_values}""",
                 )
             else:
-                user_input = input(
-                    "the jinx execution has failed after three tries, can you add more context to help or would you like to run again?"
-                )
-                return handle_jinx_call(
-                    command + " " + user_input,
-                    jinx_name,
-                    model=model,
-                    provider=provider,
-                    messages=messages,
-                    npc=npc,
-                    api_url=api_url,
-                    api_key=api_key,
-                    stream=stream,
-                    attempt=attempt + 1,
-                    n_attempts=n_attempts,
-                    context=context,
-                )
+                if shell:
+                    user_input = input(
+                        "the jinx execution has failed after three tries, can you add more context to help or would you like to run again?"
+                    )
+                    return handle_jinx_call(
+                        command + " " + user_input,
+                        jinx_name,
+                        model=model,
+                        provider=provider,
+                        messages=messages,
+                        npc=npc,
+                        api_url=api_url,
+                        api_key=api_key,
+                        stream=stream,
+                        attempt=attempt + 1,
+                        n_attempts=n_attempts,
+                        context=context,
+                    )
+                else:
+                    return {
+                        "output": f"Jinx execution failed after {n_attempts} attempts: {e}",
+                        "messages": messages,
+                    }
+
         # process the jinx call
         #print(messages)
         if not stream and messages[-1]['role'] != 'assistant':
@@ -548,7 +556,7 @@ def handle_jinx_call(
             messages = response['messages']
             response = response.get("response", {})
             return {'messages':messages, 'output':response}
-        return {'messages': messages, 'output': jinx_output}
+        return {'messages': messages, 'output': jinx_output['output']}
 
 
 def handle_request_input(
@@ -763,7 +771,8 @@ def check_llm_command(
     }}
 
     In your explanation, do not needlessly reference the user's files or provided context. Simply provide the explanation for your choice in as few words as possible.
-     
+
+    Remember, the action must be one of "invoke_jinx" or "answer_question". Do not use a jinx's name for the action.     
     
     Remember, do not include ANY ADDITIONAL MARKDOWN FORMATTING.
     There should be no leading ```json.
@@ -810,7 +819,7 @@ def check_llm_command(
     action = response_content_parsed.get("action").strip()
     explanation = response_content_parsed.get("explanation").strip()
     jinx_name = response_content_parsed.get('jinx_name', '')
-    print(response_content_parsed)
+    #print(response_content_parsed)
     jinx_name_print = '\n Jinx: ' + str(jinx_name) if jinx_name else ''
 
     render_markdown(f"- Action chosen: {action + jinx_name_print}\n")
@@ -848,7 +857,7 @@ def check_llm_command(
                         npc=npc,
                         stream=stream
                     )
-                    yield from result['response']
+                    yield from result['output']
                 return {'messages': messages, 'output': decision_wrapped_gen()}
             elif stream and shell:
                 result  = handle_jinx_call(

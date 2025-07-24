@@ -748,12 +748,11 @@ def get_npc_team_project():
         print(f"Error fetching NPC team: {str(e)}")
         return jsonify({"npcs": [], "error": str(e)})
 
-
 @app.route("/api/get_attachment_response", methods=["POST"])
 def get_attachment_response():
     data = request.json
     attachments = data.get("attachments", [])
-    messages = data.get("messages")  # Get conversation ID
+    messages = data.get("messages")
     conversation_id = data.get("conversationId")
     current_path = data.get("currentPath")
     command_history = CommandHistory(db_path)
@@ -773,11 +772,9 @@ def get_attachment_response():
     npc_object = None
     if npc_name:
         db_conn = get_db_connection()
-        # Pass the current_path parameter when loading project NPCs
         npc_object = load_npc_by_name_and_source(npc_name, npc_source, db_conn, current_path)
         
         if not npc_object and npc_source == 'project':
-            # Try global as fallback
             print(f"NPC {npc_name} not found in project directory, trying global...")
             npc_object = load_npc_by_name_and_source(npc_name, 'global', db_conn)
             
@@ -787,57 +784,61 @@ def get_attachment_response():
             print(f"Warning: Could not load NPC {npc_name}")
     
     images = []
+    attachments_loaded = []
+    
     for attachment in attachments:
         extension = attachment["name"].split(".")[-1]
         extension_mapped = extension_map.get(extension.upper(), "others")
-        file_path = os.path.expanduser(
-            "~/.npcsh/" + extension_mapped + "/" + attachment["name"]
-        )
+        file_path = os.path.expanduser("~/.npcsh/" + extension_mapped + "/" + attachment["name"])
+        
         if extension_mapped == "images":
             ImageFile.LOAD_TRUNCATED_IMAGES = True
             img = Image.open(attachment["path"])
+            img_byte_arr = BytesIO()
+            img.save(img_byte_arr, format="PNG")
+            img_byte_arr.seek(0)
             img.save(file_path, optimize=True, quality=50)
-            images.append({"filename": attachment["name"], "file_path": file_path})
+            images.append(file_path)
+            attachments_loaded.append({
+                "name": attachment["name"], "type": extension_mapped,
+                "data": img_byte_arr.read(), "size": os.path.getsize(file_path)
+            })
 
-    message_to_send = messages[-1]["content"][0]
+    message_to_send = messages[-1]["content"]
+    if isinstance(message_to_send, list):
+        message_to_send = message_to_send[0]
 
     response = get_llm_response(
         message_to_send,
         images=images,
         messages=messages,
         model=model,
-        npc=npc_object,  # Pass the NPC object instead of just the name
+        provider=provider,
+        npc=npc_object,
     )
+    
     messages = response["messages"]
     response = response["response"]
 
     # Save new messages
     save_conversation_message(
-        command_history, conversation_id, "user", message_to_send, wd=current_path, team=team, 
-        model=model, provider=provider, npc=npc, attachments=attachments
-        
+        command_history, conversation_id, "user", message_to_send, 
+        wd=current_path, team=team, model=model, provider=provider, 
+        npc=npc_name, attachments=attachments_loaded
     )
 
     save_conversation_message(
-        command_history,
-        conversation_id,
-        "assistant",
-        response,
-        wd=current_path,
-        team=team,
-        model=model,
-        provider=provider,
-        npc=npc,
-        attachments=attachments,
-        message_id=message_id, ) # Save with the same message_id    )
-    return jsonify(
-        {
-            "status": "success",
-            "message": response,
-            "conversationId": conversation_id,
-            "messages": messages,  # Optionally return fetched messages
-        }
+        command_history, conversation_id, "assistant", response,
+        wd=current_path, team=team, model=model, provider=provider,
+        npc=npc_name, attachments=attachments_loaded, message_id=message_id
     )
+    
+    return jsonify({
+        "status": "success",
+        "message": response,
+        "conversationId": conversation_id,
+        "messages": messages,
+    })
 
 @app.route("/api/stream", methods=["POST"])
 def stream():
@@ -848,7 +849,7 @@ def stream():
         import uuid
         stream_id = str(uuid.uuid4())
 
-    # --- NEW: Set the initial cancellation state for this new stream ---
+
     with cancellation_lock:
         cancellation_flags[stream_id] = False
     print(f"Starting stream with ID: {stream_id}")
@@ -886,12 +887,13 @@ def stream():
     command_history = CommandHistory(db_path)
     images = []
     attachments_loaded = []
-
     if attachments:
+        attachment_paths = []
         for attachment in attachments:
             extension = attachment["name"].split(".")[-1]
             extension_mapped = extension_map.get(extension.upper(), "others")
             file_path = os.path.expanduser("~/.npcsh/" + extension_mapped + "/" + attachment["name"])
+            attachment_paths.append(attachment["path"])  # Use original path for processing
             if extension_mapped == "images":
                 ImageFile.LOAD_TRUNCATED_IMAGES = True
                 img = Image.open(attachment["path"])
@@ -899,11 +901,13 @@ def stream():
                 img.save(img_byte_arr, format="PNG")
                 img_byte_arr.seek(0)
                 img.save(file_path, optimize=True, quality=50)
-                images.append({"filename": attachment["name"], "file_path": file_path})
+                images.append(file_path)  # Just append file path string
                 attachments_loaded.append({
                     "name": attachment["name"], "type": extension_mapped,
                     "data": img_byte_arr.read(), "size": os.path.getsize(file_path)
                 })
+    else:
+        attachment_paths = []
 
     messages = fetch_messages_for_conversation(conversation_id)
     if len(messages) == 0 and npc_object is not None:
@@ -921,11 +925,12 @@ def stream():
         wd=current_path, model=model, provider=provider, npc=npc_name,
         team=team, attachments=attachments_loaded, message_id=message_id,
     )
-
+    # Then pass attachment_paths to get_llm_response:
     stream_response = get_llm_response(
         commandstr, messages=messages, images=images, model=model,
-        provider=provider, npc=npc_object, stream=True,
+        provider=provider, npc=npc_object, stream=True, attachments=attachment_paths,
     )
+
     message_id = command_history.generate_message_id()
 
     def event_stream(current_stream_id):
@@ -1040,8 +1045,9 @@ def execute():
     provider = data.get("provider", 'ollama')
     if provider is None:
         provider = available_models.get(model)
+
         
-    npc_name = data.get("npc", None)
+    npc_name = data.get("npc", "sibiji")
     npc_source = data.get("npcSource", "global")
     team = data.get("team", None)
     current_path = data.get("currentPath")
@@ -1079,7 +1085,7 @@ def execute():
                 img.save(img_byte_arr, format="PNG")
                 img_byte_arr.seek(0)
                 img.save(file_path, optimize=True, quality=50)
-                images.append({"filename": attachment["name"], "file_path": file_path})
+                images.append(file_path)
                 attachments_loaded.append({
                     "name": attachment["name"], "type": extension_mapped,
                     "data": img_byte_arr.read(), "size": os.path.getsize(file_path)
@@ -1104,21 +1110,20 @@ def execute():
 
     response_gen = check_llm_command(
         commandstr, messages=messages, images=images, model=model,
-        provider=provider, npc=npc_object, stream=True
+        provider=provider, npc=npc_object, stream=True, 
     )
+    #print(npc_object, provider, model)
     message_id = command_history.generate_message_id()
 
     def event_stream(current_stream_id):
         complete_response = []
         dot_count = 0
         interrupted = False
-        decision = ''
-        first_chunk = True
         tool_call_data = {"id": None, "function_name": None, "arguments": ""}
 
         try:
             for response_chunk in response_gen['output']:
-                # --- NEW: Check the cancellation flag on every iteration ---
+                # --- Check the cancellation flag on every iteration ---
                 with cancellation_lock:
                     if cancellation_flags.get(current_stream_id, False):
                         print(f"Cancellation flag triggered for {current_stream_id}. Breaking loop.")
@@ -1127,16 +1132,20 @@ def execute():
 
                 print('.', end="", flush=True)
                 dot_count += 1
-
+                
                 chunk_content = ""
                 if isinstance(response_chunk, dict) and response_chunk.get("role") == "decision":
-                    chunk_data = response_chunk
-                    if response_chunk.get('content'):
-                        decision = response_chunk.get('content')
+                    # Stream decision immediately in standard format
+                    chunk_data = {
+                        "id": None, "object": None, "created": None, "model": model,
+                        "choices": [{"index": 0, "delta": {"content": response_chunk.get('content', ''), "role": "assistant"}, "finish_reason": None}]
+                    }
+                    complete_response.append(response_chunk.get('content', ''))
+                    yield f"data: {json.dumps(chunk_data)}\n\n"
+                    continue
+                    
                 elif "hf.co" in model or provider == 'ollama':
                     chunk_content = response_chunk["message"]["content"] if "message" in response_chunk and "content" in response_chunk["message"] else ""
-                    if first_chunk:
-                        chunk_content = decision + '\n' + chunk_content
                     if "message" in response_chunk and "tool_calls" in response_chunk["message"]:
                         for tool_call in response_chunk["message"]["tool_calls"]:
                             if "id" in tool_call:
@@ -1148,31 +1157,42 @@ def execute():
                                     tool_call_data["arguments"] += tool_call["function"]["arguments"]
                     if chunk_content:
                         complete_response.append(chunk_content)
-                    chunk_data = response_chunk
-                    chunk_data["message"]["content"] = chunk_content
+                    chunk_data = {
+                        "id": None, "object": None, "created": response_chunk["created_at"], "model": response_chunk["model"],
+                        "choices": [{"index": 0, "delta": {"content": chunk_content, "role": response_chunk["message"]["role"]}, "finish_reason": response_chunk.get("done_reason")}]
+                    }
                 else:
-                    for choice in response_chunk.choices:
-                        if hasattr(choice.delta, "tool_calls") and choice.delta.tool_calls:
-                            for tool_call in choice.delta.tool_calls:
-                                if tool_call.id:
-                                    tool_call_data["id"] = tool_call.id
-                                if tool_call.function:
-                                    if hasattr(tool_call.function, "name") and tool_call.function.name:
-                                        tool_call_data["function_name"] = tool_call.function.name
-                                    if hasattr(tool_call.function, "arguments") and tool_call.function.arguments:
-                                        tool_call_data["arguments"] += tool_call.function.arguments
-                    reasoning_content = "".join(getattr(choice.delta, "reasoning_content", "") for choice in response_chunk.choices if getattr(choice.delta, "reasoning_content", None))
-                    chunk_content = "".join(choice.delta.content for choice in response_chunk.choices if choice.delta.content is not None)
-                    if first_chunk:
-                        chunk_content = decision + '\n' + chunk_content
-                    if chunk_content:
+                    chunk_content = ""
+                    reasoning_content = ""
+                    if not isinstance(response_chunk, str):
+                        for choice in response_chunk.choices:
+                            if hasattr(choice.delta, "tool_calls") and choice.delta.tool_calls:
+                                for tool_call in choice.delta.tool_calls:
+                                    if tool_call.id:
+                                        tool_call_data["id"] = tool_call.id
+                                    if tool_call.function:
+                                        if hasattr(tool_call.function, "name") and tool_call.function.name:
+                                            tool_call_data["function_name"] = tool_call.function.name
+                                        if hasattr(tool_call.function, "arguments") and tool_call.function.arguments:
+                                            tool_call_data["arguments"] += tool_call.function.arguments
+                        for choice in response_chunk.choices:
+                            if hasattr(choice.delta, "reasoning_content"):
+                                reasoning_content += choice.delta.reasoning_content
+                        chunk_content = "".join(choice.delta.content for choice in response_chunk.choices if choice.delta.content is not None)
+                        if chunk_content:
+                            complete_response.append(chunk_content)
+                        chunk_data = {
+                            "id": response_chunk.id, "object": response_chunk.object, "created": response_chunk.created, "model": response_chunk.model,
+                            "choices": [{"index": choice.index, "delta": {"content": choice.delta.content, "role": choice.delta.role, "reasoning_content": reasoning_content if hasattr(choice.delta, "reasoning_content") else None}, "finish_reason": choice.finish_reason} for choice in response_chunk.choices]
+                        }
+                    else: # its a string so assemble it
+                        chunk_content = response_chunk
                         complete_response.append(chunk_content)
-                    chunk_data = response_chunk.dict() # pydantic model to dict
-                    chunk_data["choices"][0]["delta"]["content"] = chunk_content
+                        chunk_data = {
+                            "id": None, "object": None, "created": None, "model": model,
+                            "choices": [{"index": 0, "delta": {"content": chunk_content, "role": "assistant"}, "finish_reason": None}]
+                        }
 
-                if first_chunk and chunk_content:
-                    first_chunk = False
-                
                 yield f"data: {json.dumps(chunk_data)}\n\n"
 
         except Exception as e:
@@ -1198,7 +1218,8 @@ def execute():
                 if current_stream_id in cancellation_flags:
                     del cancellation_flags[current_stream_id]
                     print(f"Cleaned up cancellation flag for stream ID: {current_stream_id}")
-                    
+
+
     return Response(event_stream(stream_id), mimetype="text/event-stream")
 
 @app.route("/api/interrupt", methods=["POST"])

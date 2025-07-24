@@ -77,9 +77,9 @@ def get_ollama_response(
                             texts = json.loads(pdf_data['texts'].iloc[0])
                             pdf_text = "\n\n".join([item.get('content', '') for item in texts])
                             if prompt:
-                                prompt += f"\n\nContent from PDF: {os.path.basename(attachment)}\n{pdf_text[:2000]}..."
+                                prompt += f"\n\nContent from PDF: {os.path.basename(attachment)}\n{pdf_text[:5000]}..."
                             else:
-                                prompt = f"Content from PDF: {os.path.basename(attachment)}\n{pdf_text[:2000]}..."
+                                prompt = f"Content from PDF: {os.path.basename(attachment)}\n{pdf_text[:5000]}..."
                     except Exception:
                         pass
                 elif ext == '.csv':
@@ -248,13 +248,61 @@ def get_litellm_response(
         "tool_calls": [], 
         "tool_results":[],
     }
-    
     if provider == "ollama":
         kwargs["tool_map"] = tool_map
         return get_ollama_response(
             prompt, model, images=images, tools=tools, tool_choice=tool_choice,
             format=format, messages=messages, stream=stream, attachments=attachments, **kwargs
         )
+    if attachments:
+        for attachment in attachments:
+            if os.path.exists(attachment):
+                _, ext = os.path.splitext(attachment)
+                ext = ext.lower()
+                
+                if ext in ['.jpg', '.jpeg', '.png', '.gif', '.bmp']:
+                    if not images:
+                        images = []
+                    images.append(attachment)
+                elif ext == '.pdf':
+                    try:
+                        from npcpy.data.load import load_pdf
+                        pdf_data = load_pdf(attachment)
+                        if pdf_data is not None:
+                            texts = json.loads(pdf_data['texts'].iloc[0])
+                            pdf_text = "\n\n".join([item.get('content', '') for item in texts])
+                            if prompt:
+                                prompt += f"\n\nContent from PDF: {os.path.basename(attachment)}\n{pdf_text[:5000]}..."
+                            else:
+                                prompt = f"Content from PDF: {os.path.basename(attachment)}\n{pdf_text[:5000]}..."
+                    except Exception:
+                        pass
+                elif ext == '.csv':
+                    try:
+                        from npcpy.data.load import load_csv
+                        csv_data = load_csv(attachment)
+                        if csv_data is not None:
+                            csv_sample = csv_data.head(10).to_string()
+                            if prompt:
+                                prompt += f"\n\nContent from CSV: {os.path.basename(attachment)} (first 10 rows):\n{csv_sample}"
+                            else:
+                                prompt = f"Content from CSV: {os.path.basename(attachment)} (first 10 rows):\n{csv_sample}"
+                    except Exception:
+                        pass
+
+    if prompt:
+        if messages and messages[-1]["role"] == "user":
+            if isinstance(messages[-1]["content"], str):
+                messages[-1]["content"] = prompt
+            elif isinstance(messages[-1]["content"], list):
+                for i, item in enumerate(messages[-1]["content"]):
+                    if item.get("type") == "text":
+                        messages[-1]["content"][i]["text"] = prompt
+                        break
+                else:
+                    messages[-1]["content"].append({"type": "text", "text": prompt})
+        else:
+            messages.append({"role": "user", "content": prompt})
 
     if format == "json" and not stream:
         json_instruction = """If you are a returning a json object, begin directly with the opening {.
@@ -291,6 +339,8 @@ def get_litellm_response(
                 result["messages"][last_user_idx]["content"].append(
                     {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_data}"}}
                 )
+
+
     
     api_params = {"messages": result["messages"]}
     
@@ -332,6 +382,7 @@ def get_litellm_response(
             return process_tool_calls(result, tool_map, model, provider, messages, stream)
     
     api_params["stream"] = stream
+    #print(api_params)
     resp = completion(**api_params)
 
     if stream:
