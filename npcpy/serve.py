@@ -748,6 +748,206 @@ def get_npc_team_project():
         print(f"Error fetching NPC team: {str(e)}")
         return jsonify({"npcs": [], "error": str(e)})
 
+def get_last_used_model_and_npc_in_directory(directory_path):
+    """
+    Fetches the model and NPC from the most recent message in any conversation
+    within the given directory.
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        # Query for the latest message in the given directory that has a model and npc specified
+        query = """
+            SELECT model, npc
+            FROM conversation_history
+            WHERE directory_path = ? AND model IS NOT NULL AND npc IS NOT NULL AND model != '' AND npc != ''
+            ORDER BY timestamp DESC, id DESC
+            LIMIT 1
+        """
+        cursor.execute(query, (directory_path,))
+        result = cursor.fetchone()
+        return {"model": result["model"], "npc": result["npc"]} if result else {"model": None, "npc": None}
+    except Exception as e:
+        print(f"Error getting last used model/NPC for directory {directory_path}: {e}")
+        return {"model": None, "npc": None, "error": str(e)}
+    finally:
+        conn.close()
+
+def get_last_used_model_and_npc_in_conversation(conversation_id):
+    """
+    Fetches the model and NPC from the most recent message within a specific conversation.
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        # Query for the latest message in the given conversation that has a model and npc specified
+        query = """
+            SELECT model, npc
+            FROM conversation_history
+            WHERE conversation_id = ? AND model IS NOT NULL AND npc IS NOT NULL AND model != '' AND npc != ''
+            ORDER BY timestamp DESC, id DESC
+            LIMIT 1
+        """
+        cursor.execute(query, (conversation_id,))
+        result = cursor.fetchone()
+        print(result)
+        return {"model": result["model"], "npc": result["npc"]} if result else {"model": None, "npc": None}
+    except Exception as e:
+        print(f"Error getting last used model/NPC for conversation {conversation_id}: {e}")
+        return {"model": None, "npc": None, "error": str(e)}
+    finally:
+        conn.close()
+
+# Add these new API routes:
+
+@app.route("/api/last_used_in_directory", methods=["GET"])
+def api_get_last_used_in_directory():
+    """API endpoint to get the last used model/NPC in a given directory."""
+    current_path = request.args.get("path")
+    if not current_path:
+        return jsonify({"error": "Path parameter is required."}), 400
+    
+    result = get_last_used_model_and_npc_in_directory(current_path)
+    return jsonify(result)
+
+@app.route("/api/last_used_in_conversation", methods=["GET"])
+def api_get_last_used_in_conversation():
+    """API endpoint to get the last used model/NPC in a specific conversation."""
+    conversation_id = request.args.get("conversationId")
+    if not conversation_id:
+        return jsonify({"error": "conversationId parameter is required."}), 400
+    
+    result = get_last_used_model_and_npc_in_conversation(conversation_id)
+    return jsonify(result)
+# Add this near your other utility functions
+def get_ctx_path(is_global, current_path=None):
+    """Determines the path to the .ctx file."""
+    if is_global:
+        # Assuming the global team context is in the root of the npc_team folder.
+        # Let's call it 'team.ctx' for consistency.
+        return os.path.join(os.path.expanduser("~/.npcsh/npc_team/"), "npcsh.ctx")
+    else:
+        if not current_path:
+            return None
+        # Project context is in the project's npc_team folder
+        return os.path.join(current_path, "npc_team", "team.ctx")
+
+
+def read_ctx_file(file_path):
+    """Reads and parses a YAML .ctx file, normalizing list of strings to list of objects."""
+    if file_path and os.path.exists(file_path):
+        with open(file_path, 'r') as f:
+            try:
+                data = yaml.safe_load(f) or {}
+
+                # Normalize 'databases'
+                if 'databases' in data and isinstance(data['databases'], list):
+                    data['databases'] = [{"value": item} for item in data['databases']]
+                
+                # Normalize 'mcp_servers'
+                if 'mcp_servers' in data and isinstance(data['mcp_servers'], list):
+                    data['mcp_servers'] = [{"value": item} for item in data['mcp_servers']]
+
+                # Normalize 'preferences'
+                if 'preferences' in data and isinstance(data['preferences'], list):
+                    data['preferences'] = [{"value": item} for item in data['preferences']]
+
+                return data
+            except yaml.YAMLError as e:
+                print(f"YAML parsing error in {file_path}: {e}")
+                return {"error": "Failed to parse YAML."}
+    return {} # Return empty dict if file doesn't exist
+
+def write_ctx_file(file_path, data):
+    """Writes a dictionary to a YAML .ctx file, denormalizing list of objects back to strings."""
+    if not file_path:
+        return False
+    
+    # Create a deep copy to avoid modifying the original data object
+    data_to_save = json.loads(json.dumps(data)) 
+
+    # Denormalize 'databases'
+    if 'databases' in data_to_save and isinstance(data_to_save['databases'], list):
+        data_to_save['databases'] = [item.get("value", "") for item in data_to_save['databases'] if isinstance(item, dict)]
+    
+    # Denormalize 'mcp_servers'
+    if 'mcp_servers' in data_to_save and isinstance(data_to_save['mcp_servers'], list):
+        data_to_save['mcp_servers'] = [item.get("value", "") for item in data_to_save['mcp_servers'] if isinstance(item, dict)]
+
+    # Denormalize 'preferences'
+    if 'preferences' in data_to_save and isinstance(data_to_save['preferences'], list):
+        data_to_save['preferences'] = [item.get("value", "") for item in data_to_save['preferences'] if isinstance(item, dict)]
+
+    os.makedirs(os.path.dirname(file_path), exist_ok=True)
+    with open(file_path, 'w') as f:
+        yaml.dump(data_to_save, f, default_flow_style=False, sort_keys=False)
+    return True
+
+
+@app.route("/api/context/global", methods=["GET"])
+def get_global_context():
+    """Gets the global team.ctx content."""
+    try:
+        ctx_path = get_ctx_path(is_global=True)
+        data = read_ctx_file(ctx_path)
+        return jsonify({"context": data, "path": ctx_path, "error": None})
+    except Exception as e:
+        print(f"Error getting global context: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/context/global", methods=["POST"])
+def save_global_context():
+    """Saves the global team.ctx content."""
+    try:
+        data = request.json.get("context", {})
+        ctx_path = get_ctx_path(is_global=True)
+        if write_ctx_file(ctx_path, data):
+            return jsonify({"message": "Global context saved.", "error": None})
+        else:
+            return jsonify({"error": "Failed to write global context file."}), 500
+    except Exception as e:
+        print(f"Error saving global context: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/context/project", methods=["GET"])
+def get_project_context():
+    """Gets the project-specific team.ctx content."""
+    try:
+        current_path = request.args.get("path")
+        if not current_path:
+            return jsonify({"error": "Project path is required."}), 400
+        
+        ctx_path = get_ctx_path(is_global=False, current_path=current_path)
+        data = read_ctx_file(ctx_path)
+        return jsonify({"context": data, "path": ctx_path, "error": None})
+    except Exception as e:
+        print(f"Error getting project context: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/context/project", methods=["POST"])
+def save_project_context():
+    """Saves the project-specific team.ctx content."""
+    try:
+        data = request.json
+        current_path = data.get("path")
+        context_data = data.get("context", {})
+        
+        if not current_path:
+            return jsonify({"error": "Project path is required."}), 400
+            
+        ctx_path = get_ctx_path(is_global=False, current_path=current_path)
+        if write_ctx_file(ctx_path, context_data):
+            return jsonify({"message": "Project context saved.", "error": None})
+        else:
+            return jsonify({"error": "Failed to write project context file."}), 500
+    except Exception as e:
+        print(f"Error saving project context: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+
+### RESPONSE HANDLING
+
 @app.route("/api/get_attachment_response", methods=["POST"])
 def get_attachment_response():
     data = request.json
