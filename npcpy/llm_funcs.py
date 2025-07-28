@@ -693,9 +693,6 @@ def check_llm_command(
     npc: Any = None,
     team: Any = None,
     messages: List[Dict[str, str]] = None,
-    jinxs: List[Dict[str, str]] = None,
-    tools = None,
-    tool_map: Dict[str, str] = None,
     images: list = None,
     stream=False,
     context=None,    
@@ -724,26 +721,6 @@ def check_llm_command(
             }
 
     prompt = f"A user submitted this query: {command}\n"
-
-    # Check for tools usage
-    if tools:
-        result = get_llm_response(
-            prompt,
-            model=model,
-            provider=provider,
-            api_url=api_url,
-            api_key=api_key,
-            npc=npc,
-            messages=messages,
-            tools=tools,
-            tool_map=tool_map,
-            context=None,
-            stream=stream,
-        )
-        return {
-            'messages': result.get('messages', messages),
-            'output': result.get('response', '')
-        }
 
     # Add ALL action contexts to prompt
     for action_name, action_info in actions.items():
