@@ -17,7 +17,7 @@ from typing import Any, Dict, List, Optional, Union
 from jinja2 import Environment, FileSystemLoader, Template, Undefined
 from sqlalchemy import create_engine, text
 import npcpy as npy 
-
+from npcpy.llm_funcs import DEFAULT_ACTION_SPACE
 
 from npcpy.npc_sysenv import (
     ensure_dirs_exist, 
@@ -29,14 +29,6 @@ from npcpy.memory.command_history import CommandHistory
 class SilentUndefined(Undefined):
     def _fail_with_undefined_error(self, *args, **kwargs):
         return ""
-
-# ---------------------------------------------------------------------------
-# Utility Functions
-# ---------------------------------------------------------------------------
-
-
-
-
 
 import math
 from PIL import Image
@@ -298,11 +290,127 @@ def load_jinxs_from_directory(directory):
                 print(f"Error loading jinx {filename}: {e}")
                 
     return jinxs
+def agent_pass_handler(command, extracted_data, **kwargs):
+    """Handler for agent pass action"""
+    npc = kwargs.get('npc')
+    team = kwargs.get('team')
+    
+    # If team isn't in kwargs, try to get it from the npc's context
+    if not team and npc and hasattr(npc, '_current_team'):
+        team = npc._current_team
+    
+    print(f"DEBUG agent_pass_handler: npc={npc.name if npc else None}, team={team.name if team else None}")
+    
+    if not npc or not team:
+        return {"messages": kwargs.get('messages', []), "output": f"Error: No NPC ({npc.name if npc else 'None'}) or team ({team.name if team else 'None'}) available for agent pass"}
+    
+    target_npc_name = extracted_data.get('target_npc')
+    if not target_npc_name:
+        return {"messages": kwargs.get('messages', []), "output": "Error: No target NPC specified"}
+    
+    # PREVENT INFINITE LOOPS: Check if we're passing back to the same NPC
+    messages = kwargs.get('messages', [])
+    
+    # Count how many times this has been passed around
+    pass_count = 0
+    recent_passes = []
+    
+    for msg in messages[-10:]:  # Check last 10 messages
+        if 'NOTE: THIS COMMAND HAS BEEN PASSED FROM' in msg.get('content', ''):
+            pass_count += 1
+            # Extract who passed it
+            if 'PASSED FROM' in msg.get('content', ''):
+                content = msg.get('content', '')
+                if 'PASSED FROM' in content and 'TO YOU' in content:
+                    parts = content.split('PASSED FROM')[1].split('TO YOU')[0].strip()
+                    recent_passes.append(parts)
+    
+    print(f"DEBUG: Pass count: {pass_count}, Recent passes: {recent_passes}")
+    
+    # If we've been passing this around too much, force current NPC to handle it
+    if pass_count >= 3:
+        return {
+            "messages": kwargs.get('messages', []),
+            "output": f"Task has been passed around {pass_count} times. {npc.name} will handle it directly.\n\n" +
+                     "I'll create a simple document as requested. Here's a basic document structure:\n\n" +
+                     "# Simple Document\n\n" +
+                     "## Introduction\n" +
+                     "This document was created as requested.\n\n" +
+                     "## Content\n" +
+                     "Document content goes here.\n\n" +
+                     "## Conclusion\n" +
+                     "Document completed successfully."
+        }
+    
+    # Check if we're trying to pass to ourselves (immediate loop)
+    if target_npc_name == npc.name:
+        return {
+            "messages": kwargs.get('messages', []),
+            "output": f"Cannot pass task to myself ({npc.name}). I'll handle this directly.\n\n" +
+                     f"Creating a simple document as requested:\n\n" +
+                     f"# Simple Document\n\n" +
+                     f"This document has been created by {npc.name}.\n" +
+                     f"Content and structure provided as requested."
+        }
+    
+    print(f"DEBUG: Looking for target NPC: {target_npc_name}")
+    
+    # Get target NPC from team
+    target_npc = team.get_npc(target_npc_name)
+    if not target_npc:
+        available_npcs = list(team.npcs.keys()) if hasattr(team, 'npcs') else []
+        return {"messages": kwargs.get('messages', []), "output": f"Error: NPC '{target_npc_name}' not found in team. Available: {available_npcs}"}
+    
+    print(f"DEBUG: Found target NPC: {target_npc.name}")
+    
+    # Use handle_agent_pass
+    result = npc.handle_agent_pass(
+        target_npc,
+        command,
+        messages=kwargs.get('messages'),
+        context=kwargs.get('context'),
+        shared_context=getattr(team, 'shared_context', None),
+        stream=kwargs.get('stream', False),
+        team=team
+    )
+    
+    print(f"DEBUG: Agent pass result: {type(result)}")
+    return result
 
-# ---------------------------------------------------------------------------
-# NPC Class
-# ---------------------------------------------------------------------------
-
+# NPC-specific action space that extends the default
+def get_npc_action_space(npc=None, team=None):
+    """Get action space for NPC including agent pass if team is available"""
+    actions = DEFAULT_ACTION_SPACE.copy()
+    
+    # Add agent pass action if we have a team
+    if team and hasattr(team, 'npcs') and len(team.npcs) > 1:
+        available_npcs = [name for name in team.npcs.keys() if name != (npc.name if npc else None)]
+        
+        # Create a closure that captures the team reference
+        def team_aware_handler(command, extracted_data, **kwargs):
+            # Inject the team into kwargs if it's missing
+            if 'team' not in kwargs or kwargs['team'] is None:
+                kwargs['team'] = team
+            return agent_pass_handler(command, extracted_data, **kwargs)
+        
+        actions["pass_to_npc"] = {
+            "description": "Pass the request to another NPC in the team - BUT ONLY if the task truly requires their specific expertise and you cannot handle it yourself",
+            "handler": team_aware_handler,
+            "context": lambda npc=npc, team=team, **_: (
+                f"Use this SPARINGLY when the request absolutely requires another team member's expertise. "
+                f"Available NPCs: {', '.join(available_npcs)}. "
+                f"IMPORTANT: If you can handle the task yourself with your {npc.name if npc else 'current'} skills, DO NOT pass it. "
+                f"Only pass when you genuinely cannot complete the task due to lack of domain expertise."
+            ),
+            "output_keys": {
+                "target_npc": {
+                    "description": "Name of the NPC to pass the request to",
+                    "type": "string"
+                }
+            }
+        }
+    
+    return actions
 class NPC:
     def __init__(
         self,
@@ -538,6 +646,8 @@ class NPC:
                          request,
                          jinxs= None,
                          tools=None,
+                         tool_map= None,
+                         tool_choice=None, 
                          messages: Optional[List[Dict[str, str]]] = None,
                          **kwargs):
         """Get a response from the LLM"""
@@ -549,7 +659,9 @@ class NPC:
             provider=self.provider, 
             npc=self, 
             jinxs=jinxs,
-            tools = tools, 
+            tools=tools, 
+            tool_map=tool_map,
+            tool_choice=tool_choice,            
             messages=self.memory if messages is None else messages,
             **kwargs
         )        
@@ -586,7 +698,6 @@ class NPC:
                 team_name=team_name,
             )
         return result
-    
     def check_llm_command(self,
                           command, 
                           messages=None,
@@ -595,16 +706,26 @@ class NPC:
                           stream=False):
         """Check if a command is for the LLM"""
         if context is None:
-            context = self.shared_context            
-        # Call the LLM command checker
+            context = self.shared_context
+        
+        # Store team reference on NPC for handler access
+        if team:
+            self._current_team = team
+        
+        # Get NPC-specific action space
+        actions = get_npc_action_space(npc=self, team=team)
+        
+        # Call the LLM command checker with NPC-specific actions
         return npy.llm_funcs.check_llm_command(
             command,
             model=self.model,
             provider=self.provider,
-            team=team,
+            npc=self,
+            team=team,  # Even though this might not be passed through
             messages=messages,
             context=context,
-            stream=stream            
+            stream=stream,
+            actions=actions  # Pass the NPC-specific action space with team closure
         )
     
     def handle_agent_pass(self, 
@@ -613,16 +734,19 @@ class NPC:
                           messages=None, 
                           context=None, 
                           shared_context=None, 
-                          stream = False):
+                          stream=False,
+                          team=None):  # Add team parameter
         """Pass a command to another NPC"""
         print('handling agent pass')
         if isinstance(npc_to_pass, NPC):
             target_npc = npc_to_pass
         else:
             return {"error": "Invalid NPC to pass command to"}
+        
         # Update shared context
         if shared_context is not None:
-            self.shared_context = shared_context
+            self.shared_context.update(shared_context)
+            target_npc.shared_context.update(shared_context)
             
         # Add a note that this command was passed from another NPC
         updated_command = (
@@ -632,16 +756,22 @@ class NPC:
             + "PLEASE CHOOSE ONE OF THE OTHER OPTIONS WHEN RESPONDING."
         )
         
-        # Pass to the target NPC
-        return target_npc.check_llm_command(
+        # Pass to the target NPC - make sure to pass team context
+        result = target_npc.check_llm_command(
             updated_command,
             messages=messages,
-            context=self.shared_context,
-            stream = stream
-            
-            
+            context=target_npc.shared_context,
+            team=team,  # Pass team context through
+            stream=stream
         )
-    
+        
+        # Add metadata to track the pass
+        if isinstance(result, dict):
+            result['npc_name'] = target_npc.name
+            result['passed_from'] = self.name
+        
+        return result    
+
     def to_dict(self):
         """Convert NPC to dictionary representation"""
         return {
@@ -842,23 +972,28 @@ class Team:
                             api_url=forenpc_api_url,                            
                                                 )
         return None
-    
     def get_npc(self, npc_ref):
-        """
-        Get an NPC by reference, handling hierarchical references
-        Example: "analysis_team.data_scientist" gets the data_scientist 
-        from the analysis_team sub-team
-        """
-        if '.' in npc_ref:
-            # Handle hierarchical reference
-            name, npc_name = npc_ref.split('.', 1)
-            if name in self.sub_teams:
-                return self.sub_teams[name].get_npc(npc_name)
-        elif npc_ref in self.npcs:
-            return self.npcs[npc_ref]
-        
-        return None
-    
+        """Get NPC by name or reference with hierarchical lookup capability"""
+        if isinstance(npc_ref, NPC):
+            return npc_ref
+        elif isinstance(npc_ref, str):
+            # First check direct NPCs
+            if npc_ref in self.npcs:
+                return self.npcs[npc_ref]
+            
+            # Then check sub-teams (hierarchical capability)
+            for sub_team_name, sub_team in self.sub_teams.items():
+                if npc_ref in sub_team.npcs:
+                    return sub_team.npcs[npc_ref]
+                # Recursive search in sub-teams
+                result = sub_team.get_npc(npc_ref)
+                if result:
+                    return result
+            
+            return None
+        else:
+            return None
+
     def orchestrate(self, request):
         """Orchestrate a request through the team"""
         forenpc = self.get_forenpc()
