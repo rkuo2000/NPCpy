@@ -599,12 +599,95 @@ def handle_request_input(
         {"reason": result["request_reason"], "prompt": result["request_prompt"]},
     )
     return user_input
+def jinx_handler(command, extracted_data, **kwargs):
+    print(f"JINX HANDLER: calling handle_jinx_call with jinx_name='{extracted_data.get('jinx_name')}'")
+    return handle_jinx_call(
+        command, 
+        extracted_data.get('jinx_name'),
+        model=kwargs.get('model'),
+        provider=kwargs.get('provider'),
+        api_url=kwargs.get('api_url'),
+        api_key=kwargs.get('api_key'),
+        messages=kwargs.get('messages'),
+        npc=kwargs.get('npc'),
+        stream=kwargs.get('stream'),
+        shell=kwargs.get('shell'),
+        context=kwargs.get('context')
+    )
 
-# refactor to have set of actions be a passable list.
+def answer_handler(command, extracted_data, **kwargs):
+    print(f"ANSWER HANDLER: cmd='{command}', extracted_data={extracted_data}")
+    return get_llm_response(
+        f"""
+        Here is the user question: {command}
+        The action chosen by the agent is: answer_question
+        The explanation provided by the agent is: {extracted_data.get('explanation', '')}
+
+        Do not needlessly reference the user's files or provided context. Simply provide the answer to the user's question. Avoid
+        appearing zany or unnecessarily forthcoming about the fact that you have received such information. You know it
+        and the user knows it. there is no need to constantly mention the facts that are aware to both.
+        """,
+        model=kwargs.get('model'),
+        provider=kwargs.get('provider'),
+        api_url=kwargs.get('api_url'),
+        api_key=kwargs.get('api_key'),
+        messages=kwargs.get('messages'),
+        npc=kwargs.get('npc'),
+        stream=kwargs.get('stream'),
+        images=kwargs.get('images')
+    )
+
+# Define `DEFAULT_ACTION_SPACE`
+
+DEFAULT_ACTION_SPACE = {
+    "invoke_jinx": {
+        "description": "Invoke a jinx (jinja-template execution script)",
+        "handler": jinx_handler,
+        "context": lambda npc=None, **_: (
+            """
+            Use jinxs when appropriate. For example:
+
+            - If you are asked about something up-to-date or dynamic (e.g., latest exchange rates)
+            - If the user asks you to read or edit a file
+            - If the user asks for code that should be executed
+            - If the user requests to open, search, download or scrape, which involve actual system or web actions
+            - If they request a screenshot, audio, or image manipulation
+            - Situations requiring file parsing (e.g., CSV or JSON loading)
+            - Scripted workflows or pipelines, e.g., generate a chart, fetch data, summarize from source, etc.
+
+            You MUST use a jinx if the request directly refers to a tool the AI cannot handle directly (e.g., 'run', 'open', 'search', etc).
+
+            Here are the currently available jinxs:
+            """ +
+            (
+                "\n".join(
+                    f"- {name}: {jinx.description}"
+                    for name, jinx in getattr(npc, "jinxs_dict", {}).items()
+                )
+                if npc and getattr(npc, "jinxs_dict", None)
+                else "  [No jinxs available for this NPC]"
+            )
+        ),
+        "output_keys": {
+            "jinx_name": {
+                "description": "The name of the jinx to invoke",
+                "type": "string"
+            }
+        }
+    },
+    "answer_question": {
+        "description": "Provide a direct informative answer",
+        "handler": answer_handler,
+        "context": "For general questions, use existing knowledge",
+        "output_keys": {}
+    }
+}
+
+# check_llm_command implementation
 def check_llm_command(
     command: str,
     model: str = None, 
-    provider: str  = None, 
+    provider: str = None, 
     api_url: str = None,
     api_key: str = None,
     npc: Any = None,
@@ -616,111 +699,18 @@ def check_llm_command(
     images: list = None,
     stream=False,
     context=None,    
-    shell = False,
+    shell=False,
     actions: Dict[str, Dict] = None,
 ):
     """This function checks an LLM command."""
     if messages is None:
         messages = []
-    
-    # Set default actions if none provided
+
+    # Use default action space if none provided
     if actions is None:
-        jinx_component = ''
-        if npc is not None:
-            if npc.jinxs_dict is None:
-                jinx_component += "No NPC jinxs available. Do not invoke jinxs."
-            else:
-                jinx_component += "Available jinxs: \n"
-                jinxs_set = {}
-                if npc.jinxs_dict is not None:
-                    for jinx_name, jinx in npc.jinxs_dict.items():
-                        if jinx_name not in jinxs_set:
-                            jinxs_set[jinx_name] = jinx.description
-                for jinx_name, jinx_description in jinxs_set.items():
-                    jinx_component += f"""
-                                {jinx_name} : {jinx_description} \n
-                                """
-        
-        def jinx_handler(command, extracted_data, **kwargs):
-            print(f"JINX HANDLER: calling handle_jinx_call with jinx_name='{extracted_data.get('jinx_name')}'")
-            return handle_jinx_call(
-                command, 
-                extracted_data.get('jinx_name'),
-                model=kwargs.get('model'),
-                provider=kwargs.get('provider'),
-                api_url=kwargs.get('api_url'),
-                api_key=kwargs.get('api_key'),
-                messages=kwargs.get('messages'),
-                npc=kwargs.get('npc'),
-                stream=kwargs.get('stream'),
-                shell=kwargs.get('shell'),
-                context=kwargs.get('context')
-            )
-        
-        def answer_handler(command, extracted_data, **kwargs):
-            print(f"ANSWER HANDLER: cmd='{command}', extracted_data={extracted_data}")
-            return get_llm_response(
-                f"""
-                Here is the user question: {command}
-                The action chosen by the agent is: answer_question
-                The explanation provided by the agent is: {extracted_data.get('explanation', '')}
+        actions = DEFAULT_ACTION_SPACE.copy()
 
-                Do not needlessly reference the user's files or provided context. Simply provide the answer to the user's question. Avoid
-                appearing zany or unnecessarily forthcoming about the fact that you have received such information. You know it
-                and the user knows it. there is no need to constantly mention the facts that are aware to both.
-                """,
-                model=kwargs.get('model'),
-                provider=kwargs.get('provider'),
-                api_url=kwargs.get('api_url'),
-                api_key=kwargs.get('api_key'),
-                messages=kwargs.get('messages'),
-                npc=kwargs.get('npc'),
-                stream=kwargs.get('stream'),
-                images=kwargs.get('images')
-            )
-        
-        actions = {
-            "invoke_jinx": {
-                "description": "Invoke a jinx (jinja-template execution script)",
-                "handler": jinx_handler,
-                "context": f"""
-                Use jinxs when it is obvious that the answer needs to be as up-to-date as possible. For example,
-                    a question about where mount everest is does not necessarily need to be answered by a jinx call or an agent pass.
-
-                If a user asks to explain the plot of the aeneid, this can be answered without a jinx call or agent pass.
-                
-                If a user were to ask for the current weather in tokyo or the current price of bitcoin or who the mayor of a city is,
-                    then a jinx call is appropriate.
-
-                If the user wants you to read a file, it must use a jinx to read the file.
-
-                If the user asks you to edit a file, you must use a jinx to edit the file.
-
-                If the user asks you to take a screenshot, you must to use a jinx to take the screenshot if available
-                
-                If a user asks you to search or to take a screenshot or to open a program or to write a program most likely it is
-                appropriate to use a jinx. 
-
-                Here are the jinxs that are available to you:
-                {jinx_component}
-
-                Remember, use a jinx if appropriate.
-                """,
-                "output_keys": {
-                    "jinx_name": {
-                        "description": "if action is 'invoke_jinx': the name of the jinx to use",
-                        "type": "string",
-                        "condition": "only if action is invoke_jinx"
-                    }
-                }
-            },
-            "answer_question": {
-                "description": "Provide a direct informative answer",
-                "handler": answer_handler,
-                "context": "Use this for general questions that can be answered with existing knowledge or conversation history.",
-                "output_keys": {}
-            }
-        }
+        # Add request_input if in shell mode
         if shell:
             actions["request_input"] = {
                 "description": "Request additional input from the user",
@@ -732,19 +722,10 @@ def check_llm_command(
                 "context": "Use this when the user's request is ambiguous or needs clarification.",
                 "output_keys": {}
             }
-    
-    prompt = f"""
-    A user submitted this query: {command}
-    
-    Determine the nature of the user's request:
 
-    1. Should a jinx be invoked to fulfill the request? A jinx is a jinja-template execution script.
+    prompt = f"A user submitted this query: {command}\n"
 
-    2. Is it a general question that requires an informative answer or a highly specific question that
-        requires information on the web?
-
-    """
-    
+    # Check for tools usage
     if tools:
         result = get_llm_response(
             prompt,
@@ -763,54 +744,33 @@ def check_llm_command(
             'messages': result.get('messages', messages),
             'output': result.get('response', '')
         }
-        
-    if npc is not None:
-        if npc.shared_context:
-            prompt += f"""
-            Relevant shared context for the npc:
-            {npc.shared_context}
-            """
 
-    if team is None:
-        prompt += "No NPCs available for alternative answers."
-    else:
-        if team.context:
-            prompt += f"""
-            Relevant shared context for the team:
-            {team.context}
-            """
-        if team.preferences is not None:
-            prompt += f"""
-            Relevant team preferences:
-            {team.preferences}
-            """
-
-    action_space = list(actions.keys())
-    
     # Add ALL action contexts to prompt
     for action_name, action_info in actions.items():
-        if action_info.get("context"):
-            prompt += f"\n{action_info['context']}"
+        ctx = action_info.get("context")
+        if callable(ctx):
+            try:
+                ctx = ctx(npc=npc, team=team, context=context)
+            except Exception as e:
+                print(f"[WARN] Failed to render context for action '{action_name}': {e}")
+                ctx = None
+        if ctx:
+            prompt += f"\n{ctx}"
     
     prompt += f"""
     These were the most recent 5 messages in the conversation which should help you respond appropriately:
 
     {messages[-5:] if len(messages) > 5 else messages}
 
-    In considering how to answer this, consider:
-
     Respond with a JSON object containing:
-    - "action": one of {action_space}
+    - "action": one of {list(actions.keys())}
     - "explanation": a brief explanation of why you chose this action.
     """
-    
+
     # Build dynamic JSON format from ALL output_keys across ALL actions
-    all_output_keys = {}
-    for action_name, action_info in actions.items():
-        for key_name, key_info in action_info.get("output_keys", {}).items():
-            all_output_keys[key_name] = key_info
+    all_output_keys = {key_name: key_info for action_info in actions.values() for key_name, key_info in action_info.get("output_keys", {}).items()}
     
-    json_format_parts = ['"action": "' + '" | "'.join(action_space) + '"']
+    json_format_parts = ['"action": "' + '" | "'.join(actions.keys()) + '"']
     json_format_parts.append('"explanation": "<your_explanation>"')
     
     for key_name, key_info in all_output_keys.items():
@@ -820,7 +780,6 @@ def check_llm_command(
     json_format_str = "{\n    " + ",\n    ".join(json_format_parts) + "\n}"
     
     prompt += f"""
-
     Return only the JSON object. Do not include any additional text.
 
     The format of the JSON object is:
@@ -828,20 +787,13 @@ def check_llm_command(
 
     In your explanation, do not needlessly reference the user's files or provided context. Simply provide the explanation for your choice in as few words as possible.
 
-    Remember, the action must be one of {action_space}. Do not use a jinx's name for the action.     
-    
-    Remember, do not include ANY ADDITIONAL MARKDOWN FORMATTING.
-    There should be no leading ```json.
-    
-        """
+    Remember, the action must be one of {list(actions.keys())}. Do not use a jinx's name for the action.
+    """
+
     if context:
-        prompt += f"""
-        Additional relevant context from user:
+        prompt += f"\nAdditional relevant context from user:\n{context}\n"
 
-        {context}
 
-        """
-    
     action_response = get_llm_response(
         prompt,
         model=model,
@@ -854,6 +806,7 @@ def check_llm_command(
         context=None,
     )
 
+
     if "Error" in action_response:
         print(f"LLM Error: {action_response['error']}")
         return action_response["error"]
@@ -864,31 +817,25 @@ def check_llm_command(
         try:
             response_content_parsed = json.loads(response_content)
         except json.JSONDecodeError as e:
-            print(
-                f"Invalid JSON received from LLM: {e}. Response was: {response_content}"
-            )
+            print(f"Invalid JSON received from LLM: {e}. Response was: {response_content}")
             return f"Error: Invalid JSON from LLM: {response_content}"
     else:
         response_content_parsed = response_content
 
     # Extract action and base fields
     action = response_content_parsed.get("action", "").strip()
-    
+
     if action not in actions:
         return {"messages": messages, "output": f"Error: Unknown action '{action}'"}
-    
+
     # Extract ONLY the fields defined in the chosen action's output_keys
-    extracted_data = {"action": action}
+    extracted_data = {"action": action, "explanation": response_content_parsed.get("explanation", "").strip()}
     chosen_action_output_keys = actions[action].get("output_keys", {})
-    
-    # Always extract explanation
-    extracted_data["explanation"] = response_content_parsed.get("explanation", "").strip()
-    
-    # Extract only the output keys for the chosen action
+
     for key_name in chosen_action_output_keys.keys():
         if key_name in response_content_parsed:
             extracted_data[key_name] = response_content_parsed[key_name]
-    
+
     # Build display string dynamically
     display_parts = [f"Action chosen: {action}"]
     display_parts.append(f"Explanation given: {extracted_data.get('explanation', '')}")
@@ -903,11 +850,10 @@ def check_llm_command(
     
     # Just pass everything, let the handler deal with it
     try:
-        result = handler(command, extracted_data, 
-                        model=model, provider=provider, api_url=api_url,
-                        api_key=api_key, messages=messages, npc=npc,
-                        stream=stream, shell=shell, context=context, images=images)
-        
+        result = handler(command, extracted_data,
+                         model=model, provider=provider, api_url=api_url,
+                         api_key=api_key, messages=messages, npc=npc,
+                         stream=stream, shell=shell, context=context, images=images)
         if isinstance(result, dict):
             return {'messages': result.get('messages', messages), 'output': result.get('output', result.get('response', ''))}
         else:
