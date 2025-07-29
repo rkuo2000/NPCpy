@@ -193,7 +193,7 @@ def get_ollama_response(
     result["messages"].append({"role": "assistant", "content": response_content})
 
 
-    if tools and hasattr(res.get('message', {}), 'tool_calls') and res['message']['tool_calls']:
+    if tools and res.get('message', {}).get('tool_calls'):
         if tool_map:
             response_for_processing = {
                 "response": res['message'].get('content'),
