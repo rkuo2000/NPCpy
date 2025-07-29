@@ -266,7 +266,7 @@ web_researcher = NPC(
 screenshot_specialist = NPC(
     name='Screenshot Specialist',
     primary_directive='You are a screenshot specialist who captures screen content and visual elements as needed.',
-    model='llama3.2:13b',
+    model='llama3.2',
     provider='ollama',
     tools=[capture_screenshot]
 )
@@ -305,8 +305,8 @@ multimedia_coordinator = NPC(
 # Create comprehensive multimedia production team
 multimedia_team = Team(
     npcs=[
-        image_generator, 
-        image_editor, 
+        image_generator,
+        image_editor,
         web_researcher, 
         screenshot_specialist,
         desktop_automator,
@@ -318,13 +318,32 @@ multimedia_team = Team(
 
 # Start server for multimedia team
 if __name__ == "__main__":
+    # Register the team globally so the server can access it
+    import npcpy.serve as serve_module
+    
+    # Add the team to the server's global state
+    if not hasattr(serve_module, 'registered_teams'):
+        serve_module.registered_teams = {}
+    serve_module.registered_teams['multimedia_team'] = multimedia_team
+    
+    # Also register individual NPCs for direct access
+    if not hasattr(serve_module, 'registered_npcs'):
+        serve_module.registered_npcs = {}
+    
+    for npc in list(multimedia_team.npcs.values()) + [multimedia_team.forenpc]:
+        serve_module.registered_npcs[npc.name] = npc
+    
+    print(f"Registered team 'multimedia_team' with {len(multimedia_team.npcs)} NPCs")
+    print(f"Available NPCs: {[npc.name for npc in list(multimedia_team.npcs.values()) + [multimedia_team.forenpc]]}")
+    
     start_flask_server(
         port=5337,
         cors_origins=["*"],  # Allow all origins for development
         debug=True,
-        teams={'multimedia_team': multimedia_team},  # Register the team
-        npcs={npc.name: npc for npc in list(multimedia_team.npcs.values()) + [multimedia_team.forenpc]}  # Register NPCs
+        teams={'multimedia_team': multimedia_team},  # Pass teams to server
+        npcs=serve_module.registered_npcs  # Pass NPCs to server
     )
+
 ```
 
 **Important:** The `teams` and `npcs` parameters in `start_flask_server()` register your teams and NPCs with the server so they can be accessed via the API endpoints. When you make requests with `"team": "multimedia_team"`, the server will use the registered team object with all its tools and capabilities.
@@ -652,41 +671,7 @@ result = comprehensive_team.orchestrate(
 print(result['debrief']['summary'])
 ```
 
-### Production Deployment Tips
-
-```python
-# production_server.py
-from npcpy.serve import start_flask_server
-import os
-
-# Load production environment
-from dotenv import load_dotenv
-load_dotenv('.env.production')
-
-# Configure for production
-if __name__ == "__main__":
-    start_flask_server(
-        port=int(os.getenv('PORT', 5337)),
-        cors_origins=os.getenv('ALLOWED_ORIGINS', '').split(','),
-        debug=False  # Disable debug in production
-    )
-```
-
-### Docker Deployment
-
-```dockerfile
-FROM python:3.12-slim
-
-WORKDIR /app
-COPY requirements.txt .
-RUN pip install -r requirements.txt
-
-COPY . .
-
-EXPOSE 5337
-CMD ["python", "production_server.py"]
-```
-
+## Server API Endpoints
 The server provides REST endpoints for:
 - `/api/execute` - Execute team commands
 - `/api/stream` - Stream team responses  
