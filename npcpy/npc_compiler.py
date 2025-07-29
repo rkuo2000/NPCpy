@@ -18,6 +18,7 @@ from jinja2 import Environment, FileSystemLoader, Template, Undefined
 from sqlalchemy import create_engine, text
 import npcpy as npy 
 from npcpy.llm_funcs import DEFAULT_ACTION_SPACE
+from npcpy.tools import auto_tools
 
 from npcpy.npc_sysenv import (
     ensure_dirs_exist, 
@@ -463,6 +464,15 @@ class NPC:
             self.npc_directory = None # only makes sense when the input is also a file 
             # keep the jinxs tho to enable easieros.path.abspath('./npc_team/')
 
+        if tools is not None:
+            tools_schema, tool_map = auto_tools(tools)
+            self.tools_schema = tools_schema
+            self.tool_map = tool_map
+            self.tools= tools
+        else:
+            self.tools_schema = []
+            self.tool_map = {}
+            self.tools = None
         self.use_global_jinxs = use_global_jinxs
         
         self.memory_length = 20
@@ -652,7 +662,11 @@ class NPC:
                          **kwargs):
         """Get a response from the LLM"""
         
-        # Call the LLM
+        if tools is None:
+            if self.tools is not None:
+                tools = self.tools
+                tool_map = self.tool_map
+
         response = npy.llm_funcs.get_llm_response(
             request, 
             model=self.model, 
@@ -722,7 +736,7 @@ class NPC:
             provider=self.provider,
             npc=self,
             team=team,  # Even though this might not be passed through
-            messages=messages,
+            messages=self.memory if messages is None else messages,
             context=context,
             stream=stream,
             actions=actions  # Pass the NPC-specific action space with team closure
@@ -756,16 +770,14 @@ class NPC:
             + "PLEASE CHOOSE ONE OF THE OTHER OPTIONS WHEN RESPONDING."
         )
         
-        # Pass to the target NPC - make sure to pass team context
+
         result = target_npc.check_llm_command(
             updated_command,
             messages=messages,
             context=target_npc.shared_context,
-            team=team,  # Pass team context through
+            team=team, 
             stream=stream
         )
-        
-        # Add metadata to track the pass
         if isinstance(result, dict):
             result['npc_name'] = target_npc.name
             result['passed_from'] = self.name
@@ -971,6 +983,9 @@ class Team:
                             api_key=forenpc_api_key,
                             api_url=forenpc_api_url,                            
                                                 )
+            self.forenpc = forenpc
+            self.npcs[forenpc.name] = forenpc
+            return forenpc
         return None
     def get_npc(self, npc_ref):
         """Get NPC by name or reference with hierarchical lookup capability"""

@@ -16,18 +16,18 @@ Welcome to `npcpy`, the python library for the NPC Toolkit that supercharges nat
 
 Here is an example for getting responses for a particular agent:
 
-```
+```python
 from npcpy.npc_compiler import NPC
 simon = NPC(
           name='Simon Bolivar',
           primary_directive='Liberate South America from the Spanish Royalists.',
-          model='claude-3-haiku',
-          provider='anthropic'
+          model='gemma3:4b',
+          provider='ollama'
           )
 response = simon.get_llm_response("What is the most important territory to retain in the Andes mountains?")
 print(response['response'])
 ```
-``` 
+```python 
 The most important territory to retain in the Andes mountains is **Cuzco**. 
 It’s the heart of the Inca Empire, a crucial logistical hub, and holds immense symbolic value for our liberation efforts. Control of Cuzco is paramount.
 ```
@@ -35,13 +35,13 @@ It’s the heart of the Inca Empire, a crucial logistical hub, and holds immense
 
 Here is an example for setting up an agent team:
 
-```
+```python
 from npcpy.npc_compiler import NPC, Team
 ggm = NPC(
           name='gabriel garcia marquez',
           primary_directive='You are the author gabriel garcia marquez. see the stars ',
-          model='gemini-2.0-flash',
-          provider='gemini', # anthropic, gemini, openai, any supported by litellm
+          model='gemma3:4b',
+          provider='ollama', # anthropic, gemini, openai, any supported by litellm
           )
 
 isabel = NPC(
@@ -53,8 +53,8 @@ isabel = NPC(
 borges = NPC(
           name='jorge luis borges',
           primary_directive='You are the author jorge luis borges. listen to the earth and work with your team',
-          model='claude-3-5-sonnet-latest',
-          provider='anthropic', # anthropic, gemini, openai, any supported by litellm
+          model='qwen3:latest',
+          provider='ollama', # anthropic, gemini, openai, any supported by litellm
           )          
 
 # set up an NPC team with a forenpc that orchestrates the other npcs
@@ -73,17 +73,17 @@ handling agent pass
  'execution_history': [{'messages': [],
    'output': 'I am currently finalizing preparations for my lunar expedition. It involves recalibrating my navigation systems and verifying the integrity of my life support modules. Details are quite...complex.'}]}
 ```
-```
+```python
 print(lit_team.orchestrate('which book are your team members most proud of? ask them please. '))
 ```  
 
-```
+```python
 {'debrief': {'summary': "The responses provided detailed accounts of the books that the NPC team members, Gabriel Garcia Marquez and Isabel Allende, are most proud of. Gabriel highlighted 'Cien años de soledad,' while Isabel spoke of 'La Casa de los Espíritus.' Both authors expressed deep personal connections to their works, illustrating their significance in Latin American literature and their own identities.", 'recommendations': 'Encourage further engagement with each author to explore more about their literary contributions, or consider asking about themes in their works or their thoughts on current literary trends.'}, 'execution_history': [{'messages': ...}]}
 ```
 
 LLM responses can be obtained without NPCs as well.
 
-```
+```python
 from npcpy.llm_funcs import get_llm_response
 response = get_llm_response("Who was the celtic Messenger god?", model='mistral:7b', provider='ollama')
 print(response['response'])
@@ -97,14 +97,14 @@ One of the most well-known Celtic messengers is Brigid's servant, Líth (also sp
 The structure of npcpy also allows one to pass an npc
 to `get_llm_response` in addition to using the NPC's wrapped method, 
 allowing you to be flexible in your implementation and testing.
-```
+```python
 from npcpy.npc_compiler import NPC
 from npcpy.llm_funcs import get_llm_response
 simon = NPC(
           name='Simon Bolivar',
           primary_directive='Liberate South America from the Spanish Royalists.',
-          model='gemini-1.5-pro',
-          provider='gemini'
+          model='gemma3:4b',
+          provider='ollama'
           )
 response = get_llm_response("Who was the mythological chilean bird that guides lucky visitors to gold?", npc=simon)
 print(response['response'])
@@ -115,7 +115,7 @@ Users are not required to pass agents to get_llm_response, so you can work with 
 `npcpy` also supports streaming responses, with the `response` key containing a generator in such cases which can be printed and processed through the print_and_process_stream method.
 
 
-```
+```python
 from npcpy.npc_sysenv import print_and_process_stream
 from npcpy.llm_funcs import get_llm_response
 response = get_llm_response("When did the united states government begin sendinng advisors to vietnam?", model='qwen2.5:14b', provider='ollama', stream = True)
@@ -124,7 +124,7 @@ full_response = print_and_process_stream(response['response'], 'llama3.2', 'olla
 ```
 Return structured outputs by specifying `format='json'` or passing a Pydantic schema. When specific formats are extracted, `npcpy`'s `get_llm_response` will convert the response from its string representation so you don't have to worry about that. 
 
-```
+```python
 from npcpy.llm_funcs import get_llm_response
 response = get_llm_response("What is the sentiment of the american people towards the repeal of Roe v Wade? Return a json object with `sentiment` as the key and a float value from -1 to 1 as the value", model='deepseek-coder', provider='deepseek', format='json')
 
@@ -137,17 +137,17 @@ print(response['response'])
 The `get_llm_response` function also can take a list of messages and will additionally return the messages with the user prompt and the assistant response appended if the response is not streamed. If it is streamed, the user must manually append the conversation result as part of their workflow if they want to then pass the messages back in.
 
 Additionally, one can pass attachments. Here we demonstrate both
-```
+```python
 from npcpy.llm_funcs import get_llm_response
 messages = [{'role': 'system', 'content': 'You are an annoyed assistant.'}]
 
-response = get_llm_response("What is the meaning of caesar salad", model='claude-3-haiku', provider='anthropic', images=['./Language_Evolution_and_Innovation_experiment.png'], messages=messages)
+response = get_llm_response("What is the meaning of caesar salad", model='llama3.2', provider='ollama', images=['./Language_Evolution_and_Innovation_experiment.png'], messages=messages)
 
 
 
 ```
 Easily create images with the generate_image function, using models available through Huggingface's diffusers library or from OpenAI or Gemini.
-```
+```python
 from npcpy.llm_funcs import gen_image
 image = gen_image("make a picture of the moon in the summer of marco polo", model='runwayml/stable-diffusion-v1-5', provider='diffusers')
 
@@ -166,7 +166,7 @@ image = gen_image("edit this picture of the moon in the summer of marco polo so 
 
 Likewise, generate videos :
 
-```
+```python
 from npcpy.llm_funcs import gen_video
 video = gen_video("make a video of the moon in the summer of marco polo", model='runwayml/stable-diffusion-v1-5', provider='diffusers')
 ```
@@ -209,8 +209,8 @@ tools_schema, tool_map = auto_tools([read_file, write_file, list_files, run_comm
 # Use tools with natural language requests
 response = get_llm_response(
     "List the files in the current directory, read the README.md file, and show me the git status",
-    model='claude-3-5-sonnet-latest',
-    provider='anthropic',
+    model='llama3.2',
+    provider='ollama',
     tools=tools_schema,
     tool_map=tool_map
 )
@@ -285,8 +285,8 @@ tools_schema = [
 
 response = get_llm_response(
     "Find all Python files in this project and check how much disk space we're using",
-    model='gemini-2.0-flash',
-    provider='gemini',
+    model='llama3.2',
+    provider='ollama',
     tools=tools_schema,
     tool_map=tool_map
 )
@@ -335,7 +335,7 @@ def check_server(url: str) -> dict:
 assistant = NPC(
     name='System Assistant',
     primary_directive='You are a helpful system assistant.', 
-    model='qwen2.5-coder:7b',
+    model='qwen3:latest',
     provider='ollama'
 )
 
@@ -393,7 +393,7 @@ tools_schema, tool_map = auto_tools([create_file, count_files, get_file_size])
 # Let the LLM use multiple tools naturally
 response = get_llm_response(
     "Create a file called 'hello.txt' with the content 'Hello World!', then tell me how many files are in the current directory and what size the new file is",
-    model='deepseek-r1:7b',
+    model='deepseek-reasoner',
     provider='deepseek',
     tools=tools_schema,
     tool_map=tool_map
@@ -418,7 +418,7 @@ if response.get('tool_results'):
 
 ## Understanding Tool Calling Response Structure
 
-When using tools with `npcpy`, the response structure differs from regular LLM responses. Instead of a synthesized text response, you get structured data about the tools that were called and their results.
+When using tools with `npcpy`, the response structure differs from regular LLM responses. Instead of a synthesized text response, you get structured data about the tools that were called and their results. This allows you to decide what actions to proceed with following the tool call.
 
 ### Response Object Structure
 
@@ -434,159 +434,6 @@ response = {
 }
 ```
 
-### Processing Tool Results - Practical Examples
-
-#### Example 1: Basic Tool Result Processing
-
-```python
-from npcpy.llm_funcs import get_llm_response
-from npcpy.tools import auto_tools
-import os
-from datetime import datetime
-
-def get_timestamp() -> str:
-    """Get the current timestamp."""
-    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-def create_log_file(filename: str, content: str) -> str:
-    """Create a log file with content."""
-    with open(filename, 'w') as f:
-        f.write(content)
-    return f"Created log file: {filename}"
-
-def count_log_files(directory: str = ".") -> int:
-    """Count log files in directory."""
-    return len([f for f in os.listdir(directory) if f.endswith('.log')])
-
-tools_schema, tool_map = auto_tools([get_timestamp, create_log_file, count_log_files])
-
-response = get_llm_response(
-    "Get the current timestamp, create a log file called 'session.log' with that timestamp, then count how many log files are in the current directory",
-    model='mistral:7b',
-    provider='ollama',
-    tools=tools_schema,
-    tool_map=tool_map
-)
-
-# Process the results - handle the tool calling response structure properly
-if response.get('tool_calls'):
-    print("Tools executed:")
-    for i, call in enumerate(response['tool_calls']):
-        func_name = call['function']['name']
-        # Access the actual result from tool_results
-        if i < len(response.get('tool_results', [])):
-            result = response['tool_results'][i]
-            if isinstance(result, dict) and 'result' in result:
-                actual_result = result['result']
-            else:
-                actual_result = result
-            print(f"  {func_name}: {actual_result}")
-    
-    print(f"\nTotal messages in conversation: {len(response.get('messages', []))}")
-else:
-    print("No tools were called")
-```
-
-#### Example 2: Error Handling and Validation
-
-```python
-from npcpy.llm_funcs import get_llm_response
-from npcpy.tools import auto_tools
-import json
-
-def safe_divide(a: float, b: float) -> float:
-    """Safely divide two numbers."""
-    if b == 0:
-        return "Error: Cannot divide by zero"
-    return a / b
-
-def write_result(filename: str, result: str) -> str:
-    """Write result to a file."""
-    with open(filename, 'w') as f:
-        f.write(str(result))
-    return f"Wrote result to {filename}"
-
-tools_schema, tool_map = auto_tools([safe_divide, write_result])
-
-response = get_llm_response(
-    "Divide 10 by 2, then write the result to 'calculation.txt'",
-    model='gemini-1.5-pro',
-    provider='gemini',
-    tools=tools_schema,
-    tool_map=tool_map
-)
-
-# Robust result processing
-successful_operations = []
-failed_operations = []
-
-if response.get('tool_calls'):
-    for i, call in enumerate(response['tool_calls']):
-        func_name = call['function']['name']
-        args = call['function']['arguments']
-        
-        if i < len(response.get('tool_results', [])):
-            result = response['tool_results'][i]
-            
-            # Handle different result formats
-            if isinstance(result, dict):
-                if 'result' in result:
-                    actual_result = result['result']
-                elif 'error' in result:
-                    failed_operations.append({'function': func_name, 'args': args, 'error': result['error']})
-                    continue
-                else:
-                    actual_result = result
-            else:
-                actual_result = result
-                
-            if "Error:" in str(actual_result):
-                failed_operations.append({'function': func_name, 'args': args, 'error': actual_result})
-            else:
-                successful_operations.append({'function': func_name, 'args': args, 'result': actual_result})
-
-print(f"Successful operations: {len(successful_operations)}")
-print(f"Failed operations: {len(failed_operations)}")
-
-for op in successful_operations:
-    print(f"✓ {op['function']}: {op['result']}")
-
-for op in failed_operations:
-    print(f"✗ {op['function']}: {op['error']}")
-```
-
-#### Example 3: Advanced Message History Processing
-
-```python
-# Access the full conversation history
-messages = response.get('messages', [])
-
-print("Full conversation flow:")
-for i, msg in enumerate(messages):
-    if msg['role'] == 'user':
-        print(f"{i+1}. User: {msg['content']}")
-    elif msg['role'] == 'assistant':
-        if 'tool_calls' in msg:
-            print(f"{i+1}. Assistant: [Called {len(msg['tool_calls'])} tools]")
-            for call in msg['tool_calls']:
-                print(f"    - {call['function']['name']}({call['function']['arguments']})")
-        else:
-            print(f"{i+1}. Assistant: {msg.get('content', '[No content]')}")
-    elif msg['role'] == 'tool':
-        print(f"{i+1}. Tool ({msg['name']}): {msg['content']}")
-
-# Extract all tool interactions for logging/debugging
-tool_interactions = []
-for msg in messages:
-    if msg['role'] == 'tool':
-        tool_interactions.append({
-            'tool_name': msg['name'],
-            'tool_call_id': msg['tool_call_id'],
-            'result': msg['content']
-        })
-
-print(f"\nTotal tool interactions: {len(tool_interactions)}")
-```
 
 
 ## Jinx Examples
