@@ -46,6 +46,7 @@ def get_ollama_response(
     tools: list = None,
     tool_choice: Dict = None,
     tool_map: Dict = None,
+    think= None ,
     format: Union[str, BaseModel] = None,
     messages: List[Dict[str, str]] = None,
     stream: bool = False,
@@ -146,14 +147,9 @@ def get_ollama_response(
         api_params["tools"] = tools
     if tool_choice:
         api_params["tool_choice"] = tool_choice
-    options = {}
-    for key, value in kwargs.items():
-        if key in [
-            "stop", "temperature", "top_p", "max_tokens", "max_completion_tokens",
-            "tools", "tool_choice", "extra_headers", "parallel_tool_calls",
-            "response_format", "user",
-        ]:
-            options[key] = value
+    if think is not None:
+        api_params['think'] = think
+    
 
     if isinstance(format, type) and not stream:
         api_params["format"] = format.model_json_schema()
@@ -179,12 +175,12 @@ def get_ollama_response(
         "tool_calls": [], 
         "tool_results": []
     }
-    
-    # Handle streaming
+        
     if stream:
         result["response"] = ollama.chat(**api_params, options=options)
         return result
     
+
     # Non-streaming case
     res = ollama.chat(**api_params, options = options)
     result["raw_response"] = res
@@ -233,6 +229,7 @@ def get_litellm_response(
     tools: list = None,
     tool_choice: Dict = None,
     tool_map: Dict = None,
+    think= None,
     format: Union[str, BaseModel] = None,
     messages: List[Dict[str, str]] = None,
     api_key: str = None,
@@ -251,7 +248,7 @@ def get_litellm_response(
     if provider == "ollama":
         kwargs["tool_map"] = tool_map
         return get_ollama_response(
-            prompt, model, images=images, tools=tools, tool_choice=tool_choice,
+            prompt, model, images=images, tools=tools, tool_choice=tool_choice, think=think,
             format=format, messages=messages, stream=stream, attachments=attachments, **kwargs
         )
     if attachments:
