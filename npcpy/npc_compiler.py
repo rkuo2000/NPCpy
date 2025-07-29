@@ -94,8 +94,11 @@ class Jinx:
                 messages=None):
         """Execute the jinx with given inputs"""
         if jinja_env is None:
+            # For standalone jinx execution, we don't need FileSystemLoader
+            # Just use a basic environment with no file system dependencies
+            from jinja2 import DictLoader
             jinja_env = Environment(
-                loader=FileSystemLoader([npc.npc_directory, npc.jinxs_directory]),
+                loader=DictLoader({}),  # Empty dict loader since we're not loading templates from files
                 undefined=SilentUndefined,
             )
         # Create context with input values and jinxs

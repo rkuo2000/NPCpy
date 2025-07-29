@@ -109,6 +109,8 @@ def get_ollama_response(
                 else:
                     messages[-1]["content"].append({"type": "text", "text": prompt})
         else:
+            if not messages:
+                messages = []
             messages.append({"role": "user", "content": prompt})
     if format == "json" and not stream:
         json_instruction = """If you are a returning a json object, begin directly with the opening {.

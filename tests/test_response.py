@@ -41,7 +41,7 @@ def test_get_litellm_response_with_images():
         
         response = get_litellm_response(
             prompt="What color is this image?",
-            model="llama3.2-vision:latest",
+            model="gemma3:4b",
             provider="ollama",
             images=[img_path]
         )

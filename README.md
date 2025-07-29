@@ -603,21 +603,18 @@ steps:
 ### Using Jinxs Directly
 
 ```python
-from npcpy.npc_compiler import Jinx
-from npcpy.llm_funcs import get_llm_response
+from npcpy.npc_compiler import Jinx, NPC
 
 # Load and execute jinx directly
 research_jinx = Jinx(jinx_path='./research_pipeline.jinx')
 
-# Create a simple NPC context for execution
-class SimpleNPC:
-    def __init__(self):
-        self.shared_context = {}
-    
-    def get_llm_response(self, prompt, **kwargs):
-        return get_llm_response(prompt, model='deepseek-coder', provider='deepseek')
-
-npc = SimpleNPC()
+# Create a simple NPC for execution
+npc = NPC(
+    name='Research Assistant',
+    primary_directive='You are a research assistant specialized in analyzing and reporting on various topics.',
+    model='gemini-1.5-pro',
+    provider='gemini'
+)
 
 # Execute the jinx
 result = research_jinx.execute(
