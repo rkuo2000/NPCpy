@@ -49,36 +49,41 @@ def _windows_snip_to_file(file_path: str) -> bool:
         return False
 
 
-def capture_screenshot(npc: Any = None, full=False) -> Dict[str, str]:
+def capture_screenshot( ) -> Dict[str, str]:
     """
     Function Description:
         This function captures a screenshot of the current screen and saves it to a file.
     Args:
         npc: The NPC object representing the current NPC.
-        full: Boolean to determine if full screen capture is needed
+        full: Boolean to determine if full screen capture is needed. Default to true.
+        path: Optional path to save the screenshot. Must not use placeholders. Relative paths preferred if the user specifies they want a specific path, otherwise default to None.
     Returns:
         A dictionary containing the filename, file path, and model kwargs.
     """
     # Ensure the directory exists
+    print('capturing screenshot')
     directory = os.path.expanduser("~/.npcsh/screenshots")
-    os.makedirs(directory, exist_ok=True)
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
+    filename = f"screenshot_{timestamp}.png"
 
-    # Generate a unique filename
-    filename = f"screenshot_{int(time.time())}.png"
     file_path = os.path.join(directory, filename)
+    os.makedirs(directory, exist_ok=True)
+    print(directory)
+
+    full = True
+    #file_path = os.path.join(directory, filename)
 
     system = platform.system()
+    print('System detected:', system)
     model_kwargs = {}
 
-    if npc is not None:
-        if npc.provider is not None:
-            model_kwargs["provider"] = npc.provider
-        if npc.model is not None:
-            model_kwargs["model"] = npc.model
-
+    print(full, system)
     if full:
-        if system == "Darwin":
-            subprocess.run(["screencapture", file_path])
+        print('full')
+        if system.lower() == "darwin":
+            print('mac os screencap')
+            subprocess.run(["screencapture", file_path], capture_output=True)
+            print(f"Full screenshot saved to: {file_path}")
         elif system == "Linux":
             if (
                 subprocess.run(

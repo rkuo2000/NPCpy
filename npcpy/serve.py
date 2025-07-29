@@ -31,6 +31,8 @@ from npcpy.llm_funcs import (
 from npcpy.npc_compiler import NPC
 import base64
 
+from npcpy.tools import auto_tools
+
 import json
 import os
 from pathlib import Path
@@ -1073,15 +1075,44 @@ def stream():
     
     npc_object = None
     if npc_name:
-        db_conn = get_db_connection()
-        npc_object = load_npc_by_name_and_source(npc_name, npc_source, db_conn, current_path)
-        if not npc_object and npc_source == 'project':
-            print(f"NPC {npc_name} not found in project directory, trying global...")
-            npc_object = load_npc_by_name_and_source(npc_name, 'global', db_conn)
-        if npc_object:
-            print(f"Successfully loaded NPC {npc_name} from {npc_source} directory")
-        else:
-            print(f"Warning: Could not load NPC {npc_name}")
+        # First check if there's a registered team and the NPC exists within that team
+        if team and hasattr(app, 'registered_teams') and team in app.registered_teams:
+            team_object = app.registered_teams[team]
+            # Check if NPC exists in team's npcs (could be dict or list)
+            if hasattr(team_object, 'npcs'):
+                team_npcs = team_object.npcs
+                if isinstance(team_npcs, dict):
+                    if npc_name in team_npcs:
+                        npc_object = team_npcs[npc_name]
+                        print(f"Found NPC {npc_name} in registered team {team}")
+                elif isinstance(team_npcs, list):
+                    for npc in team_npcs:
+                        if hasattr(npc, 'name') and npc.name == npc_name:
+                            npc_object = npc
+                            print(f"Found NPC {npc_name} in registered team {team}")
+                            break
+            # Also check the forenpc
+            if not npc_object and hasattr(team_object, 'forenpc') and hasattr(team_object.forenpc, 'name'):
+                if team_object.forenpc.name == npc_name:
+                    npc_object = team_object.forenpc
+                    print(f"Found NPC {npc_name} as forenpc in team {team}")
+        
+        # If not found in team, check registered NPCs directly
+        if not npc_object and hasattr(app, 'registered_npcs') and npc_name in app.registered_npcs:
+            npc_object = app.registered_npcs[npc_name]
+            print(f"Found NPC {npc_name} in registered NPCs")
+        
+        # Finally fall back to loading from database/files
+        if not npc_object:
+            db_conn = get_db_connection()
+            npc_object = load_npc_by_name_and_source(npc_name, npc_source, db_conn, current_path)
+            if not npc_object and npc_source == 'project':
+                print(f"NPC {npc_name} not found in project directory, trying global...")
+                npc_object = load_npc_by_name_and_source(npc_name, 'global', db_conn)
+            if npc_object:
+                print(f"Successfully loaded NPC {npc_name} from {npc_source} directory")
+            else:
+                print(f"Warning: Could not load NPC {npc_name}")
 
     attachments = data.get("attachments", [])
     command_history = CommandHistory(db_path)
@@ -1126,9 +1157,36 @@ def stream():
         team=team, attachments=attachments_loaded, message_id=message_id,
     )
     # Then pass attachment_paths to get_llm_response:
+    # Pass tools and tool_map from NPC if available
+    tool_args = {}
+    if npc_object is not None:
+        # Always convert tools to OpenAI-compatible schema and tool_map
+        if hasattr(npc_object, 'tools') and npc_object.tools:
+            # If tools is a list of callables, convert to schema/map
+            if isinstance(npc_object.tools, list) and callable(npc_object.tools[0]):
+                tools_schema, tool_map = auto_tools(npc_object.tools)
+                tool_args['tools'] = tools_schema
+                tool_args['tool_map'] = tool_map
+            else:
+                # If already schema, just use as is
+                tool_args['tools'] = npc_object.tools
+                if hasattr(npc_object, 'tool_map') and npc_object.tool_map:
+                    tool_args['tool_map'] = npc_object.tool_map
+        elif hasattr(npc_object, 'tool_map') and npc_object.tool_map:
+            tool_args['tool_map'] = npc_object.tool_map
+        # --- Always force tool use if tools are present ---
+        if 'tools' in tool_args and tool_args['tools']:
+            tool_args['tool_choice'] = {"type": "auto"}
+    # --- DEBUG LOGGING: Print tool schema and tool_map before LLM call ---
+    print("\n[DEBUG] Passing tools to get_llm_response:")
+    print("tools schema:", json.dumps(tool_args.get('tools', None), indent=2))
+    print("tool_map keys:", list(tool_args.get('tool_map', {}).keys()) if 'tool_map' in tool_args else None)
+    print("tool_choice:", tool_args.get('tool_choice', None))
     stream_response = get_llm_response(
         commandstr, messages=messages, images=images, model=model,
         provider=provider, npc=npc_object, stream=True, attachments=attachment_paths,
+        auto_process_tool_calls=True,
+        **tool_args
     )
 
     message_id = command_history.generate_message_id()
@@ -1151,6 +1209,10 @@ def stream():
                 print('.', end="", flush=True)
                 dot_count += 1
 
+                # --- DEBUG LOGGING: Print the raw response_chunk from LLM ---
+                print("\n[DEBUG] Raw response_chunk from LLM:")
+                print(json.dumps(response_chunk, indent=2, default=str))
+
                 if "hf.co" in model or provider == 'ollama':
                     chunk_content = response_chunk["message"]["content"] if "message" in response_chunk and "content" in response_chunk["message"] else ""
                     if "message" in response_chunk and "tool_calls" in response_chunk["message"]:
@@ -1161,7 +1223,10 @@ def stream():
                                 if "name" in tool_call["function"]:
                                     tool_call_data["function_name"] = tool_call["function"]["name"]
                                 if "arguments" in tool_call["function"]:
-                                    tool_call_data["arguments"] += tool_call["function"]["arguments"]
+                                    arg_val = tool_call["function"]["arguments"]
+                                    if isinstance(arg_val, dict):
+                                        arg_val = json.dumps(arg_val)
+                                    tool_call_data["arguments"] += arg_val
                     if chunk_content:
                         complete_response.append(chunk_content)
                     chunk_data = {
@@ -1257,21 +1322,64 @@ def execute():
         print(f"Loaded project env variables for stream request: {list(loaded_vars.keys())}")
     
     npc_object = None
-    if npc_name:
-        db_conn = get_db_connection()
-        npc_object = load_npc_by_name_and_source(npc_name, npc_source, db_conn, current_path)
-        if not npc_object and npc_source == 'project':
-            print(f"NPC {npc_name} not found in project directory, trying global...")
-            npc_object = load_npc_by_name_and_source(npc_name, 'global', db_conn)
-        if npc_object:
-            print(f"Successfully loaded NPC {npc_name} from {npc_source} directory")
+    team_object = None
+    
+    # Handle team execution
+    if team:
+        if hasattr(app, 'registered_teams') and team in app.registered_teams:
+            team_object = app.registered_teams[team]
+            print(f"Using registered team: {team}")
         else:
-            print(f"Warning: Could not load NPC {npc_name}")
+            print(f"Warning: Team {team} not found in registered teams")
+    
+    # Handle individual NPC execution
+    if npc_name:
+        # First check if there's a registered team and the NPC exists within that team
+        if team and hasattr(app, 'registered_teams') and team in app.registered_teams:
+            team_object = app.registered_teams[team]
+            # Check if NPC exists in team's npcs (could be dict or list)
+            if hasattr(team_object, 'npcs'):
+                team_npcs = team_object.npcs
+                if isinstance(team_npcs, dict):
+                    if npc_name in team_npcs:
+                        npc_object = team_npcs[npc_name]
+                        print(f"Found NPC {npc_name} in registered team {team}")
+                elif isinstance(team_npcs, list):
+                    for npc in team_npcs:
+                        if hasattr(npc, 'name') and npc.name == npc_name:
+                            npc_object = npc
+                            print(f"Found NPC {npc_name} in registered team {team}")
+                            break
+            # Also check the forenpc
+            if not npc_object and hasattr(team_object, 'forenpc') and hasattr(team_object.forenpc, 'name'):
+                if team_object.forenpc.name == npc_name:
+                    npc_object = team_object.forenpc
+                    print(f"Found NPC {npc_name} as forenpc in team {team}")
+        
+        # If not found in team, check registered NPCs directly
+        if not npc_object and hasattr(app, 'registered_npcs') and npc_name in app.registered_npcs:
+            npc_object = app.registered_npcs[npc_name]
+            print(f"Found NPC {npc_name} in registered NPCs")
+        
+        # Finally fall back to loading from files
+        if not npc_object:
+            db_conn = get_db_connection()
+            npc_object = load_npc_by_name_and_source(npc_name, npc_source, db_conn, current_path)
+            
+            if not npc_object and npc_source == 'project':
+                print(f"NPC {npc_name} not found in project directory, trying global...")
+                npc_object = load_npc_by_name_and_source(npc_name, 'global', db_conn)
+                
+            if npc_object:
+                print(f"Successfully loaded NPC {npc_name} from {npc_source} directory")
+            else:
+                print(f"Warning: Could not load NPC {npc_name}")
 
     attachments = data.get("attachments", [])
     command_history = CommandHistory(db_path)
     images = []
     attachments_loaded = []
+    
 
     if attachments:
         for attachment in attachments:
@@ -1307,11 +1415,11 @@ def execute():
         wd=current_path, model=model, provider=provider, npc=npc_name,
         team=team, attachments=attachments_loaded, message_id=message_id,
     )
-
     response_gen = check_llm_command(
         commandstr, messages=messages, images=images, model=model,
-        provider=provider, npc=npc_object, stream=True, 
+        provider=provider, npc=npc_object, team=team_object, stream=True
     )
+    print(response_gen)
     #print(npc_object, provider, model)
     message_id = command_history.generate_message_id()
 
@@ -1662,9 +1770,23 @@ def start_flask_server(
     port=5337,
     cors_origins=None,
     static_files=None, 
-    debug = False
+    debug=False,
+    teams=None,
+    npcs=None
 ):
     try:
+        # Register teams and NPCs with the app
+        if teams:
+            app.registered_teams = teams
+            print(f"Registered {len(teams)} teams: {list(teams.keys())}")
+        else:
+            app.registered_teams = {}
+            
+        if npcs:
+            app.registered_npcs = npcs
+            print(f"Registered {len(npcs)} NPCs: {list(npcs.keys())}")
+        else:
+            app.registered_npcs = {}
         # Ensure the database tables exist
 
 

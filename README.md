@@ -171,6 +171,534 @@ from npcpy.llm_funcs import gen_video
 video = gen_video("make a video of the moon in the summer of marco polo", model='runwayml/stable-diffusion-v1-5', provider='diffusers')
 ```
 
+
+## Serving an NPC Team
+
+`npcpy` includes a built-in Flask server that makes it easy to deploy NPC teams for production use. You can serve teams with tools, jinxs, and complex workflows that frontends can interact with via REST APIs.
+
+### Basic Team Server Setup
+
+```python
+from npcpy.serve import start_flask_server
+from npcpy.npc_compiler import NPC, Team
+from npcpy.tools import auto_tools
+import requests
+import os
+
+# Create NPCs with different specializations
+researcher = NPC(
+    name='Research Specialist',
+    primary_directive='You are a research specialist who finds and analyzes information from various sources.',
+    model='claude-3-5-sonnet-latest',
+    provider='anthropic'
+)
+
+analyst = NPC(
+    name='Data Analyst',
+    primary_directive='You are a data analyst who processes and interprets research findings.',
+    model='gpt-4o',
+    provider='openai'
+)
+
+coordinator = NPC(
+    name='Project Coordinator',
+    primary_directive='You coordinate team activities and synthesize results into actionable insights.',
+    model='gemini-1.5-pro',
+    provider='gemini'
+)
+
+# Create team
+research_team = Team(
+    npcs=[researcher, analyst],
+    forenpc=coordinator
+)
+
+# Start the server (serves team at http://localhost:5337)
+start_flask_server(
+    port=5337,
+    cors_origins=["http://localhost:3000", "http://localhost:5173"],  # Allow frontend access
+    debug=True
+)
+```
+
+### Multimedia Production Team with Tools
+
+Here's a complete example of a multimedia team with image generation, editing, web search, screenshot capabilities, desktop automation, data analysis, and workflow planning. The key is to properly register both the team and individual NPCs with the server so they can be accessed via the API:
+
+```python
+from npcpy.serve import start_flask_server
+from npcpy.npc_compiler import NPC, Team
+from npcpy.tools import auto_tools
+from npcpy.gen.image_gen import generate_image, edit_image
+from npcpy.data.web import search_web
+from npcpy.data.image import capture_screenshot
+from npcpy.data.load import load_csv, load_pdf, load_json, load_excel
+from npcpy.work.desktop import perform_action
+from npcpy.work.plan import execute_plan_command
+from npcpy.work.trigger import execute_trigger_command
+import pandas as pd
+
+# Create specialized NPCs with comprehensive tool sets
+image_generator = NPC(
+    name='Image Creator',
+    primary_directive='You are a creative image generator who creates stunning visuals based on descriptions and requirements.',
+    model='gpt-4o',
+    provider='openai',
+    tools=[generate_image]
+)
+
+image_editor = NPC(
+    name='Image Editor',
+    primary_directive='You are a skilled image editor who enhances and modifies images to meet specific requirements.',
+    model='claude-3-5-sonnet-latest', 
+    provider='anthropic',
+    tools=[edit_image]
+)
+
+web_researcher = NPC(
+    name='Web Researcher',
+    primary_directive='You are a thorough web researcher who finds relevant information and visual references online.',
+    model='deepseek-chat',
+    provider='deepseek',
+    tools=[search_web]
+)
+
+screenshot_specialist = NPC(
+    name='Screenshot Specialist',
+    primary_directive='You are a screenshot specialist who captures screen content and visual elements as needed.',
+    model='llama3.2:13b',
+    provider='ollama',
+    tools=[capture_screenshot]
+)
+
+desktop_automator = NPC(
+    name='Desktop Automation Specialist',
+    primary_directive='You are a desktop automation specialist who can control the computer interface, click, type, and perform various desktop actions.',
+    model='qwen3:latest',
+    provider='ollama',
+    tools=[perform_action]
+)
+
+data_analyst = NPC(
+    name='Data Analyst',
+    primary_directive='You are a data analyst who can load, process, and analyze various data formats including CSV, Excel, PDF, and JSON files.',
+    model='gemini-1.5-pro',
+    provider='gemini',
+    tools=[load_csv, load_pdf, load_json, load_excel]
+)
+
+workflow_planner = NPC(
+    name='Workflow Planner',
+    primary_directive='You are a workflow automation specialist who can create scheduled tasks and automated triggers for various system operations.',
+    model='claude-3-5-sonnet-latest',
+    provider='anthropic',
+    tools=[execute_plan_command, execute_trigger_command]
+)
+
+multimedia_coordinator = NPC(
+    name='Multimedia Director',
+    primary_directive='You are a multimedia director who coordinates image creation, editing, research, data analysis, desktop automation, and workflow planning.',
+    model='gemini-2.0-flash',
+    provider='gemini'
+)
+
+# Create comprehensive multimedia production team
+multimedia_team = Team(
+    npcs=[
+        image_generator, 
+        image_editor, 
+        web_researcher, 
+        screenshot_specialist,
+        desktop_automator,
+        data_analyst,
+        workflow_planner
+    ],
+    forenpc=multimedia_coordinator
+)
+
+# Start server for multimedia team
+if __name__ == "__main__":
+    start_flask_server(
+        port=5337,
+        cors_origins=["*"],  # Allow all origins for development
+        debug=True,
+        teams={'multimedia_team': multimedia_team},  # Register the team
+        npcs={npc.name: npc for npc in list(multimedia_team.npcs.values()) + [multimedia_team.forenpc]}  # Register NPCs
+    )
+```
+
+**Important:** The `teams` and `npcs` parameters in `start_flask_server()` register your teams and NPCs with the server so they can be accessed via the API endpoints. When you make requests with `"team": "multimedia_team"`, the server will use the registered team object with all its tools and capabilities.
+
+**NPC Loading Priority:** When specifying both `"team"` and `"npc"` in API requests, the server will:
+1. First look for the NPC within the specified registered team
+2. Then check globally registered NPCs 
+3. Finally fall back to loading NPCs from database/files
+
+This means you can access individual NPCs within a team (like `"Image Creator"` from `"multimedia_team"`) and they will have all their registered tools and capabilities. The registered NPCs include all their tools and can be accessed individually via the API, or as part of a team orchestration through the team's forenpc coordinator.
+
+### Frontend Integration Examples
+
+Once your server is running, frontends can interact with your NPC teams via REST API:
+
+#### curl Examples
+
+```bash
+# Execute a comprehensive multimedia team task
+curl -X POST http://localhost:5337/api/execute \
+  -H "Content-Type: application/json" \
+  -d '{
+    "commandstr": "Search for the latest tech startup trends and take a screenshot of the current desktop",
+    "team": "multimedia_team",
+    "conversationId": "curl_session_123", 
+    "provider": "ollama", 
+    "model": "llama3.2"
+  }'
+
+# Call a specific NPC within the multimedia team
+curl -X POST http://localhost:5337/api/execute \
+  -H "Content-Type: application/json" \
+  -d '{
+    "commandstr": "Search for fintech startup market analysis reports",
+    "team": "multimedia_team",
+    "npc": "Web Researcher",
+    "conversationId": "search_session", 
+    "model": "llama3.2",
+    "provider": "ollama" 
+  }'
+
+# Stream a team response for real-time updates
+curl -X POST http://localhost:5337/api/stream \
+  -H "Content-Type: application/json" \
+  -d '{
+    "commandstr": "Search for design inspiration websites and load any CSV files in the current directory",
+    "team": "multimedia_team",
+    "conversationId": "streaming_session", 
+    "model": "llama3.2",
+    "provider": "ollama" 
+  }' 
+
+
+# Get available models
+curl -X GET http://localhost:5337/api/models
+
+# List available NPCs in the team
+curl -X GET http://localhost:5337/api/npc_team_global
+
+# List available jinxs
+curl -X GET http://localhost:5337/api/jinxs/global
+
+# Execute a specific jinx with inputs
+curl -X POST http://localhost:5337/api/execute \
+  -H "Content-Type: application/json" \
+  -d '{
+    "commandstr": "Execute the content_creation_pipeline jinx",
+    "jinx_name": "content_creation_pipeline",
+    "jinx_inputs": {
+      "topic": "AI in Healthcare",
+      "target_audience": "medical professionals", 
+      "content_type": "infographic"
+    },
+    "conversationId": "jinx_session"
+  }'
+
+# Get conversation history
+curl -X GET "http://localhost:5337/api/messages?conversationId=curl_session_123&limit=10"
+
+# Health check endpoint
+curl -X GET http://localhost:5337/api/health
+```
+
+#### JavaScript/React Example
+
+```javascript
+// Send request to comprehensive multimedia team
+const requestMultimediaWork = async (task) => {
+  const response = await fetch('http://localhost:5337/api/execute', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      commandstr: task,
+      team: 'multimedia_team',
+      conversationId: 'session_123'
+    })
+  });
+  
+  const result = await response.json();
+  return result;
+};
+
+// Example usage - quick web research workflow
+const result = await requestMultimediaWork(
+  "Search for the latest AI trends in 2024, then take a screenshot of the current desktop"
+);
+
+// Data loading and analysis example
+const dataResult = await requestMultimediaWork(
+  "Load any CSV files from the current directory and provide a summary of the data structure"
+);
+
+// Web search and file operations
+const searchResult = await requestMultimediaWork(
+  "Search for 'best practices in web development' and save the results summary to a text file"
+);
+const analysisResult = await requestMultimediaWork(
+  "Load the market_research.pdf, extract key insights, search for related trends online, and generate an infographic summarizing the findings"
+);
+```
+
+#### Python Client Example
+
+```python
+import requests
+
+def use_multimedia_team(task, base_url="http://localhost:5337"):
+    """Send a task to the comprehensive multimedia team server."""
+    response = requests.post(f"{base_url}/api/execute", json={
+        "commandstr": task,
+        "team": "multimedia_team", 
+        "conversationId": "python_client_session"
+    })
+    return response.json()
+
+# Quick web research workflow example
+result = use_multimedia_team(
+    "Search for the latest developments in AI technology and provide a summary of key findings"
+)
+print(result['debrief']['summary'])
+
+# Data loading and analysis example
+data_result = use_multimedia_team(
+    "Load any CSV files in the current directory and provide an analysis of the data structure and contents"
+)
+print(data_result['debrief']['summary'])
+
+# Web search and file operations
+search_result = use_multimedia_team(
+    "Search for information about machine learning best practices and save the key points to a text file"
+)
+print(search_result['debrief']['summary'])
+
+# Workflow automation setup
+automation_result = use_multimedia_team(
+    "Set up a daily task to check for new CSV files in Downloads folder, automatically process them for analysis, generate summary reports, and trigger email notifications"
+)
+print(automation_result['debrief']['summary'])
+```
+
+### Team with Jinxs for Complex Workflows
+
+```python
+from npcpy.npc_compiler import NPC, Team, Jinx
+
+# Create a comprehensive multimedia analysis jinx
+multimedia_analysis_jinx = Jinx(jinx_data={
+    "jinx_name": "multimedia_content_pipeline",
+    "description": "Complete multimedia content creation and analysis workflow",
+    "inputs": ["topic", "data_sources", "output_formats", "automation_schedule"],
+    "steps": [
+        {
+            "name": "research_and_data_gathering",
+            "engine": "natural",
+            "code": """
+            Research the topic "{{ topic }}" comprehensively.
+            Load and analyze data from the specified sources: {{ data_sources }}.
+            Search for current trends, competitors, and market insights online.
+            Capture screenshots of relevant examples and references.
+            
+            Provide comprehensive research including:
+            - Current market trends and developments
+            - Competitor analysis with visual examples
+            - Data insights from loaded files
+            - Visual references and inspiration
+            """
+        },
+        {
+            "name": "data_processing_and_analysis",
+            "engine": "python",
+            "code": """
+            import pandas as pd
+            import numpy as np
+            from datetime import datetime
+            
+            research = context.get('llm_response', '')
+            data_sources = '{{ data_sources }}'.split(',')
+            
+            # Process each data source
+            processed_data = {}
+            for source in data_sources:
+                source = source.strip()
+                if source.endswith('.csv'):
+                    try:
+                        df = pd.read_csv(source)
+                        processed_data[source] = {
+                            'shape': df.shape,
+                            'columns': list(df.columns),
+                            'summary': df.describe().to_dict() if df.select_dtypes(include=[np.number]).shape[1] > 0 else 'No numeric data',
+                            'sample': df.head().to_dict()
+                        }
+                    except Exception as e:
+                        processed_data[source] = f'Error loading: {str(e)}'
+                elif source.endswith('.xlsx'):
+                    try:
+                        df = pd.read_excel(source)
+                        processed_data[source] = {
+                            'shape': df.shape,
+                            'columns': list(df.columns),
+                            'summary': df.describe().to_dict() if df.select_dtypes(include=[np.number]).shape[1] > 0 else 'No numeric data'
+                        }
+                    except Exception as e:
+                        processed_data[source] = f'Error loading: {str(e)}'
+            
+            context['processed_data'] = processed_data
+            context['analysis_timestamp'] = datetime.now().isoformat()
+            
+            output = f"Data processing complete. Analyzed {len(data_sources)} sources at {context['analysis_timestamp']}"
+            """
+        },
+        {
+            "name": "content_creation",
+            "engine": "natural",
+            "code": """
+            Based on the research and data analysis results:
+            
+            Research insights: {{ llm_response }}
+            Processed data: {{ processed_data }}
+            Analysis timestamp: {{ analysis_timestamp }}
+            
+            Create multimedia content for "{{ topic }}" in the following formats: {{ output_formats }}.
+            
+            Generate appropriate visuals including:
+            - Data visualization charts and infographics
+            - Hero images and promotional graphics  
+            - Social media content variations
+            - Presentation slides and diagrams
+            
+            Edit and enhance images as needed for professional quality.
+            Ensure all content aligns with the research insights and data findings.
+            """
+        },
+        {
+            "name": "automation_setup",
+            "engine": "natural", 
+            "code": """
+            Set up automated workflows based on the schedule: {{ automation_schedule }}.
+            
+            Create the following automation:
+            1. Scheduled tasks for regular data updates and analysis
+            2. Triggers for monitoring new data files
+            3. Automated report generation and distribution
+            4. Content refresh and social media posting schedules
+            
+            Configure desktop automation for:
+            - File organization and processing
+            - Application launching and data loading
+            - Screenshot capture for monitoring
+            - Notification and alert systems
+            """
+        }
+    ]
+})
+
+# Create comprehensive content team with expanded capabilities
+multimedia_creator = NPC(
+    name='Multimedia Creator',
+    primary_directive='You are a multimedia creator who develops engaging content across multiple formats and platforms.',
+    model='gpt-4o',
+    provider='openai',
+    jinxs=[multimedia_analysis_jinx],
+    tools=[generate_image, edit_image, capture_screenshot]
+)
+
+data_processor = NPC(
+    name='Data Processing Specialist', 
+    primary_directive='You are a data processing specialist who loads, analyzes, and transforms data from various sources.',
+    model='claude-3-5-sonnet-latest',
+    provider='anthropic',
+    tools=[load_csv, load_excel, load_pdf, load_json]
+)
+
+automation_engineer = NPC(
+    name='Automation Engineer',
+    primary_directive='You are an automation engineer who creates workflows, schedules, and desktop automation solutions.',
+    model='gemini-1.5-pro',
+    provider='gemini',
+    tools=[execute_plan_command, execute_trigger_command, perform_action]
+)
+
+web_intelligence = NPC(
+    name='Web Intelligence Specialist',
+    primary_directive='You are a web intelligence specialist who gathers market insights and competitive analysis.',
+    model='deepseek-chat',
+    provider='deepseek',
+    tools=[search_web]
+)
+
+content_director = NPC(
+    name='Content Director',
+    primary_directive='You are a content director who oversees comprehensive multimedia production workflows and automation systems.',
+    model='gemini-2.0-flash',
+    provider='gemini'
+)
+
+comprehensive_team = Team(
+    npcs=[multimedia_creator, data_processor, automation_engineer, web_intelligence],
+    forenpc=content_director
+)
+
+# Execute comprehensive multimedia pipeline
+result = comprehensive_team.orchestrate(
+    "Execute the multimedia_content_pipeline jinx for topic='Sustainable Technology Trends 2025', data_sources='market_data.csv,research_report.pdf', output_formats='infographics,social_media,presentation', automation_schedule='daily_analysis,weekly_reports'"
+)
+print(result['debrief']['summary'])
+```
+
+### Production Deployment Tips
+
+```python
+# production_server.py
+from npcpy.serve import start_flask_server
+import os
+
+# Load production environment
+from dotenv import load_dotenv
+load_dotenv('.env.production')
+
+# Configure for production
+if __name__ == "__main__":
+    start_flask_server(
+        port=int(os.getenv('PORT', 5337)),
+        cors_origins=os.getenv('ALLOWED_ORIGINS', '').split(','),
+        debug=False  # Disable debug in production
+    )
+```
+
+### Docker Deployment
+
+```dockerfile
+FROM python:3.12-slim
+
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install -r requirements.txt
+
+COPY . .
+
+EXPOSE 5337
+CMD ["python", "production_server.py"]
+```
+
+The server provides REST endpoints for:
+- `/api/execute` - Execute team commands
+- `/api/stream` - Stream team responses  
+- `/api/models` - Get available models
+- `/api/npc_team_global` - List available NPCs
+- `/api/jinxs/global` - List available jinxs
+
+This setup allows you to quickly deploy sophisticated NPC teams with multimedia capabilities, complex workflows, and tool integrations that frontends can consume via standard REST APIs.
+
+
+
+
 ## Tool Calling Examples
 
 `npcpy` supports tool calling both with and without NPCs, allowing you to extend LLM capabilities with custom functions.
@@ -438,7 +966,8 @@ response = {
 
 ## Jinx Examples
 
-Jinxs are powerful workflow templates that combine natural language processing with Python code execution. They're defined in YAML files and can be used by NPCs or called directly.
+Jinja execution templates---Jinxs---are powerful workflow templates that combine natural language processing with Python code execution through sequential processing of steps. They're defined in YAML files and can be used by NPCs or called directly. Jinxs can reference other Jinxs through Jinja references, allowing for modular and reusable workflows 
+that can be easily shared, adapted, and extended.
 
 ### Creating a Simple Jinx
 
@@ -493,6 +1022,7 @@ steps:
     engine: "natural"
     code: |
       Based on the data analysis results:
+      
       - Dataset has {{ row_count }} rows and {{ column_count }} columns
       - Analysis type: {{ analysis_type }}
       

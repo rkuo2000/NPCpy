@@ -469,13 +469,13 @@ class NPC:
 
         if tools is not None:
             tools_schema, tool_map = auto_tools(tools)
-            self.tools_schema = tools_schema
-            self.tool_map = tool_map
-            self.tools= tools
+            self.tools = tools_schema  # Always store OpenAI-compatible schema here
+            self.tool_map = tool_map   # Store the callable map
+            self.tools_schema = tools_schema  # For backward compatibility if needed
         else:
-            self.tools_schema = []
+            self.tools = []
             self.tool_map = {}
-            self.tools = None
+            self.tools_schema = []
         self.use_global_jinxs = use_global_jinxs
         
         self.memory_length = 20
