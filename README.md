@@ -118,7 +118,7 @@ Users are not required to pass agents to get_llm_response, so you can work with 
 ```python
 from npcpy.npc_sysenv import print_and_process_stream
 from npcpy.llm_funcs import get_llm_response
-response = get_llm_response("When did the united states government begin sendinng advisors to vietnam?", model='qwen2.5:14b', provider='ollama', stream = True)
+response = get_llm_response("When did the united states government begin sending advisors to vietnam?", model='qwen2.5:14b', provider='ollama', stream = True)
 
 full_response = print_and_process_stream(response['response'], 'llama3.2', 'ollama')
 ```
@@ -213,12 +213,16 @@ research_team = Team(
     forenpc=coordinator
 )
 
-# Start the server (serves team at http://localhost:5337)
-start_flask_server(
-    port=5337,
-    cors_origins=["http://localhost:3000", "http://localhost:5173"],  # Allow frontend access
-    debug=True
-)
+if __name__ == "__main__":
+    # Register team and NPCs directly with the server
+    npcs = {npc.name: npc for npc in list(research_team.npcs.values()) + [research_team.forenpc]}
+    start_flask_server(
+        port=5337,
+        cors_origins=["http://localhost:3000", "http://localhost:5173"],  # Allow frontend access
+        debug=True,
+        teams={'research_team': research_team},
+        npcs=npcs
+    )
 ```
 
 ### Multimedia Production Team with Tools
@@ -318,30 +322,14 @@ multimedia_team = Team(
 
 # Start server for multimedia team
 if __name__ == "__main__":
-    # Register the team globally so the server can access it
-    import npcpy.serve as serve_module
-    
-    # Add the team to the server's global state
-    if not hasattr(serve_module, 'registered_teams'):
-        serve_module.registered_teams = {}
-    serve_module.registered_teams['multimedia_team'] = multimedia_team
-    
-    # Also register individual NPCs for direct access
-    if not hasattr(serve_module, 'registered_npcs'):
-        serve_module.registered_npcs = {}
-    
-    for npc in list(multimedia_team.npcs.values()) + [multimedia_team.forenpc]:
-        serve_module.registered_npcs[npc.name] = npc
-    
-    print(f"Registered team 'multimedia_team' with {len(multimedia_team.npcs)} NPCs")
-    print(f"Available NPCs: {[npc.name for npc in list(multimedia_team.npcs.values()) + [multimedia_team.forenpc]]}")
-    
+    # Register team and NPCs directly with the server
+    npcs = {npc.name: npc for npc in list(multimedia_team.npcs.values()) + [multimedia_team.forenpc]}
     start_flask_server(
         port=5337,
         cors_origins=["*"],  # Allow all origins for development
         debug=True,
-        teams={'multimedia_team': multimedia_team},  # Pass teams to server
-        npcs=serve_module.registered_npcs  # Pass NPCs to server
+        teams={'multimedia_team': multimedia_team},
+        npcs=npcs
     )
 
 ```
