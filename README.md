@@ -271,6 +271,7 @@ Easily create images with the generate_image function, using models available th
 from npcpy.llm_funcs import gen_image
 image = gen_image("make a picture of the moon in the summer of marco polo", model='runwayml/stable-diffusion-v1-5', provider='diffusers')
 
+image = gen_image("kitten toddler in a bouncy house of fluffy gorilla", model='Qwen/Qwen-Image', provider='diffusers')
 
 image = gen_image("make a picture of the moon in the summer of marco polo", model='dall-e-2', provider='openai')
 

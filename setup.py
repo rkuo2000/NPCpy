@@ -32,6 +32,7 @@ base_requirements = [
     "termcolor",
     "rich",
     "colorama",
+    "docstring_parser",
     "Pillow",
     "python-dotenv",
     "pandas",
@@ -82,7 +83,7 @@ extra_files = package_files("npcpy/npc_team/")
 
 setup(
     name="npcpy",
-    version="1.1.4",
+    version="1.1.5",
     packages=find_packages(exclude=["tests*"]),
     install_requires=base_requirements,  # Only install base requirements by default
     extras_require={
