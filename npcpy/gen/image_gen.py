@@ -18,10 +18,16 @@ def generate_image_diffusers(
     width: int = 512,
 ):
     """Generate an image using the Stable Diffusion API."""
-    from diffusers import StableDiffusionPipeline
+    if 'Qwen' in model:
+        from diffusers import DiffusionPipeline
 
-    pipe = StableDiffusionPipeline.from_pretrained(model)
-    pipe = pipe.to(device)
+        pipe = DiffusionPipeline.from_pretrained(model)
+        pipe = pipe.to(device)
+    else:        
+        from diffusers import StableDiffusionPipeline
+
+        pipe = StableDiffusionPipeline.from_pretrained(model)
+        pipe = pipe.to(device)
 
     # Generate the image
     image = pipe(prompt, height=height, width=width)

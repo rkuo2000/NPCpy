@@ -795,7 +795,7 @@ Use the following context about available actions and tools to construct the pla
         if ctx:
             prompt += f"\n--- Context for action '{action_name}' ---\n{ctx}\n"
 
-    print(prompt)
+    #print(prompt)
     # 3. Add the final instructions.
     prompt += f"""
 --- Instructions ---
