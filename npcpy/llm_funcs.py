@@ -19,6 +19,7 @@ from npcpy.gen.response import get_litellm_response
 from npcpy.gen.image_gen import generate_image, edit_image
 from npcpy.gen.video_gen import generate_video_diffusers
 
+
 def gen_image(
     prompt: str,
     model: str = None,
@@ -154,6 +155,7 @@ def get_llm_response(
             model = "llama3.2"
             
     system_message = get_system_message(npc) if npc else "You are a helpful assistant."
+    #print(system_message)
 
     if context is not None:
         context_str = f'User Provided Context: {context}'
@@ -326,6 +328,48 @@ def execute_llm_command(
         "messages": messages,
         "output": "Max attempts reached. Unable to execute the command successfully.",
     }
+def check_llm_command(
+    command: str,
+    model: str = None,
+    provider: str = None,
+    api_url: str = None,
+    api_key: str = None,
+    npc: Any = None,
+    team: Any = None,
+    messages: List[Dict[str, str]] = None,
+    images: list = None,
+    stream=False,
+    context=None,
+    shell=False,
+    actions: Dict[str, Dict] = None,
+    max_iterations: int = 3,
+    current_iteration: int = 0,
+):
+    """This function checks an LLM command and returns sequences of steps with parallel actions."""
+    if messages is None:
+        messages = []
+
+    if actions is None:
+        actions = DEFAULT_ACTION_SPACE.copy()
+
+    return execute_multi_step_plan(
+        command=command,
+        model=model,
+        provider=provider,
+        api_url=api_url,
+        api_key=api_key,
+        npc=npc,
+        team=team,
+        messages=messages,
+        images=images,
+        stream=stream,
+        context=context,
+        shell=shell,
+        actions=actions,
+        max_iterations=max_iterations,
+        current_iteration=current_iteration,
+        completed_actions=[]  # Initialize empty completed actions
+    )
 
 def handle_jinx_call(
     command: str,
@@ -336,6 +380,7 @@ def handle_jinx_call(
     api_key: str = None,
     messages: List[Dict[str, str]] = None,
     npc: Any = None,
+    team: Any = None,
     stream=False,
     shell=False,
     n_attempts=3,
@@ -357,15 +402,22 @@ def handle_jinx_call(
         the jinx call.
 
     """
-    if npc is None:
+    if npc is None and team is None:
         return f"No jinxs are available. "
     else:
-        if jinx_name not in npc.jinxs_dict:
+
+        #print(npc, team)
+        #print(team.jinxs_dict, npc.jinxs_dict)
+        if jinx_name not in npc.jinxs_dict and jinx_name not in team.jinxs_dict:
             print("not available")
-            print(f"jinx '{jinx_name}' not found in NPC's jinxs_dict.")
-            return f"jinx '{jinx_name}' not found."
+
+            return  {'output': f"jinx '{jinx_name}' not found in NPC's jinxs_dict.",
+                    'messages': messages}
         elif jinx_name in npc.jinxs_dict:
             jinx = npc.jinxs_dict[jinx_name]
+        elif jinx_name in team.jinxs_dict:
+            jinx = team.jinxs_dict[jinx_name]
+
         render_markdown(f"jinx found: {jinx.jinx_name}")
         jinja_env = Environment(loader=FileSystemLoader("."), undefined=Undefined)
         example_format = {}
@@ -460,6 +512,7 @@ def handle_jinx_call(
                     provider=provider,
                     messages=messages,
                     npc=npc,
+                    team=team,
                     api_url=api_url,
                     api_key=api_key,
                     stream=stream,
@@ -480,7 +533,6 @@ def handle_jinx_call(
                 input_values,
                 jinja_env,
                 npc=npc,
-
                 messages=messages,
             )
             if 'llm_response' in jinx_output and 'messages' in jinx_output:
@@ -498,6 +550,7 @@ def handle_jinx_call(
                     provider=provider,
                     messages=messages,
                     npc=npc,
+                    team=team,
                     api_url=api_url,
                     api_key=api_key,
                     stream=stream,
@@ -517,6 +570,7 @@ def handle_jinx_call(
                         provider=provider,
                         messages=messages,
                         npc=npc,
+                        team=team,
                         api_url=api_url,
                         api_key=api_key,
                         stream=stream,
@@ -530,8 +584,6 @@ def handle_jinx_call(
                         "messages": messages,
                     }
 
-        # process the jinx call
-        #print(messages)
         if not stream and messages[-1]['role'] != 'assistant':
             # if the jinx has already added a message to the output from a final prompt we dont want to double that
             
@@ -600,7 +652,6 @@ def handle_request_input(
     )
     return user_input
 def jinx_handler(command, extracted_data, **kwargs):
-    print(f"JINX HANDLER: calling handle_jinx_call with jinx_name='{extracted_data.get('jinx_name')}'")
     return handle_jinx_call(
         command, 
         extracted_data.get('jinx_name'),
@@ -610,6 +661,7 @@ def jinx_handler(command, extracted_data, **kwargs):
         api_key=kwargs.get('api_key'),
         messages=kwargs.get('messages'),
         npc=kwargs.get('npc'),
+        team = kwargs.get('team'),
         stream=kwargs.get('stream'),
         shell=kwargs.get('shell'),
         context=kwargs.get('context')
@@ -617,7 +669,7 @@ def jinx_handler(command, extracted_data, **kwargs):
 
 def answer_handler(command, extracted_data, **kwargs):
     print(f"ANSWER HANDLER: cmd='{command}', extracted_data={extracted_data}")
-    return get_llm_response(
+    response =  get_llm_response(
         f"""
         Here is the user question: {command}
         The action chosen by the agent is: answer_question
@@ -633,17 +685,19 @@ def answer_handler(command, extracted_data, **kwargs):
         api_key=kwargs.get('api_key'),
         messages=kwargs.get('messages'),
         npc=kwargs.get('npc'),
-        stream=kwargs.get('stream'),
+        stream=False,
         images=kwargs.get('images')
     )
-
+    
+    return response
+    
 # Define `DEFAULT_ACTION_SPACE`
 
 DEFAULT_ACTION_SPACE = {
     "invoke_jinx": {
         "description": "Invoke a jinx (jinja-template execution script)",
         "handler": jinx_handler,
-        "context": lambda npc=None, **_: (
+        "context": lambda npc=None, team=None, **_: (
             """
             Use jinxs when appropriate. For example:
 
@@ -657,6 +711,15 @@ DEFAULT_ACTION_SPACE = {
 
             You MUST use a jinx if the request directly refers to a tool the AI cannot handle directly (e.g., 'run', 'open', 'search', etc).
 
+            To invoke a jinx, return the action 'invoke_jinx' along with the jinx specific name. 
+            An example for a jinx-specific return would be
+            {
+                "action": "invoke_jinx",
+                "jinx_name": "file_reader",
+                "explanation": "Read the contents of <full_filename_path_from_user_request> and <detailed explanation of how to accomplish the problem outlined in the request> ."
+            }
+            Do not use the jinx names as the action keys.  You must use the action 'invoke_jinx' to invoke a jinx!
+
             Here are the currently available jinxs:
             """ +
             (
@@ -666,6 +729,13 @@ DEFAULT_ACTION_SPACE = {
                 )
                 if npc and getattr(npc, "jinxs_dict", None)
                 else "  [No jinxs available for this NPC]"
+            ) +  "\n \n \n Team Jinxs: " + (
+                "\n".join(
+                    f"- {name}: {jinx.description}"
+                    for name, jinx in getattr(team, "jinxs_dict", {}).items()
+                )
+                if team and getattr(team, "jinxs_dict", None)
+                else "  [No jinxs available for this team]"
             )
         ),
         "output_keys": {
@@ -682,150 +752,99 @@ DEFAULT_ACTION_SPACE = {
         "output_keys": {}
     }
 }
-def check_llm_command(
-    command: str,
-    model: str = None,
-    provider: str = None,
-    api_url: str = None,
-    api_key: str = None,
-    npc: Any = None,
-    team: Any = None,
-    messages: List[Dict[str, str]] = None,
-    images: list = None,
-    stream=False,
-    context=None,
-    shell=False,
-    actions: Dict[str, Dict] = None,
-    max_iterations: int = 3,
-    current_iteration: int = 0,
-):
-    """This function checks an LLM command and returns sequences of steps with parallel actions."""
-    if messages is None:
-        messages = []
-
-    if actions is None:
-        actions = DEFAULT_ACTION_SPACE.copy()
-
-        if shell:
-            actions["request_input"] = {
-                "description": "Request additional input from the user",
-                "handler": lambda cmd, extracted_data, **kwargs: handle_request_input(
-                    f"Explanation from check_llm_command: {extracted_data.get('explanation', '')} \n for the user input command: {cmd}",
-                    kwargs.get('model'), 
-                    kwargs.get('provider')
-                ),
-                "context": "Use this when the user's request is ambiguous or needs clarification.",
-                "output_keys": {}
-            }
-
-    return execute_multi_step_plan(
-        command=command,
-        model=model,
-        provider=provider,
-        api_url=api_url,
-        api_key=api_key,
-        npc=npc,
-        team=team,
-        messages=messages,
-        images=images,
-        stream=stream,
-        context=context,
-        shell=shell,
-        actions=actions,
-        max_iterations=max_iterations,
-        current_iteration=current_iteration
-    )
 def plan_multi_step_actions(
    command: str,
-   context: str = None,
-   messages: List[Dict[str, str]] = None,
-   actions: Dict[str, Dict] = None,
+   actions: Dict[str, Dict],
    npc: Any = None,
-   team: Any = None,
    model: str = None,
    provider: str = None,
    api_url: str = None,
    api_key: str = None,
+   context: str = None,
+   messages: List[Dict[str, str]] = None,
+   team: Any = None
 ):
-   """Generate sequences of steps with parallel actions."""
-   
-   prompt = "A user submitted this query: " + command + "\n"
+    """
+    Analyzes the user's command and creates a complete, sequential plan of actions
+    by dynamically building a prompt from the provided action space.
+    """
+    
+    # --- Start of the corrected logic ---
+    
+    # 1. Build the prompt dynamically.
+    prompt = f"""
+Analyze the user's request: "{command}"
 
-   for action_name, action_info in actions.items():
-       ctx = action_info.get("context")
-       if callable(ctx):
-           ctx = ctx(npc=npc, team=team, context=context)
-       if ctx:
-           prompt += "\n" + ctx
+Your task is to create a complete, sequential JSON plan to fulfill the entire request.
+Use the following context about available actions and tools to construct the plan.
 
-   prompt += """
-Recent messages: """ + str(messages[-5:] if len(messages) > 5 else messages) + """
+"""
 
-Plan action sequences. Same step = parallel. Different steps = sequential.
+    # 2. Dynamically add context from the action space, executing lambdas as needed.
+    for action_name, action_info in actions.items():
+        ctx = action_info.get("context")
+        # If the context is a function (our lambda), call it to get the dynamic string.
+        if callable(ctx):
+            try:
+                # Pass the npc object to the lambda so it can access the jinxs_dict.
+                ctx = ctx(npc=npc, team=team)
+            except Exception as e:
+                print(f"[WARN] Failed to render context for action '{action_name}': {e}")
+                ctx = None
+        
+        if ctx:
+            prompt += f"\n--- Context for action '{action_name}' ---\n{ctx}\n"
 
-JSON format:
+    print(prompt)
+    # 3. Add the final instructions.
+    prompt += f"""
+--- Instructions ---
+Based on the user's request and the context provided above, create a plan.
+The plan must be a JSON object with a single key, "actions". Each action must include:
+- "action": The name of the action to take.
+- "explanation": A clear description of the goal for this specific step.
+
+Example Request: "Find out who the current CEO of Microsoft is, then find their biography on Wikipedia"
+ 
+An Example Plan might look like this depending on the available actions:
+""" + """
 {
- "sequences": [
-   [
-     [{"action": "invoke_jinx", "jinx_name": "internet_search"}],
-     [{"action": "invoke_jinx", "jinx_name": "gen_image"}]
-   ]
- ]
+  "actions": [
+    {
+      "action": "<action_name_1>",
+      "<action_specific_key_1..>": "<action_specific_value_1>",
+      <...> : ...,      
+      "explanation": "Identify the current CEO of Microsoft."
+    },
+    {
+      "action": "<action_name_2>",
+        "<action_specific_key_1..>": "<action_specific_value_1>",
+        "explanation": "Find the <action-specific> information identified in the previous step."
+    }
+  ]
 }
 
-Available actions: """ + str(list(actions.keys()))
+"""+f"""
+Now, create the complete plan for the user's query: "{command}"
+Respond ONLY with the JSON plan.
+"""
 
-   if context:
-       prompt += "\nContext: " + context + "\n"
+    action_response = get_llm_response(
+        prompt,
+        model=model, provider=provider, api_url=api_url, api_key=api_key,
+        npc=npc, format="json", messages=[]
+    )
 
-   action_response = get_llm_response(
-       prompt,
-       model=model,
-       provider=provider,
-       api_url=api_url,
-       api_key=api_key,
-       npc=npc,
-       format="json",
-       messages=[],
-       context=None,
-   )
+    response_content = action_response.get("response", {})
+    if isinstance(response_content, str):
+        try:
+            response_content = json.loads(response_content)
+        except json.JSONDecodeError:
+            print(f"Error: Could not parse plan from LLM. Response: {response_content}")
+            return []
+    
+    return response_content.get("actions", [])
 
-   response_content = action_response.get("response", {})
-   if isinstance(response_content, str):
-       response_content = json.loads(response_content)
-
-   sequences = response_content.get("sequences", [])
-   
-   valid_sequences = []
-   total_actions = 0
-   
-   for sequence in sequences:
-       valid_steps = []
-       for step in sequence:
-           valid_actions = []
-           for action_data in step:
-               if total_actions >= 6:
-                   break
-                   
-               action_name = action_data.get("action", "").strip()
-               if action_name in actions:
-                   extracted_data = {"action": action_name, "explanation": action_data.get("explanation", "").strip()}
-                   chosen_action_output_keys = actions[action_name].get("output_keys", {})
-                   
-                   for key_name in chosen_action_output_keys.keys():
-                       if key_name in action_data:
-                           extracted_data[key_name] = action_data[key_name]
-                   
-                   valid_actions.append(extracted_data)
-                   total_actions += 1
-           
-           if valid_actions:
-               valid_steps.append(valid_actions)
-       
-       if valid_steps:
-           valid_sequences.append(valid_steps)
-   
-   return valid_sequences
 def execute_multi_step_plan(
    command: str,
    model: str = None,
@@ -840,464 +859,202 @@ def execute_multi_step_plan(
    context=None,
    shell=False,
    actions: Dict[str, Dict] = None,
-   max_iterations: int = 3,
-   current_iteration: int = 0,
+   max_iterations: int = 3, # No longer used for recursion
+   current_iteration: int = 0, # No longer used for recursion
+   completed_actions: List = None # No longer used for recursion
 ):
-   """Execute sequences of steps with parallel actions."""
-   
-   if current_iteration >= max_iterations:
-       return {"messages": messages, "output": "Maximum iterations reached."}
-   
-   planned_sequences = plan_multi_step_actions(
-       command=command,
-       context=context,
-       messages=messages,
-       actions=actions,
-       npc=npc,
-       team=team,
-       model=model,
-       provider=provider,
-       api_url=api_url,
-       api_key=api_key
-   )
-   
-   if not planned_sequences:
-       return {"messages": messages, "output": "No valid action sequences could be planned."}
-   
-   all_sequence_results = []
-   current_messages = messages.copy()
-   
-   for seq_idx, sequence in enumerate(planned_sequences):
-       render_markdown(f"## Sequence {seq_idx + 1}")
-       
-       sequence_results = []
-       accumulated_context = ""  # Build context from previous steps
-       
-       for step_idx, step_actions in enumerate(sequence):
-           render_markdown(f"### Step {step_idx + 1}")
-           
-           step_results = []
-           
-           for action_idx, action_data in enumerate(step_actions):
-               action_name = action_data["action"]
-               
-               display_parts = [f"Action {action_idx+1}: {action_name}"]
-               display_parts.append(f"Explanation: {action_data.get('explanation', '')}")
-               for key_name, value in action_data.items():
-                   if key_name not in ["action", "explanation"]:
-                       display_parts.append(f"{key_name}: {value}")
-               
-               render_markdown("- " + "\n- ".join(display_parts) + "\n")
-               
-               handler = actions[action_name]["handler"]
-               
-               # Build enhanced context from previous steps
-               enhanced_context = context or ""
-               if accumulated_context:
-                   enhanced_context += "\n\nResults from previous steps:\n" + accumulated_context
-               
-               result = handler(command, action_data,
-                              model=model, provider=provider, api_url=api_url,
-                              api_key=api_key, messages=current_messages, npc=npc,
-                              stream=stream, shell=shell, context=enhanced_context, images=images)
-               
-               if isinstance(result, dict):
-                   action_output = result.get('output', result.get('response', ''))
-                   current_messages = result.get('messages', current_messages)
-               else:
-                   action_output = result
-               
-               step_results.append({
-                   "action": action_name,
-                   "output": action_output,
-                   "success": True
-               })
-               
-               # Add this action's output to accumulated context for next steps
-               accumulated_context += f"Step {step_idx + 1} - {action_name}: {str(action_output)[:200]}...\n"
-           
-           sequence_results.append(step_results)
-       
-       all_sequence_results.append(sequence_results)
-   
-   needs_more_actions = should_continue_with_more_actions(
-       original_command=command,
-       all_sequence_results=all_sequence_results,
-       current_messages=current_messages,
-       model=model,
-       provider=provider,
-       api_url=api_url,
-       api_key=api_key,
-       npc=npc
-   )
-   
-   if needs_more_actions and current_iteration < max_iterations - 1:
-       results_context = "Previous sequences:\n"
-       for seq_idx, sequence_results in enumerate(all_sequence_results):
-           for step_idx, step_results in enumerate(sequence_results):
-               for action_result in step_results:
-                   results_context += f"{action_result['action']}: {action_result['output'][:100]}...\n"
-       
-       return execute_multi_step_plan(
-           command=command,
-           model=model,
-           provider=provider,
-           api_url=api_url,
-           api_key=api_key,
-           npc=npc,
-           team=team,
-           messages=current_messages,
-           images=images,
-           stream=stream,
-           context=results_context,
-           shell=shell,
-           actions=actions,
-           max_iterations=max_iterations,
-           current_iteration=current_iteration + 1
-       )
-   
-   final_output = compile_sequence_results(all_sequence_results)
-   return {"messages": current_messages, "output": final_output}
-def should_continue_with_more_actions(
-    original_command: str,
-    sequence_results: List[List[List[Dict]]],  # sequences -> steps -> actions
-    current_messages: List[Dict[str, str]],
-    model: str = None,
-    provider: str = None,
-    api_url: str = None,
-    api_key: str = None,
-    npc: Any = None,
-) -> bool:
-    """Decide if more action sequences are needed."""
+    """
+    Creates a comprehensive plan and executes it sequentially, passing context
+    between steps for adaptive behavior.
+    """
     
-    results_summary = ""
-    for seq_idx, sequence_results in enumerate(sequence_results):
-        results_summary += f"Sequence {seq_idx + 1}:\n"
-        for step_idx, step_results in enumerate(sequence_results):
-            results_summary += f"  Step {step_idx + 1}:\n"
-            for action_result in step_results:
-                results_summary += f"    {action_result['action']}: {action_result['output'][:100]}...\n"
-    
-    prompt = f"""
-Original user request: {original_command}
-
-Sequences completed:
-{results_summary}
-
-Is the user's request fully satisfied?
-
-JSON response:
-{{
-    "needs_more_actions": true/false,
-    "reasoning": "brief explanation"
-}}
-"""
-    
-    response = get_llm_response(
-        prompt,
-        model=model,
-        provider=provider,
-        api_url=api_url,
-        api_key=api_key,
-        npc=npc,
-        format="json",
-        messages=[],
-        context=None,
-    )
-    
-    response_content = response.get("response", {})
-    if isinstance(response_content, str):
-        response_content = json.loads(response_content)
-    
-    return response_content.get("needs_more_actions", False)
-
-def compile_sequence_results(all_sequence_results: List) -> str:
-    """Compile final response from sequence results."""
-    
-    successful_outputs = []
-    
-    for sequence_results in all_sequence_results:
-        for step_results in sequence_results:
-            for action_result in step_results:
-                if action_result['success'] and action_result['output']:
-                    successful_outputs.append(action_result['output'])
-    
-    if not successful_outputs:
-        return "No successful actions completed."
-    
-    if len(successful_outputs) == 1:
-        return successful_outputs[0]
-    
-    combined = "Results:\n\n"
-    for i, output in enumerate(successful_outputs, 1):
-        combined += f"{i}. {output}\n\n"
-    
-    return combined.strip()
-
-def plan_actions(
-    command: str,
-    context: str = None,
-    messages: List[Dict[str, str]] = None,
-    actions: Dict[str, Dict] = None,
-    npc: Any = None,
-    team: Any = None,
-    model: str = None,
-    provider: str = None,
-    api_url: str = None,
-    api_key: str = None,
-):
-    """Generate a sequence of actions to accomplish the user's request."""
-    
-    prompt = f"A user submitted this query: {command}\n"
-
-    # Add ALL action contexts to prompt
-    for action_name, action_info in actions.items():
-        ctx = action_info.get("context")
-        if callable(ctx):
-            try:
-                ctx = ctx(npc=npc, team=team, context=context)
-            except Exception as e:
-                print(f"[WARN] Failed to render context for action '{action_name}': {e}")
-                ctx = None
-        if ctx:
-            prompt += f"\n{ctx}"
-
-    prompt += f"""
-These were the most recent 5 messages in the conversation:
-{messages[-5:] if len(messages) > 5 else messages}
-
-Plan a sequence of actions (maximum 6) to accomplish the user's request.
-Each action should be one of: {list(actions.keys())}
-
-Respond with a JSON object containing:
-- "actions": array of action objects, where each object has:
-  - "action": the action name
-  - "explanation": brief explanation for this step
-  - Any additional fields required by the specific action's output_keys
-
-Example format:
-{{
-    "actions": [
-        {{
-            "action": "invoke_jinx",
-            "explanation": "Need to read the file first",
-            "jinx_name": "read_file"
-        }},
-        {{
-            "action": "answer_question", 
-            "explanation": "Provide analysis based on file contents"
-        }}
-    ]
-}}
-
-Available actions: {list(actions.keys())}
-"""
-
-    # Build dynamic JSON format from ALL output_keys across ALL actions
-    all_output_keys = {key_name: key_info for action_info in actions.values() for key_name, key_info in action_info.get("output_keys", {}).items()}
-
-    if context:
-        prompt += f"\nAdditional relevant context from user:\n{context}\n"
-
-    action_response = get_llm_response(
-        prompt,
-        model=model,
-        provider=provider,
-        api_url=api_url,
-        api_key=api_key,
-        npc=npc,
-        format="json",
-        messages=[],
-        context=None,
-    )
-
-    if "Error" in action_response:
-        print(f"LLM Error: {action_response['error']}")
-        return []
-
-    response_content = action_response.get("response", {})
-
-    if isinstance(response_content, str):
-        try:
-            response_content_parsed = json.loads(response_content)
-        except json.JSONDecodeError as e:
-            print(f"Invalid JSON received from LLM: {e}. Response was: {response_content}")
-            return []
-    else:
-        response_content_parsed = response_content
-
-    planned_actions = response_content_parsed.get("actions", [])
-    
-    # Validate and clean up actions
-    valid_actions = []
-    for action_data in planned_actions[:6]:  # Max 6 actions
-        action_name = action_data.get("action", "").strip()
-        if action_name in actions:
-            # Extract only valid fields for this action
-            extracted_data = {"action": action_name, "explanation": action_data.get("explanation", "").strip()}
-            chosen_action_output_keys = actions[action_name].get("output_keys", {})
-            
-            for key_name in chosen_action_output_keys.keys():
-                if key_name in action_data:
-                    extracted_data[key_name] = action_data[key_name]
-            
-            valid_actions.append(extracted_data)
-    
-    return valid_actions
-
-def execute_action_sequence(
-    command: str,
-    model: str = None,
-    provider: str = None,
-    api_url: str = None,
-    api_key: str = None,
-    npc: Any = None,
-    team: Any = None,
-    messages: List[Dict[str, str]] = None,
-    images: list = None,
-    stream=False,
-    context=None,
-    shell=False,
-    actions: Dict[str, Dict] = None,
-    max_iterations: int = 3,
-    current_iteration: int = 0,
-):
-    """Execute sequence of actions and decide if more iterations are needed."""
-    
-    if current_iteration >= max_iterations:
-        return {"messages": messages, "output": "Maximum iterations reached."}
-    
-    # Plan the actions
-    planned_actions = plan_actions(
+    # 1. Get the complete plan upfront with the corrected call.
+    planned_actions = plan_multi_step_actions(
         command=command,
-        context=context,
-        messages=messages,
         actions=actions,
         npc=npc,
-        team=team,
         model=model,
         provider=provider,
         api_url=api_url,
-        api_key=api_key
+        api_key=api_key,
+        context=context,
+        messages=messages,
+        team=team
     )
     
     if not planned_actions:
-        return {"messages": messages, "output": "No valid actions could be planned."}
-    
-    # Execute each action in sequence
-    action_results = []
+        print("Could not generate a multi-step plan. Answering directly.")
+        result = answer_handler(command=command, extracted_data={"explanation": "Answering the user's query directly."}, model=model, provider=provider, api_url=api_url, api_key=api_key, messages=messages, npc=npc, images=images)
+        return {"messages": result.get('messages', messages), "output": result.get('response')}
+
+    # 2. Execute the plan step-by-step.
+    step_outputs = []
     current_messages = messages.copy()
-    
+    print(planned_actions)
     for i, action_data in enumerate(planned_actions):
+        print(f"--- Executing Step {i + 1} of {len(planned_actions)} ---")
+        print(f"Goal: {action_data.get('explanation')}")
+
         action_name = action_data["action"]
-        
-        # Display what we're doing
-        display_parts = [f"Action {i+1}/{len(planned_actions)}: {action_name}"]
-        display_parts.append(f"Explanation: {action_data.get('explanation', '')}")
-        for key_name, value in action_data.items():
-            if key_name not in ["action", "explanation"]:
-                display_parts.append(f"{key_name}: {value}")
-        
-        render_markdown("- " + "\n- ".join(display_parts) + "\n")
-        
-        # Execute the action
         handler = actions[action_name]["handler"]
         
-        try:
-            result = handler(command, action_data,
-                           model=model, provider=provider, api_url=api_url,
-                           api_key=api_key, messages=current_messages, npc=npc,
-                           stream=stream, shell=shell, context=context, images=images)
-            
-            if isinstance(result, dict):
-                action_output = result.get('output', result.get('response', ''))
-                current_messages = result.get('messages', current_messages)
-            else:
-                action_output = result
-            
-            action_results.append({
-                "action": action_name,
-                "output": action_output,
-                "success": True
-            })
-            
-        except Exception as e:
-            print(f"Error executing action '{action_name}': {e}")
-            action_results.append({
-                "action": action_name,
-                "output": f"Error: {str(e)}",
-                "success": False
-            })
-    
-    # Review results and decide if more actions are needed
-    needs_more_actions = should_continue_with_more_actions(
-        original_command=command,
-        action_results=action_results,
-        current_messages=current_messages,
-        model=model,
-        provider=provider,
-        api_url=api_url,
-        api_key=api_key,
-        npc=npc
+        step_context = f"Context from previous steps: {json.dumps(step_outputs)}" if step_outputs else ""
+        step_command = action_data.get('explanation')
+
+        result = handler(
+           command=step_command, 
+           extracted_data=action_data,
+           model=model,
+           provider=provider, 
+           api_url=api_url,
+           api_key=api_key, 
+           messages=current_messages, 
+           npc=npc,
+           team=team,
+           stream=stream, 
+           shell=shell, 
+           context=step_context, 
+           images=images
+        )
+
+        action_output = result.get('output') or result.get('response')
+        step_outputs.append(action_output)
+        current_messages = result.get('messages', current_messages)
+
+    # 3. Compile the final result, passing the original command for context.
+    final_output = compile_sequence_results(
+       original_command=command,
+       outputs=step_outputs,
+       model=model, provider=provider, api_url=api_url,
+       api_key=api_key, npc=npc
     )
+    return {"messages": current_messages, "output": final_output}
+
+def compile_sequence_results(original_command: str, outputs: List[str], model: str = None, provider: str = None, api_url: str = None, api_key: str = None, npc: Any = None) -> str:
+    """
+    Synthesizes a list of outputs from sequential steps into a single,
+    coherent final response, framed as an answer to the original query.
+    """
+    if not outputs:
+        return "The process completed, but produced no output."
+    if len(outputs) == 1:
+        return outputs[0]
     
-    if needs_more_actions and current_iteration < max_iterations - 1:
-        # Build context from completed actions for next iteration
-        results_context = "Previous actions completed:\n"
-        for result in action_results:
-            results_context += f"- {result['action']}: {result['output'][:200]}...\n"
-        
-        return execute_action_sequence(
-            command=command,
+    synthesis_prompt = f"""
+A user asked the following question:
+"{original_command}"
+
+To answer this, the following information was gathered in sequential steps:
+{json.dumps(outputs, indent=2)}
+
+Based *directly on the user's original question* and the information gathered, please
+provide a single, final, and coherent response. Answer the user's question directly.
+Do not mention the steps taken.
+
+Final Synthesized Response:
+"""
+    
+    try:
+        response = get_llm_response(
+            synthesis_prompt,
+            model=model, provider=provider, api_url=api_url,
+            api_key=api_key, npc=npc, messages=[]
+        )
+        synthesized = response.get("response", "")
+        if synthesized and synthesized.strip():
+            return synthesized
+    except Exception as e:
+        print(f"Error during final synthesis: {e}")
+    
+    return "\n\n".join(outputs)
+def compile_sequence_results(original_command: str, outputs: List[str], model: str = None, provider: str = None, api_url: str = None, api_key: str = None, npc: Any = None) -> str:
+    """
+    Synthesizes a list of outputs from sequential steps into a single,
+    coherent final response, framed as an answer to the original query.
+    """
+    
+    if not outputs:
+        return "The process completed, but produced no output."
+    
+    if len(outputs) == 1:
+        return outputs[0]
+    
+    # The prompt now includes the user's query, giving the LLM crucial context.
+    synthesis_prompt = f"""
+A user asked the following question:
+"{original_command}"
+
+To answer this, the following information was gathered in sequential steps:
+{json.dumps(outputs, indent=2)}
+
+Based *directly on the user's original question* and the information gathered, please
+provide a single, final, and coherent response. Answer the user's question directly.
+Do not mention the steps taken.
+
+Final Synthesized Response:
+"""
+    
+    try:
+        response = get_llm_response(
+            synthesis_prompt,
             model=model,
             provider=provider,
             api_url=api_url,
             api_key=api_key,
             npc=npc,
-            team=team,
-            messages=current_messages,
-            images=images,
-            stream=stream,
-            context=results_context,
-            shell=shell,
-            actions=actions,
-            max_iterations=max_iterations,
-            current_iteration=current_iteration + 1
+            messages=[],
         )
+        
+        synthesized = response.get("response", "")
+        if synthesized and synthesized.strip():
+            return synthesized
+    except Exception as e:
+        print(f"Error during final synthesis: {e}")
     
-    # Compile final response
-    final_output = compile_final_response(action_results)
-    return {"messages": current_messages, "output": final_output}
+    # Fallback to a simple join if synthesis fails.
+    return "\n\n".join(outputs)
+
 
 def should_continue_with_more_actions(
     original_command: str,
-    all_sequence_results: List,
+    completed_actions: List[Dict[str, Any]],
     current_messages: List[Dict[str, str]],
     model: str = None,
     provider: str = None,
     api_url: str = None,
     api_key: str = None,
     npc: Any = None,
-) -> bool:
+) -> Dict:
     """Decide if more action sequences are needed."""
     
     results_summary = ""
-    for seq_idx, sequence_results in enumerate(all_sequence_results):
-        results_summary += f"Sequence {seq_idx + 1}:\n"
-        for step_idx, step_results in enumerate(sequence_results):
-            results_summary += f"  Step {step_idx + 1}:\n"
-            for action_result in step_results:
-                results_summary += f"    {action_result['action']}: {action_result['output'][:100]}...\n"
-    
+    for idx, action_result in enumerate(completed_actions):
+        action_name = action_result.get("action", "Unknown Action")
+        output = action_result.get('output', 'No Output')
+        output_preview = output[:100] + "..." if isinstance(output, str) and len(output) > 100 else output
+        results_summary += f"{idx + 1}. {action_name}: {output_preview}\n"
+
     prompt = f"""
-Original: {original_command}
-Completed: {results_summary}
+Original user request: "{original_command}"
 
-Is request satisfied?
+This request asks for multiple things. Analyze if ALL parts have been addressed.
+Look for keywords like "and then", "use that to", "after that" which indicate multiple tasks.
 
-JSON: {{"needs_more_actions": true/false, "reasoning": "brief"}}
+Completed actions so far:
+{results_summary}
+
+For the request "{original_command}", identify:
+1. What parts have been completed
+2. What parts still need to be done
+
+JSON response:
+{{
+    "needs_more_actions": true/false,
+    "reasoning": "explain what's been done and what's still needed",
+    "next_focus": "if more actions needed, what specific task should be done next"
+}}
 """
-    
+
     response = get_llm_response(
         prompt,
         model=model,
@@ -1310,9 +1067,8 @@ JSON: {{"needs_more_actions": true/false, "reasoning": "brief"}}
         context=None,
     )
     
-    response_content = response.get("response", {})
-    if isinstance(response_content, str):
-        response_content = json.loads(response_content)
-    
-    return response_content.get("needs_more_actions", False)
-
+    response_dict = response.get("response", {})
+    if not isinstance(response_dict, dict):
+        return {"needs_more_actions": False, "reasoning": "Error", "next_focus": ""}
+        
+    return response_dict

@@ -26,41 +26,161 @@ simon = NPC(
           )
 response = simon.get_llm_response("What is the most important territory to retain in the Andes mountains?")
 print(response['response'])
+
 ```
+
 ```python 
 The most important territory to retain in the Andes mountains is **Cuzco**. 
 It’s the heart of the Inca Empire, a crucial logistical hub, and holds immense symbolic value for our liberation efforts. Control of Cuzco is paramount.
 ```
 
 
-Here is an example for setting up an agent team:
+Here is an example for getting responses for a particular agent with tools:
 
 ```python
-from npcpy.npc_compiler import NPC, Team
+import os
+import json
+from npcpy.npc_compiler import NPC
+from npcpy.npc_sysenv import render_markdown
+
+def list_files(directory: str = ".") -> list:
+    """List all files in a directory."""
+    return os.listdir(directory)
+
+def read_file(filepath: str) -> str:
+    """Read and return the contents of a file."""
+    with open(filepath, 'r') as f:
+        return f.read()
+
+# Create an agent with fast, verifiable tools
+assistant = NPC(
+    name='File Assistant',
+    primary_directive='You are a helpful assistant who can list and read files.',
+    model='llama3.2',
+    provider='ollama',
+    tools=[list_files, read_file], 
+
+)
+
+response = assistant.get_llm_response(
+    "List the files in the current directory.",
+    auto_process_tool_calls=True, #this is the default for NPCs, but not the default for get_llm_response/upstream
+)
+# show the keys of the response for get_llm_response
+print(response.keys())
+```
+```
+dict_keys(['response', 'raw_response', 'messages', 'tool_calls', 'tool_results'])
+```
+
+```python
+for tool_call in response['tool_results']:
+    render_markdown(tool_call['tool_call_id'])
+    for arg in tool_call['arguments']:
+        render_markdown('- ' + arg + ': ' + str(tool_call['arguments'][arg]))
+    render_markdown('- Results:' + str(tool_call['result']))
+```
+
+```python
+ • directory: .                                                                                                                                                                                                        
+ • Results:['research_pipeline.jinx', '.DS_Store', 'mkdocs.yml', 'LICENSE', '.pytest_cache', 'npcpy', 'Makefile', 'test_data', 'README.md.backup', 'tests', 'screenshot.png', 'MANIFEST.in', 'docs', 'hero_image_tech_startup.png', 'README.md',     
+   'test.png', 'npcpy.png', 'setup.py', '.gitignore', '.env', 'examples', 'npcpy.egg-info', 'bloomington_weather_image.png.png', '.github', '.python-version', 'generated_image.png', 'documents', '.env.example', '.git', '.npcsh_global',          
+   'hello.txt', '.readthedocs.yaml', 'reports']      
+```
+
+
+
+Here is an example for setting up an agent team to use Jinja Execution (Jinxs) templates that are processed entirely with prompts, allowing you to use them with models that do or do not possess tool calling support.
+
+```python
+from npcpy.npc_compiler import NPC, Team, Jinx
+from npcpy.tools import auto_tools
+import os
+
+
+
+file_reader_jinx = Jinx(jinx_data={
+    "jinx_name": "file_reader",
+    "description": "Read a file and summarize its contents",
+    "inputs": ["filename"],
+    "steps": [
+        {
+            "name": "read_file",
+            "engine": "python",
+            "code": """
+import os
+with open(os.path.abspath('{{ filename }}'), 'r') as f:
+    content = f.read()
+output= content
+            """
+        },
+        {
+            "name": "summarize_content",
+            "engine": "natural",
+            "code": """
+                Summarize the content of the file: {{ read_file }}.
+            """
+        }
+    ]
+})
+
+
+# Define a jinx for literary research
+literary_research_jinx = Jinx(jinx_data={
+    "jinx_name": "literary_research",
+    "description": "Research a literary topic, analyze files, and summarize findings",
+    "inputs": ["topic"],
+    "steps": [
+        {
+            "name": "gather_info",
+            "engine": "natural",
+            "code": """
+                Research the topic: {{ topic }}.
+                Summarize the main themes and historical context.
+            """
+        },
+        {
+            "name": "final_summary",
+            "engine": "natural",
+            "code": """
+                Based on the research in. {{gather_info}}, write a concise, creative summary.
+            """
+        }
+    ]
+})
+
 ggm = NPC(
-          name='gabriel garcia marquez',
-          primary_directive='You are the author gabriel garcia marquez. see the stars ',
-          model='gemma3:4b',
-          provider='ollama', # anthropic, gemini, openai, any supported by litellm
-          )
+    name='Gabriel Garcia Marquez',
+    primary_directive='You are Gabriel Garcia Marquez, master of magical realism. Research, analyze, and write with poetic flair.',
+    model='gemma3:4b',
+    provider='ollama',
+)
 
 isabel = NPC(
-          name='isabel allende',
-          primary_directive='You are the author isabel allende. visit the moon',
-          model='llama3.2:8b',
-          provider='ollama', # anthropic, gemini, openai, any supported by litellm
-          )
+    name='Isabel Allende',
+    primary_directive='You are Isabel Allende, weaving stories with emotion and history. Analyze texts and provide insight.',
+    model='llama3.2:8b',
+    provider='ollama',
+
+)
+
 borges = NPC(
-          name='jorge luis borges',
-          primary_directive='You are the author jorge luis borges. listen to the earth and work with your team',
-          model='qwen3:latest',
-          provider='ollama', # anthropic, gemini, openai, any supported by litellm
-          )          
+    name='Jorge Luis Borges',
+    primary_directive='You are Borges, philosopher of labyrinths and libraries. Synthesize findings and create literary puzzles.',
+    model='qwen3:latest',
+    provider='ollama',
+)
 
-# set up an NPC team with a forenpc that orchestrates the other npcs
-lit_team = Team(npcs = [ggm, isabel], forenpc=borges)
+# Set up a team with a forenpc that orchestrates the other npcs
+lit_team = Team(npcs=[ggm, isabel], forenpc=borges, jinxs={'literary_research': literary_research_jinx, 'file_reader': file_reader_jinx},
+)
 
-print(lit_team.orchestrate('whats isabel working on? '))
+# Example: Orchestrate a jinx workflow
+result = lit_team.orchestrate(
+    "Research the topic of magical realism, read ./test_data/magical_realism.txt and summarize the findings"
+)
+print(result['debrief']['summary'])
+
 ```
 ```
  • Action chosen: pass_to_npc                                                                                                                                          
@@ -341,7 +461,7 @@ if __name__ == "__main__":
 2. Then check globally registered NPCs 
 3. Finally fall back to loading NPCs from database/files
 
-This means you can access individual NPCs within a team (like `"Image Creator"` from `"multimedia_team"`) and they will have all their registered tools and capabilities. The registered NPCs include all their tools and can be accessed individually via the API, or as part of a team orchestration through the team's forenpc coordinator.
+This means you can access individual NPCs within a team (like `"Image Creator"` from `"multimedia_team"`) and they will have all of their registered tools and capabilities. The registered NPCs include all their tools and can be accessed individually via the API, or as part of a team orchestration through the team's forenpc coordinator.
 
 ### Frontend Integration Examples
 
@@ -677,196 +797,6 @@ This setup allows you to quickly deploy sophisticated NPC teams with multimedia 
 `npcpy` supports tool calling both with and without NPCs, allowing you to extend LLM capabilities with custom functions.
 
 ### Tool Calling without NPCs
-
-```python
-from npcpy.llm_funcs import get_llm_response
-from npcpy.tools import auto_tools
-import os
-import subprocess
-
-def read_file(filepath: str) -> str:
-    """Read and return the contents of a file."""
-    with open(filepath, 'r') as f:
-        return f.read()
-
-def write_file(filepath: str, content: str) -> str:
-    """Write content to a file."""
-    with open(filepath, 'w') as f:
-        f.write(content)
-    return f"Wrote {len(content)} characters to {filepath}"
-
-def list_files(directory: str = ".") -> list:
-    """List all files in a directory."""
-    return os.listdir(directory)
-
-def run_command(command: str) -> str:
-    """Run a shell command and return the output."""
-    result = subprocess.run(command, shell=True, capture_output=True, text=True)
-    return result.stdout
-
-# Auto-generate schemas from functions
-tools_schema, tool_map = auto_tools([read_file, write_file, list_files, run_command])
-
-# Use tools with natural language requests
-response = get_llm_response(
-    "List the files in the current directory, read the README.md file, and show me the git status",
-    model='llama3.2',
-    provider='ollama',
-    tools=tools_schema,
-    tool_map=tool_map
-)
-
-# Access raw tool data for manual processing
-print("Tool calls made:")
-for call in response.get('tool_calls', []):
-    print(f"- Called {call['function']['name']} with {call['function']['arguments']}")
-
-print("\nTool results:")
-for result in response.get('tool_results', []):
-    print(f"- {result}")
-
-# The response object contains:
-# response['tool_calls'] - List of tools the LLM decided to call
-# response['tool_results'] - List of results from executing those tools
-# response['messages'] - Full conversation history including tool interactions
-# response['response'] - None when tools are used (no synthesized response)
-```
-
-#### Manual Tool Schema (Alternative)
-
-If you prefer to create schemas manually:
-
-```python
-from npcpy.llm_funcs import get_llm_response
-import json
-
-def search_files(pattern: str, directory: str = ".") -> list:
-    """Search for files matching a pattern."""
-    import glob
-    return glob.glob(f"{directory}/**/*{pattern}*", recursive=True)
-
-def get_disk_usage(path: str = ".") -> dict:
-    """Get disk usage information for a path."""
-    import shutil
-    total, used, free = shutil.disk_usage(path)
-    return {"total_gb": total//1e9, "used_gb": used//1e9, "free_gb": free//1e9}
-
-# Manual schema creation
-tool_map = {"search_files": search_files, "get_disk_usage": get_disk_usage}
-
-tools_schema = [
-    {
-        "type": "function",
-        "function": {
-            "name": "search_files",
-            "description": "Search for files matching a pattern",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "pattern": {"type": "string", "description": "File pattern to search for"},
-                    "directory": {"type": "string", "description": "Directory to search in"}
-                },
-                "required": ["pattern"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "get_disk_usage",
-            "description": "Get disk usage information",
-            "parameters": {
-                "type": "object",
-                "properties": {"path": {"type": "string", "description": "Path to check"}},
-                "required": []
-            }
-        }
-    }
-]
-
-response = get_llm_response(
-    "Find all Python files in this project and check how much disk space we're using",
-    model='llama3.2',
-    provider='ollama',
-    tools=tools_schema,
-    tool_map=tool_map
-)
-
-# Process the tool results
-if response.get('tool_calls'):
-    print("Tools used:")
-    for i, call in enumerate(response['tool_calls']):
-        func_name = call['function']['name']
-        args = call['function']['arguments']
-        result = response['tool_results'][i]
-        print(f"  {func_name}({args}) → {result}")
-else:
-    print("No tools were called")
-    print(response.get('response', 'No response available'))
-```
-
-### Tool Calling with NPCs
-
-```python
-from npcpy.npc_compiler import NPC
-from npcpy.tools import auto_tools
-import requests
-import os
-
-def backup_file(filepath: str) -> str:
-    """Create a backup copy of a file."""
-    backup_path = f"{filepath}.backup"
-    with open(filepath, 'r') as src, open(backup_path, 'w') as dst:
-        dst.write(src.read())
-    return f"Backed up {filepath} to {backup_path}"
-
-def send_notification(message: str, channel: str = "general") -> str:
-    """Send a notification message."""
-    return f"Notification sent to #{channel}: {message}"
-
-def check_server(url: str) -> dict:
-    """Check if a server is responding."""
-    try:
-        response = requests.get(url, timeout=5)
-        return {"url": url, "status": response.status_code, "online": True}
-    except:
-        return {"url": url, "status": "timeout", "online": False}
-
-# Create assistant NPC
-assistant = NPC(
-    name='System Assistant',
-    primary_directive='You are a helpful system assistant.', 
-    model='qwen3:latest',
-    provider='ollama'
-)
-
-# Auto-generate tools
-tools_schema, tool_map = auto_tools([backup_file, send_notification, check_server])
-
-# Use NPC with tools
-response = assistant.get_llm_response(
-    "Backup the README.md file, check if github.com is online, and send a notification about the status",
-    tools=tools_schema,
-    tool_map=tool_map
-)
-
-# Handle tool response data
-if response.get('tool_calls'):
-    print("Assistant performed these actions:")
-    for i, call in enumerate(response['tool_calls']):
-        func_name = call['function']['name']
-        result = response['tool_results'][i]
-        print(f"  ✓ {func_name}: {result}")
-        
-    # You can also access the full message history
-    print(f"\nTotal messages in conversation: {len(response.get('messages', []))}")
-else:
-    print("No tools were used:", response.get('response', 'No response'))
-```
-
-### Simple Multi-Tool Example
-
-Here's how tools work together naturally:
 
 ```python
 from npcpy.llm_funcs import get_llm_response

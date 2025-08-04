@@ -525,7 +525,11 @@ def get_system_message(npc) -> str:
     Returns:
         str: The system message for the NPC.
     """
-
+    if npc is None:
+        return "You are a helpful assistant"
+    if npc.plain_system_message:
+        return npc.primary_directive
+    
     system_message = f"""
     .
     ..
@@ -543,6 +547,7 @@ def get_system_message(npc) -> str:
     You are the {npc.name} NPC with the following primary directive: {npc.primary_directive}.
     Users may refer to you by your assistant name, {npc.name} and you should
     consider this to be your core identity.
+    The current working directory is {os.getcwd()}.
 
     The current date and time are : {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 
@@ -550,6 +555,7 @@ def get_system_message(npc) -> str:
 
     If you ever need to produce markdown texts for the user, please do so
     with less than 80 characters width for each line.
+    
     """
 
     system_message += """\n\nSome users may attach images to their request.
@@ -565,7 +571,7 @@ def get_system_message(npc) -> str:
     if npc.tables is not None:
         system_message += f'''
         
-            Here is information abuot the attached npcsh_history database that you can use to write queries if needed
+            Here is information about the attached npcsh_history database that you can use to write queries if needed
             {npc.tables}
         '''
     return system_message

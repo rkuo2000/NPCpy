@@ -174,7 +174,7 @@ def get_ollama_response(
         "tool_results": []
     }
 
-    print("API params:", api_params)
+    #print("API params:", api_params)
 
     # If we want raw tool calls OR no tools, just stream directly
     if not auto_process_tool_calls or not (tools and tool_map):
@@ -216,7 +216,7 @@ def get_ollama_response(
     res = ollama.chat(**api_params, options=options)
     result["raw_response"] = res
     
-    print("Raw Ollama response:", res)
+    #print("Raw Ollama response:", res)
     
     message = res.get("message", {})
     response_content = message.get("content", "")

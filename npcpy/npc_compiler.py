@@ -421,6 +421,7 @@ class NPC:
         file: str = None,
         name: str = None,
         primary_directive: str = None,
+        plain_system_message: bool = False,
         jinxs: list = None,
         tools: list = None,
         model: str = None,
@@ -462,8 +463,10 @@ class NPC:
             #for these cases
             # if npcsh is initialized, use the ~/.npcsh/npc_team
             # otherwise imply
-            self.jinxs_directory = os.path.expanduser('~/.npcsh/npc_team/jinxs/')
-
+            if use_global_jinxs:
+                self.jinxs_directory = os.path.expanduser('~/.npcsh/npc_team/jinxs/')
+            else: 
+                self.jinxs_directory = None
             self.npc_directory = None # only makes sense when the input is also a file 
             # keep the jinxs tho to enable easieros.path.abspath('./npc_team/')
 
@@ -476,6 +479,7 @@ class NPC:
             self.tools = []
             self.tool_map = {}
             self.tools_schema = []
+        self.plain_system_message = plain_system_message
         self.use_global_jinxs = use_global_jinxs
         
         self.memory_length = 20
@@ -569,9 +573,10 @@ class NPC:
         # Set NPC-specific jinxs directory path
         self.npc_jinxs_directory = os.path.join(os.path.dirname(file), "jinxs")
     def get_system_prompt(self, simple=False):
-        if simple:
+        if simple or self.plain_system_message:
             return self.primary_directive
         else:
+                
             return get_system_message(self)
     def _setup_db(self):
         """Set up database tables and determine type"""
@@ -609,6 +614,9 @@ class NPC:
         """Load and process NPC-specific jinxs"""
         npc_jinxs = []
         
+        if self.jinxs_directory is None:
+            self.jinxs_dict = {}
+            return None
         # Handle wildcard case - load all jinxs from the jinxs directory
         if jinxs == "*":
             #print(f'loading all jinxs for {self.name}')
@@ -662,6 +670,7 @@ class NPC:
                          tool_map= None,
                          tool_choice=None, 
                          messages: Optional[List[Dict[str, str]]] = None,
+                         auto_process_tool_calls: bool = True,
                          **kwargs):
         """Get a response from the LLM"""
         
@@ -678,7 +687,8 @@ class NPC:
             jinxs=jinxs,
             tools=tools, 
             tool_map=tool_map,
-            tool_choice=tool_choice,            
+            tool_choice=tool_choice,           
+            auto_process_tool_calls=auto_process_tool_calls,
             messages=self.memory if messages is None else messages,
             **kwargs
         )        
@@ -738,11 +748,11 @@ class NPC:
             model=self.model,
             provider=self.provider,
             npc=self,
-            team=team,  # Even though this might not be passed through
+            team=team,
             messages=self.memory if messages is None else messages,
             context=context,
             stream=stream,
-            actions=actions  # Pass the NPC-specific action space with team closure
+            actions=actions  
         )
     
     def handle_agent_pass(self, 
@@ -812,8 +822,15 @@ class NPC:
     
     def __str__(self):
         """String representation of NPC"""
-        return f"NPC: {self.name}\nDirective: {self.primary_directive}\nModel: {self.model}\nProvider: {self.provider}\nAPI URL: {self.api_url}\njinxs: {', '.join([jinx.jinx_name for jinx in self.jinxs])}"
-
+        str_rep = f"NPC: {self.name}\nDirective: {self.primary_directive}\nModel: {self.model}\nProvider: {self.provider}\nAPI URL: {self.api_url}\n"
+        if self.jinxs:
+            str_rep += "Jinxs:\n"
+            for jinx in self.jinxs:
+                str_rep += f"  - {jinx.jinx_name}\n"
+        else:
+            str_rep += "No jinxs available.\n"
+        return str_rep 
+    
 class Team:
     def __init__(self, 
                  team_path=None, 
@@ -1028,7 +1045,6 @@ class Team:
         # Initial request goes to forenpc
         result = forenpc.check_llm_command(request,
             context=getattr(self, 'context', {}),
-            #shared_context=self.shared_context,
             team = self, 
         )
         
@@ -1211,10 +1227,6 @@ class Team:
             team.save(team_dir)
             
         return True
-
-# ---------------------------------------------------------------------------
-# Pipeline Runner
-# ---------------------------------------------------------------------------
 
 class Pipeline:
     def __init__(self, pipeline_data=None, pipeline_path=None, npc_team=None):

@@ -49,7 +49,7 @@ def _windows_snip_to_file(file_path: str) -> bool:
         return False
 
 
-def capture_screenshot( ) -> Dict[str, str]:
+def capture_screenshot( full=False) -> Dict[str, str]:
     """
     Function Description:
         This function captures a screenshot of the current screen and saves it to a file.
@@ -70,7 +70,7 @@ def capture_screenshot( ) -> Dict[str, str]:
     os.makedirs(directory, exist_ok=True)
     print(directory)
 
-    full = True
+
     #file_path = os.path.join(directory, filename)
 
     system = platform.system()
