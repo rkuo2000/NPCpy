@@ -228,6 +228,662 @@ def extract_facts(
     response = response["response"]
     return response.get("fact_list", [])
 
+import json
+import random
+from npcpy.llm_funcs import get_llm_response
+import networkx as nx
+import matplotlib.pyplot as plt
+from textwrap import fill
+from collections import defaultdict
+import matplotlib.pyplot as plt
+from matplotlib.sankey import Sankey
+import numpy as np 
+import pandas as pd 
+
+def get_facts(content_text, model, provider, context=''):
+    """Extract facts from content text"""
+    
+    prompt = f"""
+    Extract facts from this text. A fact is a specific statement that can be sourced from the text.
+
+    Example: if text says "the moon is the earth's only currently known satellite", extract:
+    - "The moon is a satellite of earth" 
+    - "The moon is the only current satellite of earth"
+    - "There may have been other satellites of earth" (inferred from "only currently known")
+
+
+        A fact is a piece of information that makes a statement about the world.
+        A fact is typically a sentence that is true or false.
+        Facts may be simple or complex. They can also be conflicting with each other, usually
+        because there is some hidden context that is not mentioned in the text.
+        In any case, it is simply your job to extract a list of facts that could pertain to
+        an individual's personality.
+        
+        For example, if a message says:
+            "since I am a doctor I am often trying to think up new ways to help people.
+            Can you help me set up a new kind of software to help with that?"
+        You might extract the following facts:
+            - The individual is a doctor
+            - They are helpful
+
+        Another example:
+            "I am a software engineer who loves to play video games. I am also a huge fan of the
+            Star Wars franchise and I am a member of the 501st Legion."
+        You might extract the following facts:
+            - The individual is a software engineer
+            - The individual loves to play video games
+            - The individual is a huge fan of the Star Wars franchise
+            - The individual is a member of the 501st Legion
+
+        Another example:
+            "The quantum tunneling effect allows particles to pass through barriers
+            that classical physics says they shouldn't be able to cross. This has
+            huge implications for semiconductor design."
+        You might extract these facts:
+            - Quantum tunneling enables particles to pass through barriers that are
+              impassable according to classical physics
+            - The behavior of quantum tunneling has significant implications for
+              how semiconductors must be designed
+
+        Another example:
+            "People used to think the Earth was flat. Now we know it's spherical,
+            though technically it's an oblate spheroid due to its rotation."
+        You might extract these facts:
+            - People historically believed the Earth was flat
+            - It is now known that the Earth is an oblate spheroid
+            - The Earth's oblate spheroid shape is caused by its rotation
+
+        Another example:
+            "My research on black holes suggests they emit radiation, but my professor
+            says this conflicts with Einstein's work. After reading more papers, I
+            learned this is actually Hawking radiation and doesn't conflict at all."
+        You might extract the following facts:
+            - Black holes emit radiation
+            - The professor believes this radiation conflicts with Einstein's work
+            - The radiation from black holes is called Hawking radiation
+            - Hawking radiation does not conflict with Einstein's work
+
+        Another example:
+            "During the pandemic, many developers switched to remote work. I found
+            that I'm actually more productive at home, though my company initially
+            thought productivity would drop. Now they're keeping remote work permanent."
+        You might extract the following facts:
+            - The pandemic caused many developers to switch to remote work
+            - The individual discovered higher productivity when working from home
+            - The company predicted productivity would decrease with remote work
+            - The company decided to make remote work a permanent option
+
+        Thus, it is your mission to reliably extract lists of facts.
+
+    Here is the text:
+    Text: "{content_text}"
+
+    Facts should never be more than one or two sentences, and they should not be overly complex or literal. They must be explicitly
+    derived or inferred from the source text. Do not simply repeat the source text verbatim when stating the fact. 
+    
+    No two facts should share substantially similar claims. They should be conceptually distinct and pertain to distinct ideas, avoiding lengthy convoluted or compound facts .
+    Respond with JSON:
+    {{
+        "facts": [
+            {{
+                "statement": "fact statement that builds on input text to state a specific claim that can be falsified through reference to the source material",
+                "source_text": "text snippets related to the source text",
+                "type": "explicit or inferred"
+            }} 
+        ]
+    }}
+    """
+    
+    response = get_llm_response(prompt, model=model,provider=provider, format="json", context=context)
+
+    return response["response"].get("facts", [])
+
+        
+
+def zoom_in(facts, model, provider, context=''):
+    """Infer new implied facts from existing facts"""
+    valid_facts = []
+    for fact in facts:
+        if isinstance(fact, dict) and 'statement' in fact:
+            valid_facts.append(fact)
+    if not valid_facts:
+        return []     
+
+    fact_lines = []
+    for fact in valid_facts:
+        fact_lines.append(f"- {fact['statement']}")
+    facts_text = "\n".join(fact_lines)
+    
+    prompt = f"""
+    Look at these facts and infer new implied facts:
+
+    {facts_text}
+
+    What other facts can be reasonably inferred from these?
+
+    Respond with JSON:
+    {{
+        "implied_facts": [
+            {{
+                "statement": "new implied fact",
+                "inferred_from": ["which facts this comes from"]
+            }}
+        ]
+    }}
+    """
+    
+    response = get_llm_response(prompt, model=model, provider=provider, format="json", context=context)
+    return response["response"].get("implied_facts", [])
+def generate_groups(facts, model, provider, context=''):
+    """Generate conceptual groups for facts"""
+    
+    facts_text = "\n".join([f"- {fact['statement']}" for fact in facts])
+    
+    prompt = f"""
+    Generate conceptual groups for this group off facts:
+
+    {facts_text}
+
+    Create categories that encompass multiple related facts, but do not unnecessarily combine facts with conjunctions. 
+    
+    Your aim is to generalize commonly occurring ideas into groups, not to just arbitrarily generate associations. 
+    Focus on the key commonly occurring items and expresions.     
+
+    Group names should never be more than two words. They should not contain gerunds. They should never contain conjunctions like "AND" or "OR".
+    Respond with JSON:
+    {{
+        "groups": [
+            {{
+                "name": "group name"
+            }}
+        ]
+    }}
+    """
+    
+    response = get_llm_response(prompt, model=model, provider=provider, format="json", context=context)
+    print(response['response'])
+    return response["response"].get("groups", [])
+
+def remove_redundant_groups(groups, model, provider, context=''):
+    """Remove redundant groups"""
+    
+    groups_text = "\n".join([f"- {g['name']}" for g in groups])
+    
+    prompt = f"""
+    Remove redundant groups from this list:
+
+    {groups_text}
+
+
+
+    Merge similar groups and keep only distinct concepts.
+    Create abstract categories that encompass multiple related facts, but do not unnecessarily combine facts with conjunctions. For example, do not try to combine "characters", "settings", and "physical reactions" into a
+    compound group like "Characters, Setting, and Physical Reactions". This kind of grouping is not productive and only obfuscates true abstractions. 
+    For example, a group that might encompass the three aforermentioned names might be "Literary Themes" or "Video Editing Functionis", depending on the context.
+    Your aim is to abstract, not to just arbitrarily generate associations. 
+
+    Group names should never be more than two words. They should not contain gerunds. They should never contain conjunctions like "AND" or "OR".
+
+
+    Respond with JSON:
+    {{
+        "groups": [
+            {{
+                "name": "final group name"
+            }}
+        ]
+    }}
+    """
+    
+    response = get_llm_response(prompt, model=model, provider=provider, format="json", context=context)
+    print(response['response'])
+    return response["response"].get("groups", [])
+
+def abstract(groups, model, provider, context=''):
+    """
+    Create more abstract terms from groups.
+    """
+    sample_groups = random.sample(groups, min(len(groups), max(3, len(groups) // 2)))
+    
+    groups_text_for_prompt = "\n".join([f'- "{g["name"]}"' for g in sample_groups])
+
+    prompt = f"""
+        Create more abstract categories from this list of groups.
+
+        Groups:
+        {groups_text_for_prompt}
+
+        You will create higher-level concepts that interrelate between the given groups. 
+
+        Create abstract categories that encompass multiple related facts, but do not unnecessarily combine facts with conjunctions. For example, do not try to combine "characters", "settings", and "physical reactions" into a
+        compound group like "Characters, Setting, and Physical Reactions". This kind of grouping is not productive and only obfuscates true abstractions. 
+        For example, a group that might encompass the three aforermentioned names might be "Literary Themes" or "Video Editing Functionis", depending on the context.
+        Your aim is to abstract, not to just arbitrarily generate associations. 
+
+        Group names should never be more than two words. They should not contain gerunds. They should never contain conjunctions like "AND" or "OR".
+        Generate no more than 5 new concepts and no fewer than 2. 
+
+        Respond with JSON:
+        {{
+            "groups": [
+                {{
+                    "name": "abstract category name"
+                }}
+            ]
+        }}
+        """
+    response = get_llm_response(prompt, model=model, provider=provider, format="json", context=context)
+    print(response['response'])
+    return response["response"].get("groups", [])
+
+
+
+def prune_fact_subset_llm(fact_subset, concept_name, model, provider, context=''):
+    """Identifies redundancies WITHIN a small, topically related subset of facts."""
+    print(f"  Step Sleep-A: Pruning fact subset for concept '{concept_name}'...")
+    
+
+    prompt = f"""
+    The following facts are all related to the concept "{concept_name}".
+    Review ONLY this subset and identify groups of facts that are semantically identical.
+    Return only the set of facts that are semantically distinct, and archive the rest.
+
+    Fact Subset: {json.dumps(fact_subset, indent=2)}
+
+    Return a json list of groups 
+    {{
+        "refined_facts": [
+            fact1,
+            fact2,
+            fact3,... 
+        ]
+    }}
+    """
+    response = get_llm_response(prompt, model=model, provider=provider, format="json", context=context)
+    return response['response'].get('refined_facts', [])
+
+def consolidate_facts_llm(new_fact, existing_facts, model, provider, context=''):
+    """
+    Uses an LLM to decide if a new fact is novel or redundant.
+    """
+    prompt = f"""
+        Analyze the "New Fact" in the context of the "Existing Facts" list.
+        Your task is to determine if the new fact provides genuinely new information or if it is essentially a repeat or minor rephrasing of information already present.
+
+        New Fact:
+        "{new_fact['statement']}"
+
+        Existing Facts:
+        {json.dumps([f['statement'] for f in existing_facts], indent=2)}
+
+        Possible decisions:
+        - 'novel': The fact introduces new, distinct information not covered by the existing facts.
+        - 'redundant': The fact repeats information already present in the existing facts.
+
+        Respond with a JSON object:
+        {{
+            "decision": "novel or redundant",
+            "reason": "A brief explanation for your decision."
+        }}
+        """
+    response = get_llm_response(prompt, model=model, provider=provider, format="json", context=context)
+    return response['response']
+
+
+def consolidate_groups_llm(existing_groups, new_groups, model, provider, context=''):
+    """
+    Uses an LLM to create a plan for merging and consolidating two sets of groups.
+    """
+    prompt = f"""
+        You are given two lists of conceptual groups: "Existing Groups" and "New Groups".
+        Your task is to create a consolidated, non-redundant final list of groups.
+
+        Analyze both lists and identify groups that are duplicates, can be merged, or should be kept as-is.
+
+        Existing Groups:
+        {json.dumps(existing_groups, indent=2)}
+
+        New Groups:
+        {json.dumps(new_groups, indent=2)}
+
+        Respond with a JSON object containing a list called "consolidation_plan". Each item in the list should be an action object with one of the following structures:
+        - {{ "action": "keep", "group": {{ "name": "..." }} }}
+        - {{ "action": "merge", "source_groups": ["Group Name 1", "Group Name 2", ...], "merged_group": {{ "name": "..." }} }}
+        - {{ "action": "discard", "group_name": "...", "reason": "No longer relevant" }}
+
+        The final list of groups will be built from the 'group' and 'merged_group' objects in your plan.
+        """
+    response = get_llm_response(prompt, model=model, provider=provider, format="json", context=context)
+    return response['response'].get('consolidation_plan', [])
+
+def map_lineage_llm(old_kg, new_kg, model, provider, context=''):
+    """
+    Generates a historical map of how old concepts transformed into new concepts.
+    This version uses a more constrained, forced-choice prompt to get better results.
+    """
+    print("  - Building lineage map with improved, constrained prompting...")
+    old_concepts = old_kg.get('level_1_groups', []) + old_kg.get('level_2_abstract', [])
+    new_concepts = new_kg.get('level_1_groups', []) + new_kg.get('level_2_abstract', [])
+    old_concept_names = [g['name'] for g in old_concepts if g]
+    new_concept_names = [g['name'] for g in new_concepts if g]
+    lineage_map = {}
+
+
+    new_concepts_by_name = {g['name']: g for g in new_concepts if g}
+
+    for old_name in old_concept_names:
+        prompt = f"""
+        Analyze the "Old Concept" and determine its fate from the list of "New Concepts".
+        Your task is to select the most closely related new concept(s).
+
+        Old Concept: "{old_name}"
+
+        List of available New Concepts to choose from:
+        {json.dumps(new_concept_names, indent=2)}
+
+        Decision Process:
+        1.  Does any New Concept have the *exact same name*? If so, this is 'evolved_to'.
+        2.  If not, do one or more New Concepts *contain the ideas* of the Old Concept? If so, this is 'merged_into' (if multiple old ideas go to one new) or 'split_into' (if one old idea goes to multiple new).
+        3.  If no new concept is related at all, the old concept is 'killed'.
+
+        CRITICAL: Your response MUST use the exact names from the "New Concepts" list.
+
+        Respond with JSON for this single old concept:
+        {{
+            "status": "evolved_to" | "merged_into" | "split_into" | "killed",
+            "new_nodes": ["Exact name of new node(s) from the list, or an empty list if killed"]
+        }}
+        """
+        try:
+            response = get_llm_response(prompt, model=model, provider=provider, format="json", context=context)
+            lineage_map[old_name] = response['response']
+        except Exception as e:
+            lineage_map[old_name] = {"status": "error", "new_nodes": []}
+    
+    return lineage_map
+def find_best_link_concept_llm(candidate_concept_name, existing_concept_names, model, provider, context=''):
+    """
+    Finds the best existing concept to link a new candidate concept to.
+    This prompt now uses neutral "association" language.
+    """
+    prompt = f"""
+    Here is a new candidate concept: "{candidate_concept_name}"
+    
+    Which of the following existing concepts is it most closely related to? The relationship could be as a sub-category, a similar idea, or a related domain.
+
+    Existing Concepts:
+    {json.dumps(existing_concept_names, indent=2)}
+
+    Respond with the single best-fit concept to link to from the list, or respond with "none" if it is a genuinely new root idea.
+    {{
+      "best_link_concept": "The single best concept name OR none"
+    }}
+    """
+    response = get_llm_response(prompt, model=model, provider=provider, format="json", context=context)
+    return response['response'].get('best_link_concept')
+
+def introduce_intermediate_layer_llm(parent_concept, supporting_facts, model, provider, context=''):
+    """Given a concept and its facts, proposes an intermediate layer of sub-concepts."""
+    print(f"  Step Sleep-B: Attempting to deepen concept '{parent_concept['name']}'...")
+    fact_statements = []
+    for f in supporting_facts:
+        fact_statements.append(f['statement'])
+        
+    prompt = f"""
+    The concept "{parent_concept['name']}" is supported by many diverse facts.
+    Propose a layer of 2-4 more specific sub-concepts to better organize these facts.
+    These new concepts will exist as nodes that link to "{parent_concept['name']}".
+
+    Supporting Facts: {json.dumps(fact_statements, indent=2)}
+    Respond with JSON: {{
+        "new_sub_concepts": ["sub_layer1", "sub_layer2"]
+    }}
+    """
+    response = get_llm_response(prompt, model=model, provider=provider, format="json", context=context)
+    return response['response'].get('new_sub_concepts', [])
+def get_related_concepts_multi(node_name, node_type, all_concept_names, model, provider, context=''):
+    """Links any node (fact or concept) to ALL relevant concepts in the entire ontology."""
+    prompt = f"""
+    Which of the following concepts from the entire ontology relate to the given {node_type}?
+    Select all that apply, from the most specific to the most abstract.
+
+    {node_type.capitalize()}: "{node_name}"
+
+    Available Concepts:
+    {json.dumps(all_concept_names, indent=2)}
+
+    Respond with JSON: {{"related_concepts": ["Concept A", "Concept B", ...]}}
+    """
+    response = get_llm_response(prompt, model=model, provider=provider, format="json", context=context)
+    return response["response"].get("related_concepts", [])
+
+
+
+def kg_initial(content_text, model, provider, context=''):
+    CURRENT_GENERATION = 0
+    print(f"--- Building KG: Generation {CURRENT_GENERATION} ---")
+    facts = get_facts(content_text, model, provider, context=context)
+    for fact in facts:
+        fact['generation'] = CURRENT_GENERATION
+    implied_facts = zoom_in(facts, model, provider, context=context)
+    for fact in implied_facts:
+        fact['generation'] = CURRENT_GENERATION
+    all_facts = facts + implied_facts
+    concepts = generate_groups(all_facts, model, provider, context=context)
+    for concept in concepts:
+        concept['generation'] = CURRENT_GENERATION
+    fact_to_concept_links = defaultdict(list)
+    concept_names = [c['name'] for c in concepts if c]
+    for fact in all_facts:
+        fact_to_concept_links[fact['statement']] = get_related_concepts_multi(fact['statement'], "fact", concept_names, model, provider, context)
+        
+    fact_to_fact_links = []
+    fact_statements = [f['statement'] for f in all_facts]
+    for i, fact in enumerate(all_facts):
+
+        other_fact_statements = fact_statements[i+1:]
+        if other_fact_statements:
+            related_fact_stmts = get_related_facts_llm(fact['statement'], other_fact_statements, model, provider, context)
+            for related_stmt in related_fact_stmts:
+                fact_to_fact_links.append((fact['statement'], related_stmt))
+
+    return {
+        "generation": CURRENT_GENERATION, 
+        "facts": all_facts, 
+        "concepts": concepts,
+        "concept_links": [], 
+        "fact_to_concept_links": dict(fact_to_concept_links),
+        "fact_to_fact_links": fact_to_fact_links
+    }
+def find_abstract_link_llm(c1_name, c2_name, model, provider, context=''):
+    prompt = f"""What is the relationship between concept '{c1_name}' and '{c2_name}'? Respond with JSON: {{"relationship": "type_of OR new_abstract_concept": "..."}}"""
+    response = get_llm_response(prompt, model=model, provider=provider, format="json", context=context)
+    return response['response']
+def get_related_facts_llm(new_fact_statement, existing_fact_statements, model, provider, context=''):
+    """Identifies which existing facts are causally or thematically related to a new fact."""
+    prompt = f"""
+    A new fact has been learned: "{new_fact_statement}"
+
+    Which of the following existing facts are directly related to it (causally, sequentially, or thematically)?
+    Select only the most direct and meaningful connections.
+
+    Existing Facts:
+    {json.dumps(existing_fact_statements, indent=2)}
+
+    Respond with JSON: {{"related_facts": ["statement of a related fact", ...]}}
+    """
+    response = get_llm_response(prompt, model=model, provider=provider, format="json", context=context)
+    return response["response"].get("related_facts", [])
+
+def kg_evolve_incremental(existing_kg, new_content_text, model, provider, context=''):
+
+    current_gen = existing_kg.get('generation', 0)
+    next_gen = current_gen + 1
+    print(f"\n--- ABSORBING INFO (with fact-linking): Gen {current_gen} -> Gen {next_gen} ---")
+
+    new_facts = get_facts(new_content_text, model, provider, context=context)
+    new_implied = zoom_in(new_facts, model, provider, context=context)
+    all_new_facts = new_facts + new_implied
+    for fact in all_new_facts: fact['generation'] = next_gen
+    
+    existing_facts = existing_kg.get('facts', [])
+    existing_concepts = existing_kg.get('concepts', [])
+    final_facts = existing_facts + all_new_facts
+    
+
+    candidate_concepts = generate_groups(all_new_facts, model, provider, context=context)
+    existing_concept_names = {c['name'] for c in existing_concepts}
+    newly_added_concepts = []
+    concept_links = list(existing_kg.get('concept_links', []))
+    all_concept_names = list(existing_concept_names)
+    for cand_concept in candidate_concepts:
+        cand_name = cand_concept['name']
+        if cand_name in existing_concept_names: continue
+        cand_concept['generation'] = next_gen
+        newly_added_concepts.append(cand_concept)
+        related_concepts = get_related_concepts_multi(cand_name, "concept", all_concept_names, model, provider, context)
+        for related_name in related_concepts:
+            if related_name != cand_name: concept_links.append((cand_name, related_name))
+        all_concept_names.append(cand_name)
+    final_concepts = existing_concepts + newly_added_concepts
+
+
+    fact_to_concept_links = defaultdict(list, existing_kg.get('fact_to_concept_links', {}))
+    for fact in all_new_facts:
+        fact_to_concept_links[fact['statement']] = get_related_concepts_multi(fact['statement'], "fact", all_concept_names, model, provider, context)
+        
+
+    fact_to_fact_links = list(existing_kg.get('fact_to_fact_links', []))
+    existing_fact_statements = [f['statement'] for f in existing_facts]
+    for new_fact in all_new_facts:
+        related_fact_stmts = get_related_facts_llm(new_fact['statement'], existing_fact_statements, model, provider, context)
+        for related_stmt in related_fact_stmts:
+            fact_to_fact_links.append((new_fact['statement'], related_stmt))
+            
+    final_kg = {
+        "generation": next_gen, "facts": final_facts, "concepts": final_concepts,
+        "concept_links": concept_links, "fact_to_concept_links": dict(fact_to_concept_links),
+        "fact_to_fact_links": fact_to_fact_links
+        
+    }
+    return final_kg, {}
+
+def kg_sleep_process(existing_kg, model, provider, context='', operations_config=None):
+    current_gen = existing_kg.get('generation', 0)
+    next_gen = current_gen + 1
+    print(f"\n--- SLEEPING (with fact-linking): Gen {current_gen} -> Gen {next_gen} ---")
+
+    facts_map = {f['statement']: f for f in existing_kg.get('facts', [])}
+    concepts_map = {c['name']: c for c in existing_kg.get('concepts', [])}
+    fact_links = defaultdict(list, existing_kg.get('fact_to_concept_links', {}))
+    concept_links = set(tuple(sorted(link)) for link in existing_kg.get('concept_links', []))
+    fact_to_fact_links = set(tuple(sorted(link)) for link in existing_kg.get('fact_to_fact_links', [])) 
+    
+
+    if operations_config is None:
+        possible_ops = ['prune', 'deepen', 'abstract_link', 'link_facts'] 
+        
+        ops_to_run = random.choices(possible_ops, k=random.randint(1, 2))
+    else:
+        ops_to_run = operations_config
+        
+    print(f"  - Executing operations: {ops_to_run}")
+
+    for op in ops_to_run:
+        if op == 'link_facts' and len(facts_map) > 10:
+
+            facts_per_concept = defaultdict(list)
+            for fact_stmt, concepts in fact_links.items():
+                for concept in concepts:
+                    facts_per_concept[concept].append(fact_stmt)
+            
+
+            thematic_concepts = [c for c, f_list in facts_per_concept.items() if 5 < len(f_list) < 15]
+            if thematic_concepts:
+                chosen_concept = random.choice(thematic_concepts)
+                facts_in_cluster = facts_per_concept[chosen_concept]
+
+                anchor_fact = random.choice(facts_in_cluster)
+                related_in_cluster = get_related_facts_llm(anchor_fact, [f for f in facts_in_cluster if f != anchor_fact], model, provider, context)
+                for related_fact in related_in_cluster:
+                    fact_to_fact_links.add(tuple(sorted((anchor_fact, related_fact))))
+        
+
+
+    new_kg = {
+        "generation": next_gen, "facts": list(facts_map.values()), "concepts": list(concepts_map.values()),
+        "concept_links": [list(link) for link in concept_links], 
+        "fact_to_concept_links": dict(fact_links),
+        "fact_to_fact_links": [list(link) for link in fact_to_fact_links] 
+        
+    }
+    return new_kg, {}
+
+
+def kg_dream_process(existing_kg, model, provider, context='', num_seeds=3):
+    current_gen = existing_kg.get('generation', 0)
+    next_gen = current_gen + 1
+    print(f"\n--- DREAMING (Creative Synthesis): Gen {current_gen} -> Gen {next_gen} ---")
+    concepts = existing_kg.get('concepts', [])
+    if len(concepts) < num_seeds:
+        print(f"  - Not enough concepts ({len(concepts)}) for dream. Skipping.")
+        return existing_kg, {}
+    seed_concepts = random.sample(concepts, k=num_seeds)
+    seed_names = [c['name'] for c in seed_concepts]
+    print(f"  - Dream seeded with: {seed_names}")
+    prompt = f"""
+    Write a short, speculative paragraph (a 'dream') that plausibly connects the concepts of {json.dumps(seed_names)}.
+    Invent a brief narrative or a hypothetical situation.
+    Respond with JSON: {{"dream_text": "A short paragraph..."}}
+    """
+    response = get_llm_response(prompt, model=model, provider=provider, format="json", context=context)
+    dream_text = response['response'].get('dream_text')
+    if not dream_text:
+        print("  - Failed to generate a dream narrative. Skipping.")
+        return existing_kg, {}
+    print(f"  - Generated Dream: '{dream_text[:150]}...'")
+    
+    dream_kg, _ = kg_evolve_incremental(existing_kg, dream_text, model, provider, context)
+    
+    original_fact_stmts = {f['statement'] for f in existing_kg['facts']}
+    for fact in dream_kg['facts']:
+        if fact['statement'] not in original_fact_stmts: fact['origin'] = 'dream'
+    original_concept_names = {c['name'] for c in existing_kg['concepts']}
+    for concept in dream_kg['concepts']:
+        if concept['name'] not in original_concept_names: concept['origin'] = 'dream'
+    print("  - Dream analysis complete. New knowledge integrated.")
+    return dream_kg, {}
+
+
+def save_kg_with_pandas(kg, path_prefix="kg_state"):
+
+    generation = kg.get("generation", 0)
+
+    nodes_data = []
+    for fact in kg.get('facts', []): nodes_data.append({'id': fact['statement'], 'type': 'fact', 'generation': fact.get('generation')})
+    for concept in kg.get('concepts', []): nodes_data.append({'id': concept['name'], 'type': 'concept', 'generation': concept.get('generation')})
+    pd.DataFrame(nodes_data).to_csv(f'{path_prefix}_gen{generation}_nodes.csv', index=False)
+    
+    links_data = []
+    for fact_stmt, concepts in kg.get("fact_to_concept_links", {}).items():
+        for concept_name in concepts: links_data.append({'source': fact_stmt, 'target': concept_name, 'type': 'fact_to_concept'})
+    for c1, c2 in kg.get("concept_links", []): 
+        links_data.append({'source': c1, 'target': c2, 'type': 'concept_to_concept'})
+
+    for f1, f2 in kg.get("fact_to_fact_links", []): 
+        links_data.append({'source': f1, 'target': f2, 'type': 'fact_to_fact'})
+    pd.DataFrame(links_data).to_csv(f'{path_prefix}_gen{generation}_links.csv', index=False)
+    print(f"Saved KG Generation {generation} to CSV files.")
+
+
+def save_changelog_to_json(changelog, from_gen, to_gen, path_prefix="changelog"):
+    if not changelog: return
+    with open(f"{path_prefix}_gen{from_gen}_to_{to_gen}.json", 'w', encoding='utf-8') as f:
+        json.dump(changelog, f, indent=4)
+    print(f"Saved changelog for Gen {from_gen}->{to_gen}.")
+
+
+
 
 # --- Breathe (Context Condensation) ---
 def breathe(
