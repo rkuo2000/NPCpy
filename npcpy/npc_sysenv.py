@@ -421,7 +421,7 @@ def print_and_process_stream_with_markdown(response, model, provider):
         return response  # If response is a string, return it directly
     for chunk in response:
         # Get chunk content based on provider
-        #print('.')
+        print('.', end="", flush=True)
         dot_count += 1
 
         # Extract tool call info based on provider

@@ -640,7 +640,7 @@ def jinx_handler(command, extracted_data, **kwargs):
         npc=kwargs.get('npc'),
         team = kwargs.get('team'),
         stream=kwargs.get('stream'),
-        shell=kwargs.get('shell'),
+
         context=kwargs.get('context')
     )
 
@@ -670,9 +670,7 @@ def answer_handler(command, extracted_data, **kwargs):
         stream=kwargs.get('stream', False),
         images=kwargs.get('images')
     )
-    print(kwargs)
-    print(response)
-    
+ 
     return response
     
 def check_llm_command(
@@ -687,7 +685,6 @@ def check_llm_command(
     images: list = None,
     stream=False,
     context=None,
-    shell=False,
     actions: Dict[str, Dict] = None,
 ):
     """This function checks an LLM command and returns sequences of steps with parallel actions."""
@@ -709,7 +706,6 @@ def check_llm_command(
         images=images,
         stream=stream,
         context=context,
-        shell=shell,
         actions=actions,
 
     )
@@ -945,8 +941,9 @@ def execute_multi_step_plan(
    images: list = None,
    stream=False,
    context=None,
-   shell=False,
+
    actions: Dict[str, Dict] = None,
+   **kwargs, 
 ):
     """
     Creates a comprehensive plan and executes it sequentially, passing context
@@ -964,7 +961,8 @@ def execute_multi_step_plan(
         api_key=api_key,
         context=context,
         messages=messages,
-        team=team
+        team=team, 
+        
     )
     
     if not planned_actions:
@@ -1015,26 +1013,40 @@ def execute_multi_step_plan(
            npc=npc,
            team=team,
            stream=stream, 
-           shell=shell, 
+
            context=step_context, 
            images=images
         )
 
-        action_output = result.get('output') or result.get('response')
-        if stream:
-            action_output = print_and_process_stream_with_markdown(action_output, model, provider)
 
-        step_outputs.append(action_output)
+        action_output = result.get('output') or result.get('response')
+
+        if stream and len(planned_actions) > 1:
+            # If streaming, we need to process the output with markdown rendering
+            action_output = print_and_process_stream_with_markdown(action_output, model, provider)
+        elif len(planned_actions) == 1:
+            # If streaming and only one action, we can directly return the output
+            # can circumvent because compile sequence results just returns single output results.
+            return {"messages": result.get('messages', current_messages), 
+                    "output": action_output}
         
+            
+        step_outputs.append(action_output)        
         current_messages = result.get('messages', current_messages)
 
-    # 3. Compile the final result, passing the original command for context.
+    # render_markdown('## Reviewing output...')
+    # need tot replace with a review step actually 
     final_output = compile_sequence_results(
        original_command=command,
        outputs=step_outputs,
-       model=model, provider=provider, api_url=api_url,
-       api_key=api_key, npc=npc
+       model=model, 
+       provider=provider,
+       npc=npc, 
+       stream=stream, 
+       context=context,
+       **kwargs
     )
+    
     return {"messages": current_messages, 
             "output": final_output}
 
@@ -1045,16 +1057,14 @@ def compile_sequence_results(original_command: str,
                              npc: Any = None, 
                              team: Any = None,
                              context: str = None,
+                             stream: bool = False,
                              **kwargs) -> str:
     """
     Synthesizes a list of outputs from sequential steps into a single,
     coherent final response, framed as an answer to the original query.
     """
     if not outputs:
-        return "The process completed, but produced no output."
-    if len(outputs) == 1:
-        return outputs[0]
-    
+        return "The process completed, but produced no output."    
     synthesis_prompt = f"""
 A user asked the following question:
 "{original_command}"
@@ -1066,81 +1076,25 @@ Based *directly on the user's original question* and the information gathered, p
 provide a single, final, and coherent response. Answer the user's question directly.
 Do not mention the steps taken.
 
-Final Synthesized Response:
+Final Synthesized Response that addresses the user in a polite and informative manner:
 """
-    
-    try:
-        response = get_llm_response(
-            synthesis_prompt,
-            model=model, 
-            provider=provider, 
-            npc=npc, 
-            team=team,
-            messages=[], 
-            context=context,
-            **kwargs
-        )
-        synthesized = response.get("response", "")
-        if synthesized and synthesized.strip():
-            return synthesized
-    except Exception as e:
-        print(f"Error during final synthesis: {e}")
-    
-    return "\n\n".join(outputs)
-def compile_sequence_results(original_command: str, 
-                             outputs: List[str], 
-                             model: str = None, 
-                             provider: str = None, 
-                             npc: Any = None, 
-                             team: Any = None,
-                             context: str = None,
-                             **kwargs   ) -> str:
-    """
-    Synthesizes a list of outputs from sequential steps into a single,
-    coherent final response, framed as an answer to the original query.
-    """
-    
-    if not outputs:
-        return "The process completed, but produced no output."
-    
-    if len(outputs) == 1:
-        return outputs[0]
-    
-    # The prompt now includes the user's query, giving the LLM crucial context.
-    synthesis_prompt = f"""
-A user asked the following question:
-"{original_command}"
 
-To answer this, the following information was gathered in sequential steps:
-{json.dumps(outputs, indent=2)}
+    response = get_llm_response(
+        synthesis_prompt,
+        model=model, 
+        provider=provider, 
+        npc=npc, 
+        team=team,
+        messages=[], 
+        stream=stream,
+        context=context,
+        **kwargs
+    )
+    synthesized = response.get("response", "")
+    if synthesized and synthesized.strip():
+        return synthesized    
+    return '\n'.join(outputs)  # Fallback to joining outputs if synthesis fails
 
-Based *directly on the user's original question* and the information gathered, please
-provide a single, final, and coherent response. Answer the user's question directly.
-Do not mention the steps taken.
-
-Final Synthesized Response:
-"""
-    
-    try:
-        response = get_llm_response(
-            synthesis_prompt,
-            model=model,
-            provider=provider,
-            npc=npc,
-            team=team,
-            messages=[],
-            context=context,
-            **kwargs
-        )
-        
-        synthesized = response.get("response", "")
-        if synthesized and synthesized.strip():
-            return synthesized
-    except Exception as e:
-        print(f"Error during final synthesis: {e}")
-    
-    # Fallback to a simple join if synthesis fails.
-    return "\n\n".join(outputs)
 
 
 def should_continue_with_more_actions(
