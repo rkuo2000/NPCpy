@@ -673,7 +673,7 @@ class CommandHistory:
         elif self._is_sqlalchemy:
              print("SQLAlchemy Engine pool managed automatically.")
         self.conn = None
-def start_new_conversation(prepend : str = None) -> str:
+def start_new_conversation(prepend: str = None) -> str:
     """
     Starts a new conversation and returns a unique conversation ID.
     """

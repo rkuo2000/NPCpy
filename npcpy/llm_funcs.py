@@ -1564,7 +1564,7 @@ def extract_facts(
                 "fact_list": "a list containing the facts where each fact is a string",
             }
     """ 
-    if len(context) > 0:
+    if context and len(context) > 0:
         prompt+=f""" Here is some relevant user context: {context}"""
 
     prompt+="""    
