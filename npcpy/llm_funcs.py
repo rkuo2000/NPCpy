@@ -376,7 +376,7 @@ def handle_jinx_call(
             if attempt < n_attempts:
                 print(f"attempt {attempt+1} to generate jinx name failed, trying again")
 
-                fix_jinx_name = get_llm_response(
+                fix_jinx_name = check_llm_command(
                     '''
                     In the previous attempt, the jinx name was: {jinx_name}.
                     Please suggest a valid jinx name from the available jinxs.
@@ -385,7 +385,7 @@ def handle_jinx_call(
                     npc jinxs  {npc.jinxs_dict}
                     team.jinxs_dict: {team.jinxs_dict}
                 
-                    If there are no available jinxs, simply return 'null'.
+                    If there are no available jinxs, simply return 'null'. If the previously selected jinx name was non existent, then use a different action.
                     Otherwise only return the verbatim name of the jinx to use.
                     Do not include any comments or additional formatting. begin and end with the name.
                     ''', 
@@ -393,10 +393,12 @@ def handle_jinx_call(
                     provider=provider, 
                     npc = npc, 
                     team=team,
+                    messages=messages,
+                    context=context
+                    
                 )
-                jinx_name = fix_jinx_name.get("response", "").strip()
                 
-                return handle_jinx_call(
+                return check_llm_command(
                     command,
                     jinx_name,
                     model=model,
@@ -985,6 +987,7 @@ def execute_multi_step_plan(
 
     step_outputs = []
     current_messages = messages.copy()
+    render_markdown(f"### Plan for Command: {command}")
     for action in planned_actions:
         step_info = json.dumps(action)
         render_markdown(f'- {step_info}')
