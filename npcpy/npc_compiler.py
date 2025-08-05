@@ -23,7 +23,8 @@ from npcpy.tools import auto_tools
 from npcpy.npc_sysenv import (
     ensure_dirs_exist, 
     init_db_tables,
-    get_system_message
+    get_system_message, 
+
     )
 from npcpy.memory.command_history import CommandHistory
 
@@ -851,19 +852,18 @@ class Team:
         self.jinxs_dict = jinxs or {}
         self.db_conn = db_conn
         self.team_path = os.path.expanduser(team_path) if team_path else None
-        self.databases = {}
-        self.mcp_servers = {}
+        self.databases = []
+        self.mcp_servers = []
         if forenpc is not None:
             self.forenpc = forenpc
         else:
             self.forenpc  = npcs[0] if npcs else None
         
-        
         if team_path:
             self.name = os.path.basename(os.path.abspath(team_path))
         else:
             self.name = "custom_team"
-        self.context = {}
+        self.context = ''
         self.shared_context = {
             "intermediate_results": {},
             "dataframes": {},
@@ -873,7 +873,7 @@ class Team:
             }
                 
         if team_path:
-            print('loading npc team from directory')
+
             self._load_from_directory()
             
         elif npcs:
@@ -897,7 +897,6 @@ class Team:
         # Load team context if available
 
         for filename in os.listdir(self.team_path):
-            print('filename: ', filename)
             if filename.endswith(".npc"):
                 try:
                     npc_path = os.path.join(self.team_path, filename)
@@ -916,7 +915,9 @@ class Team:
         
         # Load sub-teams (subfolders)
         self._load_sub_teams()
-        print('Loaded Jinxs: ', self.jinxs_dict)
+
+
+
     def _load_team_context(self):
         """Load team context from .ctx file"""
 
@@ -927,6 +928,23 @@ class Team:
                 # do stuff on the file
                 ctx_data = load_yaml_file(os.path.join(self.team_path, fname))                
                 if ctx_data is not None:
+                    if 'model' in ctx_data:
+                        self.model = ctx_data['model']
+                    else:
+                        self.model = None
+                    if 'provider' in ctx_data:
+                        self.provider = ctx_data['provider']
+                    else:
+                        self.provider = None
+                    if 'api_url' in ctx_data:
+                        self.api_url = ctx_data['api_url']
+                    else:
+                        self.api_url = None
+                    if 'env' in ctx_data:
+                        self.env = ctx_data['env']
+                    else:
+                        self.env = None
+                        
                     if 'mcp_servers' in ctx_data:
                         self.mcp_servers = ctx_data['mcp_servers']
                     else:
@@ -934,7 +952,12 @@ class Team:
                     if 'databases' in ctx_data:
                         self.databases = ctx_data['databases']
                     else:
-                        self.context = []
+                        self.databases = []
+                    if 'context' in ctx_data:
+                        self.context = ctx_data['context']
+                    else:
+                        self.context = ''
+
                     if 'preferences' in ctx_data:
                         self.preferences = ctx_data['preferences']
                     else:

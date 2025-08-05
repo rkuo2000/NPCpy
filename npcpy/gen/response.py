@@ -166,6 +166,7 @@ def get_ollama_response(
     if tool_choice:
         options["tool_choice"] = tool_choice
 
+
     result = {
         "response": None,
         "messages": messages.copy(),

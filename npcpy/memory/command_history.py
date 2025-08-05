@@ -66,7 +66,6 @@ def fetch_messages_for_conversation(conversation_id):
     ]
 
 
-
 def deep_to_dict(obj):
     """
     Recursively convert objects that have a 'to_dict' method to dictionaries,
@@ -158,7 +157,6 @@ def setup_chroma_db(collection, description='', db_path: str= ''):
         print(f"Error setting up Chroma DB: {e}")
         raise
 
-
 class CommandHistory:
     def __init__(self, db: Union[str, sqlite3.Connection, Engine] = "~/npcsh_history.db"):
 
@@ -207,12 +205,12 @@ class CommandHistory:
 
     def _initialize_schema(self):
         """Creates all necessary tables."""
-        print("Initializing database schema...")
+
         self.create_command_table()
         self.create_conversation_table()
         self.create_attachment_table()
         self.create_jinx_call_table()
-        print("Database schema initialization complete.")
+
 
     def _execute(self, sql: str, params: Optional[Union[tuple, Dict]] = None, script: bool = False, requires_fk: bool = False) -> Optional[int]:
         """Executes SQL, handling transactions and FK pragma for SQLAlchemy. Returns lastrowid for INSERTs."""
@@ -675,11 +673,11 @@ class CommandHistory:
         elif self._is_sqlalchemy:
              print("SQLAlchemy Engine pool managed automatically.")
         self.conn = None
-def start_new_conversation(prepend = '') -> str:
+def start_new_conversation(prepend : str = None) -> str:
     """
     Starts a new conversation and returns a unique conversation ID.
     """
-    if prepend =='':
+    if prepend is None:
         prepend = 'npcsh'
     return f"{prepend}_{datetime.now().strftime('%Y%m%d%H%M%S')}"
 
@@ -823,19 +821,3 @@ def get_available_tables(db_path: str) -> str:
         return ""
     
     
-
-'''
-from npcpy.memory.command_history import CommandHistory
-command_history = CommandHistory()
-
-sibiji_messages = command_history.get_messages_by_npc('sibiji', n_last=10)
-
-stats = command_history.get_npc_conversation_stats()
-
-
-
-
-from npcpy.memory.command_history import CommandHistory
-command_history = CommandHistory()
-command_history.create_tool_call_table()
-'''

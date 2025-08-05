@@ -421,9 +421,9 @@ def print_and_process_stream_with_markdown(response, model, provider):
         return response  # If response is a string, return it directly
     for chunk in response:
         # Get chunk content based on provider
-        print('.', end="", flush=True)
+        #print('.')
         dot_count += 1
-        
+
         # Extract tool call info based on provider
         if provider == "ollama":
             # Ollama tool call extraction
@@ -438,7 +438,9 @@ def print_and_process_stream_with_markdown(response, model, provider):
                             tool_call_data["arguments"] += tool_call["function"]["arguments"]
             
             chunk_content = chunk["message"]["content"] if "message" in chunk and "content" in chunk["message"] else ""
+
         else:
+            
             # LiteLLM tool call extraction
             for c in chunk.choices:
                 if hasattr(c.delta, "tool_calls") and c.delta.tool_calls:
@@ -463,6 +465,7 @@ def print_and_process_stream_with_markdown(response, model, provider):
             chunk_content += "".join(
                 c.delta.content for c in chunk.choices if c.delta.content
             )
+
         
         if not chunk_content:
             continue
@@ -513,69 +516,74 @@ def print_and_process_stream(response, model, provider):
     print("\n")
                 
     return conversation_result   
-                 
-def get_system_message(npc) -> str:
-    """
-    Function Description:
-        This function generates a system message for the NPC.
-    Args:
-        npc (Any): The NPC object.
-    Keyword Args:
-        None
-    Returns:
-        str: The system message for the NPC.
-    """
+def get_system_message(npc, team=None) -> str:
+    import os
+    from datetime import datetime
+
     if npc is None:
         return "You are a helpful assistant"
     if npc.plain_system_message:
         return npc.primary_directive
-    
+
     system_message = f"""
-    .
-    ..
-    ...
-    ....
-    .....
-    ......
-    .......
-    ........
-    .........
-    ..........
-    Hello!
-    Welcome to the team.
-    You are an NPC working as part of our team.
-    You are the {npc.name} NPC with the following primary directive: {npc.primary_directive}.
-    Users may refer to you by your assistant name, {npc.name} and you should
-    consider this to be your core identity.
-    The current working directory is {os.getcwd()}.
+.
+..
+...
+....
+.....
+......
+.......
+........
+.........
+..........
+Hello!
+Welcome to the team.
+You are the {npc.name} NPC with the following primary directive: {npc.primary_directive}.
+Users may refer to you by your assistant name, {npc.name} and you should
+consider this to be your core identity.
+The current working directory is {os.getcwd()}.
+The current date and time are : {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+"""
 
-    The current date and time are : {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+    if npc.db_conn is not None:
+        db_path = None
+        if hasattr(npc.db_conn, "url") and npc.db_conn.url:
+            db_path = npc.db_conn.url.database
+        elif hasattr(npc.db_conn, "database"):
+            db_path = npc.db_conn.database
+        system_message += """What follows is in
+        formation about the database connection. If you are asked to execute queries with tools, use this information. 
+        If you are asked for help with debugging queries, use this information. 
+        Do not unnecessarily reference that you possess this information unless it is
+        specifically relevant to the request.
 
+        DB Connection Information:        
+        """
+        if db_path:
+            system_message += f"\nDatabase path: {db_path}\n"
+        if npc.tables is not None:
+            system_message += f"\nDatabase tables: {npc.tables}\n"
 
+    if team is not None:
+        team_context = team.context if hasattr(team, "context") and team.context else ""
+        team_preferences = team.preferences if hasattr(team, "preferences") and len(team.preferences) > 0 else ""
+        system_message += f"\nTeam context: {team_context}\nTeam preferences: {team_preferences}\n"
 
-    If you ever need to produce markdown texts for the user, please do so
-    with less than 80 characters width for each line.
-    
-    """
+    system_message += """
+    IMPORTANT:
+Some users may attach images to their request.
+Please process them accordingly. You do not need mention that you cannot "see" images. The user understands this and wants you
+to help them multimodally.
 
-    system_message += """\n\nSome users may attach images to their request.
-                        Please process them accordingly.
+If the user asked for you to explain what's on their screen or something similar,
+they are referring to the details contained within the attached image(s).
+You do not need to actually view their screen.
+You do not need to mention that you cannot view or interpret images directly.
+They understand that you can view them multimodally.
+You only need to answer the user's request based on the attached image(s).
+"""
 
-                        If the user asked for you to explain what's on their screen or something similar,
-                        they are referring to the details contained within the attached image(s).
-                        You do not need to actually view their screen.
-                        You do not need to mention that you cannot view or interpret images directly.
-                        They understand that you can view them multimodally.
-                        You only need to answer the user's request based on the attached image(s).
-                        """
-    if npc.tables is not None:
-        system_message += f'''
-        
-            Here is information about the attached npcsh_history database that you can use to write queries if needed
-            {npc.tables}
-        '''
     return system_message
-
 
 
 # Load environment variables from .env file

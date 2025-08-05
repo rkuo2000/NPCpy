@@ -89,38 +89,6 @@ def check_ffmpeg():
     except (subprocess.SubprocessError, FileNotFoundError):
         return False
 
-# History Management Functions
-def load_history():
-    global history
-    try:
-        if os.path.exists(memory_file):
-            with open(memory_file, "r") as f:
-                history = json.load(f)
-    except Exception as e:
-        print(f"Error loading conversation history: {e}")
-        history = []
-
-
-def save_history():
-    try:
-        with open(memory_file, "w") as f:
-            json.dump(history, f)
-    except Exception as e:
-        print(f"Error saving conversation history: {e}")
-
-
-def add_exchange(user_input, assistant_response):
-    global history
-    exchange = {
-        "user": user_input,
-        "assistant": assistant_response,
-        "timestamp": time.time(),
-    }
-    history.append(exchange)
-    if len(history) > max_history:
-        history.pop(0)
-    save_history()
-
 
 def get_context_string():
     context = []
