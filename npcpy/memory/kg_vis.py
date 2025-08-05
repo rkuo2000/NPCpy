@@ -227,7 +227,6 @@ def visualize_sleep_process(kg_before, kg_after, filename="sleep_process.png"):
     plt.close()
     print(f"Saved sleep process visualization to {filename}")
     
-å
 def _create_networkx_graph_full(kg):
     """helper to build the complete graph including fact-to-fact links."""
     G = nx.Graph()
