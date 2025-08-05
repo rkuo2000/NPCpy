@@ -1,24 +1,19 @@
-import subprocess
+from jinja2 import Environment, FileSystemLoader, Undefined
 import json
 import PIL
-
+import random 
+import subprocess
 from typing import List, Dict, Any, Optional, Union
-
-
-from jinja2 import Environment, FileSystemLoader, Undefined
-
-from sqlalchemy import create_engine
-
 from npcpy.npc_sysenv import (
+    print_and_process_stream_with_markdown,
     render_markdown,
     lookup_provider,
     request_user_input, 
     get_system_message
 )
 from npcpy.gen.response import get_litellm_response
-from npcpy.gen.image_gen import generate_image, edit_image
+from npcpy.gen.image_gen import generate_image
 from npcpy.gen.video_gen import generate_video_diffusers
-
 
 def gen_image(
     prompt: str,
@@ -147,6 +142,14 @@ def get_llm_response(
             model = npc.model
         if npc.api_url is not None:
             api_url = npc.api_url
+    elif team is not None:
+        if team.model is not None:
+            model = team.model
+        if team.provider is not None:
+            provider = team.provider
+        if team.api_url is not None:
+            api_url = team.api_url
+                
     else:
         provider = "ollama"
         if images is not None or attachments is not None:
@@ -154,7 +157,11 @@ def get_llm_response(
         else:
             model = "llama3.2"
             
-    system_message = get_system_message(npc) if npc else "You are a helpful assistant."
+    if npc is not None:
+        
+        system_message = get_system_message(npc, team) 
+    else: 
+        "You are a helpful assistant."
     #print(system_message)
 
     if context is not None:
@@ -328,61 +335,16 @@ def execute_llm_command(
         "messages": messages,
         "output": "Max attempts reached. Unable to execute the command successfully.",
     }
-def check_llm_command(
-    command: str,
-    model: str = None,
-    provider: str = None,
-    api_url: str = None,
-    api_key: str = None,
-    npc: Any = None,
-    team: Any = None,
-    messages: List[Dict[str, str]] = None,
-    images: list = None,
-    stream=False,
-    context=None,
-    shell=False,
-    actions: Dict[str, Dict] = None,
-    max_iterations: int = 3,
-    current_iteration: int = 0,
-):
-    """This function checks an LLM command and returns sequences of steps with parallel actions."""
-    if messages is None:
-        messages = []
-
-    if actions is None:
-        actions = DEFAULT_ACTION_SPACE.copy()
-
-    return execute_multi_step_plan(
-        command=command,
-        model=model,
-        provider=provider,
-        api_url=api_url,
-        api_key=api_key,
-        npc=npc,
-        team=team,
-        messages=messages,
-        images=images,
-        stream=stream,
-        context=context,
-        shell=shell,
-        actions=actions,
-        max_iterations=max_iterations,
-        current_iteration=current_iteration,
-        completed_actions=[]  # Initialize empty completed actions
-    )
 
 def handle_jinx_call(
     command: str,
     jinx_name: str,
     model: str = None,
     provider: str = None,
-    api_url: str = None,
-    api_key: str = None,
     messages: List[Dict[str, str]] = None,
     npc: Any = None,
     team: Any = None,
     stream=False,
-    shell=False,
     n_attempts=3,
     attempt=0,
     context=None,
@@ -410,9 +372,53 @@ def handle_jinx_call(
         #print(team.jinxs_dict, npc.jinxs_dict)
         if jinx_name not in npc.jinxs_dict and jinx_name not in team.jinxs_dict:
             print("not available")
+            print(jinx_name, npc.jinxs_dict, team.jinxs_dict)
+            if attempt < n_attempts:
+                print(f"attempt {attempt+1} to generate jinx name failed, trying again")
 
-            return  {'output': f"jinx '{jinx_name}' not found in NPC's jinxs_dict.",
-                    'messages': messages}
+                fix_jinx_name = check_llm_command(
+                    '''
+                    In the previous attempt, the jinx name was: {jinx_name}.
+                    Please suggest a valid jinx name from the available jinxs.
+                    Here are the available jinxs:
+                    
+                    npc jinxs  {npc.jinxs_dict}
+                    team.jinxs_dict: {team.jinxs_dict}
+                
+                    If there are no available jinxs, simply return 'null'. If the previously selected jinx name was non existent, then use a different action.
+                    Otherwise only return the verbatim name of the jinx to use.
+                    Do not include any comments or additional formatting. begin and end with the name.
+                    ''', 
+                    model = model, 
+                    provider=provider, 
+                    npc = npc, 
+                    team=team,
+                    messages=messages,
+                    context=context
+                    
+                )
+                
+                return check_llm_command(
+                    command,
+                    jinx_name,
+                    model=model,
+                    provider=provider,
+                    messages=messages,
+                    npc=npc,
+                    team=team,
+                    stream=stream,
+                    attempt=attempt + 1,
+                    n_attempts=n_attempts,
+                    context=context
+                )
+            return {
+                "output": f"Incorrect jinx name supplied and n_attempts reached.",
+                "messages": messages,
+            }
+
+
+
+
         elif jinx_name in npc.jinxs_dict:
             jinx = npc.jinxs_dict[jinx_name]
         elif jinx_name in team.jinxs_dict:
@@ -468,8 +474,7 @@ def handle_jinx_call(
             format="json",
             model=model,
             provider=provider,
-            api_url=api_url,
-            api_key=api_key,
+
             npc=npc,
             context=context
         )
@@ -513,8 +518,6 @@ def handle_jinx_call(
                     messages=messages,
                     npc=npc,
                     team=team,
-                    api_url=api_url,
-                    api_key=api_key,
                     stream=stream,
                     attempt=attempt + 1,
                     n_attempts=n_attempts,
@@ -551,39 +554,11 @@ def handle_jinx_call(
                     messages=messages,
                     npc=npc,
                     team=team,
-                    api_url=api_url,
-                    api_key=api_key,
                     stream=stream,
                     attempt=attempt + 1,
                     n_attempts=n_attempts,
                     context=f""" \n \n \n "jinx failed: {e}  \n \n \n here was the previous attempt: {input_values}""",
                 )
-            else:
-                if shell:
-                    user_input = input(
-                        "the jinx execution has failed after three tries, can you add more context to help or would you like to run again?"
-                    )
-                    return handle_jinx_call(
-                        command + " " + user_input,
-                        jinx_name,
-                        model=model,
-                        provider=provider,
-                        messages=messages,
-                        npc=npc,
-                        team=team,
-                        api_url=api_url,
-                        api_key=api_key,
-                        stream=stream,
-                        attempt=attempt + 1,
-                        n_attempts=n_attempts,
-                        context=context,
-                    )
-                else:
-                    return {
-                        "output": f"Jinx execution failed after {n_attempts} attempts: {e}",
-                        "messages": messages,
-                    }
-
         if not stream and messages[-1]['role'] != 'assistant':
             # if the jinx has already added a message to the output from a final prompt we dont want to double that
             
@@ -599,8 +574,7 @@ def handle_jinx_call(
                 """,
                 model=model,
                 provider=provider,
-                api_url=api_url,
-                api_key=api_key,
+
                 npc=npc,
                 messages=messages,
                 context=context, 
@@ -651,6 +625,11 @@ def handle_request_input(
         {"reason": result["request_reason"], "prompt": result["request_prompt"]},
     )
     return user_input
+
+### Following functions primarily support check_llm_command's procedure which was
+### broken up into smaller functions for clarity and modularity.
+
+
 def jinx_handler(command, extracted_data, **kwargs):
     return handle_jinx_call(
         command, 
@@ -663,21 +642,26 @@ def jinx_handler(command, extracted_data, **kwargs):
         npc=kwargs.get('npc'),
         team = kwargs.get('team'),
         stream=kwargs.get('stream'),
-        shell=kwargs.get('shell'),
+
         context=kwargs.get('context')
     )
 
 def answer_handler(command, extracted_data, **kwargs):
-    print(f"ANSWER HANDLER: cmd='{command}', extracted_data={extracted_data}")
+
     response =  get_llm_response(
         f"""
+        
         Here is the user question: {command}
-        The action chosen by the agent is: answer_question
-        The explanation provided by the agent is: {extracted_data.get('explanation', '')}
-
-        Do not needlessly reference the user's files or provided context. Simply provide the answer to the user's question. Avoid
+        
+        
+        Do not needlessly reference the user's files or provided context.
+        
+        Simply provide the answer to the user's question. Avoid
         appearing zany or unnecessarily forthcoming about the fact that you have received such information. You know it
         and the user knows it. there is no need to constantly mention the facts that are aware to both.
+        
+        Your previous commnets on this topic: {extracted_data.get('explanation', '')}
+        
         """,
         model=kwargs.get('model'),
         provider=kwargs.get('provider'),
@@ -685,62 +669,136 @@ def answer_handler(command, extracted_data, **kwargs):
         api_key=kwargs.get('api_key'),
         messages=kwargs.get('messages'),
         npc=kwargs.get('npc'),
-        stream=False,
+        stream=kwargs.get('stream', False),
         images=kwargs.get('images')
     )
-    
+ 
     return response
     
+def check_llm_command(
+    command: str,
+    model: str = None,
+    provider: str = None,
+    api_url: str = None,
+    api_key: str = None,
+    npc: Any = None,
+    team: Any = None,
+    messages: List[Dict[str, str]] = None,
+    images: list = None,
+    stream=False,
+    context=None,
+    actions: Dict[str, Dict] = None,
+):
+    """This function checks an LLM command and returns sequences of steps with parallel actions."""
+    if messages is None:
+        messages = []
+
+    if actions is None:
+        actions = DEFAULT_ACTION_SPACE.copy()
+
+    return execute_multi_step_plan(
+        command=command,
+        model=model,
+        provider=provider,
+        api_url=api_url,
+        api_key=api_key,
+        npc=npc,
+        team=team,
+        messages=messages,
+        images=images,
+        stream=stream,
+        context=context,
+        actions=actions,
+
+    )
+
 # Define `DEFAULT_ACTION_SPACE`
 
+
+def jinx_context_filler(npc, team):
+    """
+    Generate context information about available jinxs for NPCs and teams.
+    
+    Args:
+        npc: The NPC object
+        team: The team object
+    
+    Returns:
+        str: Formatted string containing jinx information and usage guidelines
+    """
+    # Generate NPC jinxs listing
+    npc_jinxs = "\nNPC Jinxs:\n" + (
+        "\n".join(
+            f"- {name}: {jinx.description}"
+            for name, jinx in getattr(npc, "jinxs_dict", {}).items()
+        )
+        if getattr(npc, "jinxs_dict", None)
+        else None
+    )
+    
+    # Generate team jinxs listing
+    team_jinxs = "\n\nTeam Jinxs:\n" + (
+        "\n".join(
+            f"- {name}: {jinx.description}"
+            for name, jinx in getattr(team, "jinxs_dict", {}).items()
+        )
+        if team and getattr(team, "jinxs_dict", None)
+        else  None
+    )
+    
+    # Guidelines for jinx usage
+    usage_guidelines = """
+Use jinxs when appropriate. For example:
+
+- If you are asked about something up-to-date or dynamic (e.g., latest exchange rates)
+- If the user asks you to read or edit a file
+- If the user asks for code that should be executed
+- If the user requests to open, search, download or scrape, which involve actual system or web actions
+- If they request a screenshot, audio, or image manipulation
+- Situations requiring file parsing (e.g., CSV or JSON loading)
+- Scripted workflows or pipelines, e.g., generate a chart, fetch data, summarize from source, etc.
+
+You MUST use a jinx if the request directly refers to a tool the AI cannot handle directly (e.g., 'run', 'open', 'search', etc).
+
+You must NOT use a jinx if:
+- The user asks you to write them a story (unless they specify saving it to a file)
+- To answer simple questions
+- To determine general information that does not require up-to-date details
+- To answer questions that can be answered with existing knowledge
+
+To invoke a jinx, return the action 'invoke_jinx' along with the jinx specific name. 
+An example for a jinx-specific return would be:
+{
+    "action": "invoke_jinx",
+    "jinx_name": "file_reader",
+    "explanation": "Read the contents of <full_filename_path_from_user_request> and <detailed explanation of how to accomplish the problem outlined in the request>."
+}
+
+Do not use the jinx names as the action keys. You must use the action 'invoke_jinx' to invoke a jinx!
+Do not invent jinx names. Use only those provided.
+
+Here are the currently available jinxs:"""
+
+    if not npc_jinxs and not team_jinxs:
+        return "No jinxs are available."
+    else:    
+        output = usage_guidelines
+        if npc_jinxs:
+            output += npc_jinxs
+        if team_jinxs:
+            output += team_jinxs
+        return output
+            
+            
+            
 DEFAULT_ACTION_SPACE = {
     "invoke_jinx": {
         "description": "Invoke a jinx (jinja-template execution script)",
         "handler": jinx_handler,
-        "context": lambda npc=None, team=None, **_: (
-            """
-            Use jinxs when appropriate. For example:
-
-            - If you are asked about something up-to-date or dynamic (e.g., latest exchange rates)
-            - If the user asks you to read or edit a file
-            - If the user asks for code that should be executed
-            - If the user requests to open, search, download or scrape, which involve actual system or web actions
-            - If they request a screenshot, audio, or image manipulation
-            - Situations requiring file parsing (e.g., CSV or JSON loading)
-            - Scripted workflows or pipelines, e.g., generate a chart, fetch data, summarize from source, etc.
-
-            You MUST use a jinx if the request directly refers to a tool the AI cannot handle directly (e.g., 'run', 'open', 'search', etc).
-
-            To invoke a jinx, return the action 'invoke_jinx' along with the jinx specific name. 
-            An example for a jinx-specific return would be
-            {
-                "action": "invoke_jinx",
-                "jinx_name": "file_reader",
-                "explanation": "Read the contents of <full_filename_path_from_user_request> and <detailed explanation of how to accomplish the problem outlined in the request> ."
-            }
-            Do not use the jinx names as the action keys.  You must use the action 'invoke_jinx' to invoke a jinx!
-
-            Here are the currently available jinxs:
-            """ +
-            (
-                "\n".join(
-                    f"- {name}: {jinx.description}"
-                    for name, jinx in getattr(npc, "jinxs_dict", {}).items()
-                )
-                if npc and getattr(npc, "jinxs_dict", None)
-                else "  [No jinxs available for this NPC]"
-            ) +  "\n \n \n Team Jinxs: " + (
-                "\n".join(
-                    f"- {name}: {jinx.description}"
-                    for name, jinx in getattr(team, "jinxs_dict", {}).items()
-                )
-                if team and getattr(team, "jinxs_dict", None)
-                else "  [No jinxs available for this team]"
-            )
-        ),
+        "context": lambda npc=None, team=None, **_: jinx_context_filler(npc, team),
         "output_keys": {
             "jinx_name": {
-                "description": "The name of the jinx to invoke",
+                "description": "The name of the jinx to invoke. must be from the provided list verbatim",
                 "type": "string"
             }
         }
@@ -748,7 +806,30 @@ DEFAULT_ACTION_SPACE = {
     "answer_question": {
         "description": "Provide a direct informative answer",
         "handler": answer_handler,
-        "context": "For general questions, use existing knowledge",
+        "context": """For general questions, use existing knowledge. For most queries a single action to answer a question will be sufficient.
+e.g.
+
+{
+    "actions": [
+        {
+            "action": "answer_question",
+            "explanation": "Provide a direct answer to the user's question based on existing knowledge."
+            
+    
+        }
+    ]
+}
+
+This should be preferred for more than half of requests. Do not overcomplicate the process.
+Starting dialogue is usually more useful than using tools willynilly. Think carefully about 
+the user's intent and use this action as an opportunity to clear up potential ambiguities before
+proceeding to more complex actions.
+For example, if a user requests to write a story, 
+it is better to respond with 'answer_question'  and to write them a story rather than to invoke some tool.
+Indeed, it might be even better to respond and to request clarification about what other elements they would liek to specify with the story.
+Natural language is highly ambiguous and it is important to establish common ground and priorities before proceeding to more complex actions.
+
+""",
         "output_keys": {}
     }
 }
@@ -756,13 +837,14 @@ def plan_multi_step_actions(
    command: str,
    actions: Dict[str, Dict],
    npc: Any = None,
+   team: Any = None,
    model: str = None,
    provider: str = None,
    api_url: str = None,
    api_key: str = None,
    context: str = None,
    messages: List[Dict[str, str]] = None,
-   team: Any = None
+
 ):
     """
     Analyzes the user's command and creates a complete, sequential plan of actions
@@ -800,9 +882,11 @@ Use the following context about available actions and tools to construct the pla
     prompt += f"""
 --- Instructions ---
 Based on the user's request and the context provided above, create a plan.
+
 The plan must be a JSON object with a single key, "actions". Each action must include:
 - "action": The name of the action to take.
 - "explanation": A clear description of the goal for this specific step.
+
 
 Example Request: "Find out who the current CEO of Microsoft is, then find their biography on Wikipedia"
  
@@ -824,25 +908,27 @@ An Example Plan might look like this depending on the available actions:
   ]
 }
 
+The plans should not mostly be 1-2 actions and usually never more than 3 actions at a time.
+Interactivity is important, unless a user specifies a usage of a specific action, it is generally best to
+assume just to respond in the simplest way possible rather than trying to assume certain actions have been requested.
+
 """+f"""
-Now, create the complete plan for the user's query: "{command}"
-Respond ONLY with the JSON plan.
+Now, create the plan for the user's query: "{command}"
+Respond ONLY with the plan.
 """
 
     action_response = get_llm_response(
         prompt,
-        model=model, provider=provider, api_url=api_url, api_key=api_key,
-        npc=npc, format="json", messages=[]
+        model=model, 
+        provider=provider,
+        api_url=api_url, 
+        api_key=api_key,
+        npc=npc,
+        team=team,
+        format="json", 
+        messages=[]
     )
-
     response_content = action_response.get("response", {})
-    if isinstance(response_content, str):
-        try:
-            response_content = json.loads(response_content)
-        except json.JSONDecodeError:
-            print(f"Error: Could not parse plan from LLM. Response: {response_content}")
-            return []
-    
     return response_content.get("actions", [])
 
 def execute_multi_step_plan(
@@ -857,11 +943,9 @@ def execute_multi_step_plan(
    images: list = None,
    stream=False,
    context=None,
-   shell=False,
+
    actions: Dict[str, Dict] = None,
-   max_iterations: int = 3, # No longer used for recursion
-   current_iteration: int = 0, # No longer used for recursion
-   completed_actions: List = None # No longer used for recursion
+   **kwargs, 
 ):
     """
     Creates a comprehensive plan and executes it sequentially, passing context
@@ -879,30 +963,50 @@ def execute_multi_step_plan(
         api_key=api_key,
         context=context,
         messages=messages,
-        team=team
+        team=team, 
+        
     )
     
     if not planned_actions:
         print("Could not generate a multi-step plan. Answering directly.")
-        result = answer_handler(command=command, extracted_data={"explanation": "Answering the user's query directly."}, model=model, provider=provider, api_url=api_url, api_key=api_key, messages=messages, npc=npc, images=images)
-        return {"messages": result.get('messages', messages), "output": result.get('response')}
+        result = answer_handler(command=command, 
+                                extracted_data={"explanation": "Answering the user's query directly."}, 
+                                model=model,
+                                provider=provider,
+                                api_url=api_url,
+                                api_key=api_key, 
+                                messages=messages,
+                                npc=npc,
+                                stream=stream,
+                                team = team, 
+                                images=images)
+        return {"messages": result.get('messages',
+                                       messages), 
+                "output": result.get('response')}
 
-    # 2. Execute the plan step-by-step.
+
     step_outputs = []
     current_messages = messages.copy()
-    print(planned_actions)
-    for i, action_data in enumerate(planned_actions):
-        print(f"--- Executing Step {i + 1} of {len(planned_actions)} ---")
-        print(f"Goal: {action_data.get('explanation')}")
+    render_markdown(f"### Plan for Command: {command}")
+    for action in planned_actions:
+        step_info = json.dumps(action)
+        render_markdown(f'- {step_info}')
 
+
+    
+    for i, action_data in enumerate(planned_actions):
+        render_markdown(f"--- Executing Step {i + 1} of {len(planned_actions)} ---")
         action_name = action_data["action"]
         handler = actions[action_name]["handler"]
         
+        # re-implement the yielding
         step_context = f"Context from previous steps: {json.dumps(step_outputs)}" if step_outputs else ""
-        step_command = action_data.get('explanation')
-
+        render_markdown(
+            f"- Executing Action: {action_name} \n- Explanation: {action_data.get('explanation')}\n "
+        )
+        
         result = handler(
-           command=step_command, 
+           command=command, 
            extracted_data=action_data,
            model=model,
            provider=provider, 
@@ -912,34 +1016,58 @@ def execute_multi_step_plan(
            npc=npc,
            team=team,
            stream=stream, 
-           shell=shell, 
+
            context=step_context, 
            images=images
         )
 
+
         action_output = result.get('output') or result.get('response')
-        step_outputs.append(action_output)
+
+        if stream and len(planned_actions) > 1:
+            # If streaming, we need to process the output with markdown rendering
+            action_output = print_and_process_stream_with_markdown(action_output, model, provider)
+        elif len(planned_actions) == 1:
+            # If streaming and only one action, we can directly return the output
+            # can circumvent because compile sequence results just returns single output results.
+            return {"messages": result.get('messages', current_messages), 
+                    "output": action_output}
+        
+            
+        step_outputs.append(action_output)        
         current_messages = result.get('messages', current_messages)
 
-    # 3. Compile the final result, passing the original command for context.
+    # render_markdown('## Reviewing output...')
+    # need tot replace with a review step actually 
     final_output = compile_sequence_results(
        original_command=command,
        outputs=step_outputs,
-       model=model, provider=provider, api_url=api_url,
-       api_key=api_key, npc=npc
+       model=model, 
+       provider=provider,
+       npc=npc, 
+       stream=stream, 
+       context=context,
+       **kwargs
     )
-    return {"messages": current_messages, "output": final_output}
+    
+    return {"messages": current_messages, 
+            "output": final_output}
 
-def compile_sequence_results(original_command: str, outputs: List[str], model: str = None, provider: str = None, api_url: str = None, api_key: str = None, npc: Any = None) -> str:
+def compile_sequence_results(original_command: str, 
+                             outputs: List[str], 
+                             model: str = None, 
+                             provider: str = None, 
+                             npc: Any = None, 
+                             team: Any = None,
+                             context: str = None,
+                             stream: bool = False,
+                             **kwargs) -> str:
     """
     Synthesizes a list of outputs from sequential steps into a single,
     coherent final response, framed as an answer to the original query.
     """
     if not outputs:
-        return "The process completed, but produced no output."
-    if len(outputs) == 1:
-        return outputs[0]
-    
+        return "The process completed, but produced no output."    
     synthesis_prompt = f"""
 A user asked the following question:
 "{original_command}"
@@ -951,68 +1079,25 @@ Based *directly on the user's original question* and the information gathered, p
 provide a single, final, and coherent response. Answer the user's question directly.
 Do not mention the steps taken.
 
-Final Synthesized Response:
+Final Synthesized Response that addresses the user in a polite and informative manner:
 """
-    
-    try:
-        response = get_llm_response(
-            synthesis_prompt,
-            model=model, provider=provider, api_url=api_url,
-            api_key=api_key, npc=npc, messages=[]
-        )
-        synthesized = response.get("response", "")
-        if synthesized and synthesized.strip():
-            return synthesized
-    except Exception as e:
-        print(f"Error during final synthesis: {e}")
-    
-    return "\n\n".join(outputs)
-def compile_sequence_results(original_command: str, outputs: List[str], model: str = None, provider: str = None, api_url: str = None, api_key: str = None, npc: Any = None) -> str:
-    """
-    Synthesizes a list of outputs from sequential steps into a single,
-    coherent final response, framed as an answer to the original query.
-    """
-    
-    if not outputs:
-        return "The process completed, but produced no output."
-    
-    if len(outputs) == 1:
-        return outputs[0]
-    
-    # The prompt now includes the user's query, giving the LLM crucial context.
-    synthesis_prompt = f"""
-A user asked the following question:
-"{original_command}"
 
-To answer this, the following information was gathered in sequential steps:
-{json.dumps(outputs, indent=2)}
+    response = get_llm_response(
+        synthesis_prompt,
+        model=model, 
+        provider=provider, 
+        npc=npc, 
+        team=team,
+        messages=[], 
+        stream=stream,
+        context=context,
+        **kwargs
+    )
+    synthesized = response.get("response", "")
+    if synthesized and synthesized.strip():
+        return synthesized    
+    return '\n'.join(outputs)  # Fallback to joining outputs if synthesis fails
 
-Based *directly on the user's original question* and the information gathered, please
-provide a single, final, and coherent response. Answer the user's question directly.
-Do not mention the steps taken.
-
-Final Synthesized Response:
-"""
-    
-    try:
-        response = get_llm_response(
-            synthesis_prompt,
-            model=model,
-            provider=provider,
-            api_url=api_url,
-            api_key=api_key,
-            npc=npc,
-            messages=[],
-        )
-        
-        synthesized = response.get("response", "")
-        if synthesized and synthesized.strip():
-            return synthesized
-    except Exception as e:
-        print(f"Error during final synthesis: {e}")
-    
-    # Fallback to a simple join if synthesis fails.
-    return "\n\n".join(outputs)
 
 
 def should_continue_with_more_actions(
@@ -1021,9 +1106,11 @@ def should_continue_with_more_actions(
     current_messages: List[Dict[str, str]],
     model: str = None,
     provider: str = None,
-    api_url: str = None,
-    api_key: str = None,
     npc: Any = None,
+    team: Any = None,
+    context: str = None,
+    **kwargs: Any
+    
 ) -> Dict:
     """Decide if more action sequences are needed."""
     
@@ -1059,12 +1146,13 @@ JSON response:
         prompt,
         model=model,
         provider=provider,
-        api_url=api_url,
-        api_key=api_key,
         npc=npc,
+        team=team,
         format="json",
         messages=[],
-        context=None,
+        
+        context=context,
+        **kwargs
     )
     
     response_dict = response.get("response", {})
@@ -1072,3 +1160,803 @@ JSON response:
         return {"needs_more_actions": False, "reasoning": "Error", "next_focus": ""}
         
     return response_dict
+
+
+
+### Functions for knowledge extraction using get_llm_response
+### primarily used in memory.knowledge_graph but are general enough
+
+
+
+def identify_groups(
+    facts: List[str],
+    model,
+    provider,
+    npc =  None,
+    context: str = None,
+    **kwargs
+) -> List[str]:
+    """Identify natural groups from a list of facts"""
+
+        
+    prompt = """What are the main groups these facts could be organized into?
+    Express these groups in plain, natural language.
+
+    For example, given:
+        - User enjoys programming in Python
+        - User works on machine learning projects
+        - User likes to play piano
+        - User practices meditation daily
+
+    You might identify groups like:
+        - Programming
+        - Machine Learning
+        - Musical Interests
+        - Daily Practices
+
+    Return a JSON object with the following structure:
+        `{
+            "groups": ["list of group names"]
+        }`
+
+
+    Return only the JSON object. Do not include any additional markdown formatting or
+    leading json characters.
+    """
+
+    response = get_llm_response(
+        prompt + f"\n\nFacts: {json.dumps(facts)}",
+        model=model,
+        provider=provider,
+        format="json",
+        npc=npc,
+        context=context,
+        
+        **kwargs
+    )
+    return response["response"]["groups"]
+
+def get_related_concepts_multi(node_name: str, 
+                               node_type: str, 
+                               all_concept_names, 
+                               model: str, 
+                               provider: str, 
+                               npc=None,
+                               context : str = None, 
+                               **kwargs):
+    """Links any node (fact or concept) to ALL relevant concepts in the entire ontology."""
+    prompt = f"""
+    Which of the following concepts from the entire ontology relate to the given {node_type}?
+    Select all that apply, from the most specific to the most abstract.
+
+    {node_type.capitalize()}: "{node_name}"
+
+    Available Concepts:
+    {json.dumps(all_concept_names, indent=2)}
+
+    Respond with JSON: {{"related_concepts": ["Concept A", "Concept B", ...]}}
+    """
+    response = get_llm_response(prompt, 
+                                model=model, 
+                                provider=provider, 
+                                format="json", 
+                                npc=npc,
+                                context=context, 
+                                **kwargs)
+    return response["response"].get("related_concepts", [])
+
+
+def assign_groups_to_fact(
+    fact: str,
+    groups: List[str],
+    model,
+    provider,
+    npc = None, 
+    context: str = None,
+    **kwargs
+) -> Dict[str, List[str]]:
+    """Assign facts to the identified groups"""
+    prompt = f"""Given this fact, assign it to any relevant groups.
+
+    A fact can belong to multiple groups if it fits.
+
+    Here is the fact: {fact}
+
+    Here are the groups: {groups}
+
+    Return a JSON object with the following structure:
+        {{
+            "groups": ["list of group names"]
+        }}
+
+    Do not include any additional markdown formatting or leading json characters.
+
+
+    """
+
+    response = get_llm_response(
+        prompt,
+        model=model,
+        provider=provider,
+        format="json",
+        npc=npc,
+        context=context,
+        **kwargs
+    )
+    return response["response"]
+
+def generate_group_candidates(
+    items: List[str],
+    item_type: str,
+    model: str,
+    provider: str,
+    npc = None,
+    context: str = None,
+    n_passes: int = 3,
+    subset_size: int = 10, 
+    **kwargs
+) -> List[str]:
+    """Generate candidate groups for items (facts or groups) based on core semantic meaning."""
+    all_candidates = []
+    
+    for pass_num in range(n_passes):
+        if len(items) > subset_size:
+            item_subset = random.sample(items, min(subset_size, len(items)))
+        else:
+            item_subset = items
+        
+        # --- PROMPT MODIFICATION: Focus on semantic essence, avoid gerunds/adverbs, favor subjects ---
+        prompt = f"""From the following {item_type}, identify specific and relevant conceptual groups.
+        Think about the core subject or entity being discussed.
+        
+        GUIDELINES FOR GROUP NAMES:
+        1.  **Prioritize Specificity:** Names should be precise and directly reflect the content.
+        2.  **Favor Nouns and Noun Phrases:** Use descriptive nouns or noun phrases.
+        3.  **AVOID:**
+            *   Gerunds (words ending in -ing when used as nouns, like "Understanding", "Analyzing", "Processing"). If a gerund is unavoidable, try to make it a specific action (e.g., "User Authentication Module" is better than "Authenticating Users").
+            *   Adverbs or descriptive adjectives that don't form a core part of the subject's identity (e.g., "Quickly calculating", "Effectively managing").
+            *   Overly generic terms (e.g., "Concepts", "Processes", "Dynamics", "Mechanics", "Analysis", "Understanding", "Interactions", "Relationships", "Properties", "Structures", "Systems", "Frameworks", "Predictions", "Outcomes", "Effects", "Considerations", "Methods", "Techniques", "Data", "Theoretical", "Physical", "Spatial", "Temporal").
+        4.  **Direct Naming:** If an item is a specific entity or action, it can be a group name itself (e.g., "Earth", "Lamb Shank Braising", "World War I").
+        
+        EXAMPLE:
+        Input {item_type.capitalize()}: ["Self-intersection shocks drive accretion disk formation.", "Gravity stretches star into stream.", "Energy dissipation in shocks influences capture fraction."]
+        Desired Output Groups: ["Accretion Disk Formation (Self-Intersection Shocks)", "Stellar Tidal Stretching", "Energy Dissipation from Shocks"]
+        
+        ---
+        
+        Now, analyze the following {item_type}:
+        {item_type.capitalize()}: {json.dumps(item_subset)}
+        
+        Return a JSON object:
+        {{
+            "groups": ["list of specific, precise, and relevant group names"]
+        }}
+        """
+        # --- END PROMPT MODIFICATION ---
+        
+        response = get_llm_response(
+            prompt,
+            model=model,
+            provider=provider,
+            format="json",
+            npc=npc,
+            context=context,
+            **kwargs
+        )
+        
+        candidates = response["response"].get("groups", [])
+        all_candidates.extend(candidates)
+
+    return list(set(all_candidates))
+
+
+def remove_idempotent_groups(
+    group_candidates: List[str],
+    model: str,
+    provider: str,
+    npc = None, 
+    context : str = None,
+    **kwargs: Any
+) -> List[str]:
+    """Remove groups that are essentially identical in meaning, favoring specificity and direct naming, and avoiding generic structures."""
+    
+    prompt = f"""Compare these group names. Identify and list ONLY the groups that are conceptually distinct and specific.
+    
+    GUIDELINES FOR SELECTING DISTINCT GROUPS:
+    1.  **Prioritize Specificity and Direct Naming:** Favor precise nouns or noun phrases that directly name the subject.
+    2.  **Prefer Concrete Entities/Actions:** If a name refers to a specific entity or action (e.g., "Earth", "Sun", "Water", "France", "User Authentication Module", "Lamb Shank Braising", "World War I"), keep it if it's distinct.
+    3.  **Rephrase Gerunds:** If a name uses a gerund (e.g., "Understanding TDEs"), rephrase it to a noun or noun phrase (e.g., "Tidal Disruption Events").
+    4.  **AVOID OVERLY GENERIC TERMS:** Do NOT use very broad or abstract terms that don't add specific meaning. Examples to avoid: "Concepts", "Processes", "Dynamics", "Mechanics", "Analysis", "Understanding", "Interactions", "Relationships", "Properties", "Structures", "Systems", "Frameworks", "Predictions", "Outcomes", "Effects", "Considerations", "Methods", "Techniques", "Data", "Theoretical", "Physical", "Spatial", "Temporal". If a group name seems overly generic or abstract, it should likely be removed or refined.
+    5.  **Similarity Check:** If two groups are very similar, keep the one that is more descriptive or specific to the domain.
+
+    EXAMPLE 1:
+    Groups: ["Accretion Disk Formation", "Accretion Disk Dynamics", "Formation of Accretion Disks"]
+    Distinct Groups: ["Accretion Disk Formation", "Accretion Disk Dynamics"] 
+
+    EXAMPLE 2:
+    Groups: ["Causes of Events", "Event Mechanisms", "Event Drivers"]
+    Distinct Groups: ["Event Causation", "Event Mechanisms"] 
+
+    EXAMPLE 3:
+    Groups: ["Astrophysics Basics", "Fundamental Physics", "General Science Concepts"]
+    Distinct Groups: ["Fundamental Physics"] 
+
+    EXAMPLE 4:
+    Groups: ["Earth", "The Planet Earth", "Sun", "Our Star"]
+    Distinct Groups: ["Earth", "Sun"]
+    
+    EXAMPLE 5:
+    Groups: ["User Authentication Module", "Authentication System", "Login Process"]
+    Distinct Groups: ["User Authentication Module", "Login Process"]
+    
+    ---
+    
+    Now, analyze the following groups:
+    Groups: {json.dumps(group_candidates)}
+    
+    Return JSON:
+    {{
+        "distinct_groups": ["list of specific, precise, and distinct group names to keep"]
+    }}
+    """
+    
+    response = get_llm_response(
+        prompt,
+        model=model,
+        provider=provider,
+        format="json",
+        npc=npc,
+        context=context,
+        **kwargs
+    )
+    
+    return response["response"]["distinct_groups"]
+
+def breathe(
+    messages: List[Dict[str, str]],
+    model: str,
+    provider: str,
+    npc=  None,
+    context: str = None,
+    **kwargs: Any
+) -> Dict[str, Any]:
+    """Condense the conversation context into a small set of key extractions."""
+    if not messages:
+        return {"output": {}, "messages": []}
+
+    conversation_text = "\n".join([f"{m['role']}: {m['content']}" for m in messages])
+
+    # Extract facts, mistakes, and lessons learned
+    facts = extract_facts(conversation_text, model, provider, 
+                          npc=npc, 
+                          context=context, 
+                          **kwargs)
+
+    output = {
+        "facts": facts,
+    }
+
+    return {"output": output, "messages": []}
+def abstract(groups, 
+             model, 
+             provider, 
+             npc=None,
+             context: str = None, 
+             **kwargs):
+    """
+    Create more abstract terms from groups.
+    """
+    sample_groups = random.sample(groups, min(len(groups), max(3, len(groups) // 2)))
+    
+    groups_text_for_prompt = "\n".join([f'- "{g["name"]}"' for g in sample_groups])
+
+    prompt = f"""
+        Create more abstract categories from this list of groups.
+
+        Groups:
+        {groups_text_for_prompt}
+
+        You will create higher-level concepts that interrelate between the given groups. 
+
+        Create abstract categories that encompass multiple related facts, but do not unnecessarily combine facts with conjunctions. For example, do not try to combine "characters", "settings", and "physical reactions" into a
+        compound group like "Characters, Setting, and Physical Reactions". This kind of grouping is not productive and only obfuscates true abstractions. 
+        For example, a group that might encompass the three aforermentioned names might be "Literary Themes" or "Video Editing Functionis", depending on the context.
+        Your aim is to abstract, not to just arbitrarily generate associations. 
+
+        Group names should never be more than two words. They should not contain gerunds. They should never contain conjunctions like "AND" or "OR".
+        Generate no more than 5 new concepts and no fewer than 2. 
+
+        Respond with JSON:
+        {{
+            "groups": [
+                {{
+                    "name": "abstract category name"
+                }}
+            ]
+        }}
+        """
+    response = get_llm_response(prompt, 
+                                model=model, 
+                                provider=provider, 
+                                format="json",
+                                npc=npc,
+                                context=context, 
+                                **kwargs)
+
+    return response["response"].get("groups", [])
+
+
+def extract_facts(
+    text: str,
+    model: str,
+    provider: str,
+    npc = None,
+    context: str = None
+) -> List[str]:
+    """Extract concise facts from text using LLM (as defined earlier)"""
+    # Implementation from your previous code
+    prompt = """Extract concise facts from this text.
+        A fact is a piece of information that makes a statement about the world.
+        A fact is typically a sentence that is true or false.
+        Facts may be simple or complex. They can also be conflicting with each other, usually
+        because there is some hidden context that is not mentioned in the text.
+        In any case, it is simply your job to extract a list of facts that could pertain to
+        an individual's personality.
+        
+        For example, if a message says:
+            "since I am a doctor I am often trying to think up new ways to help people.
+            Can you help me set up a new kind of software to help with that?"
+        You might extract the following facts:
+            - The individual is a doctor
+            - They are helpful
+
+        Another example:
+            "I am a software engineer who loves to play video games. I am also a huge fan of the
+            Star Wars franchise and I am a member of the 501st Legion."
+        You might extract the following facts:
+            - The individual is a software engineer
+            - The individual loves to play video games
+            - The individual is a huge fan of the Star Wars franchise
+            - The individual is a member of the 501st Legion
+
+        Another example:
+            "The quantum tunneling effect allows particles to pass through barriers
+            that classical physics says they shouldn't be able to cross. This has
+            huge implications for semiconductor design."
+        You might extract these facts:
+            - Quantum tunneling enables particles to pass through barriers that are
+              impassable according to classical physics
+            - The behavior of quantum tunneling has significant implications for
+              how semiconductors must be designed
+
+        Another example:
+            "People used to think the Earth was flat. Now we know it's spherical,
+            though technically it's an oblate spheroid due to its rotation."
+        You might extract these facts:
+            - People historically believed the Earth was flat
+            - It is now known that the Earth is an oblate spheroid
+            - The Earth's oblate spheroid shape is caused by its rotation
+
+        Another example:
+            "My research on black holes suggests they emit radiation, but my professor
+            says this conflicts with Einstein's work. After reading more papers, I
+            learned this is actually Hawking radiation and doesn't conflict at all."
+        You might extract the following facts:
+            - Black holes emit radiation
+            - The professor believes this radiation conflicts with Einstein's work
+            - The radiation from black holes is called Hawking radiation
+            - Hawking radiation does not conflict with Einstein's work
+
+        Another example:
+            "During the pandemic, many developers switched to remote work. I found
+            that I'm actually more productive at home, though my company initially
+            thought productivity would drop. Now they're keeping remote work permanent."
+        You might extract the following facts:
+            - The pandemic caused many developers to switch to remote work
+            - The individual discovered higher productivity when working from home
+            - The company predicted productivity would decrease with remote work
+            - The company decided to make remote work a permanent option
+
+        Thus, it is your mission to reliably extract lists of facts.
+
+        Return a JSON object with the following structure:
+            {
+                "fact_list": "a list containing the facts where each fact is a string",
+            }
+    """ 
+    if context and len(context) > 0:
+        prompt+=f""" Here is some relevant user context: {context}"""
+
+    prompt+="""    
+    Return only the JSON object.
+    Do not include any additional markdown formatting.
+    """
+
+    response = get_llm_response(
+        prompt + f"HERE BEGINS THE TEXT TO INVESTIGATE:\n\nText: {text}",
+        model=model,
+        provider=provider,
+        format="json",
+        npc=npc,
+        context=context,
+    )
+    response = response["response"]
+    return response.get("fact_list", [])
+
+
+def get_facts(content_text, 
+              model, 
+              provider, 
+              npc=None,
+              context : str=None, 
+              **kwargs):
+    """Extract facts from content text"""
+    
+    prompt = f"""
+    Extract facts from this text. A fact is a specific statement that can be sourced from the text.
+
+    Example: if text says "the moon is the earth's only currently known satellite", extract:
+    - "The moon is a satellite of earth" 
+    - "The moon is the only current satellite of earth"
+    - "There may have been other satellites of earth" (inferred from "only currently known")
+
+
+        A fact is a piece of information that makes a statement about the world.
+        A fact is typically a sentence that is true or false.
+        Facts may be simple or complex. They can also be conflicting with each other, usually
+        because there is some hidden context that is not mentioned in the text.
+        In any case, it is simply your job to extract a list of facts that could pertain to
+        an individual's personality.
+        
+        For example, if a message says:
+            "since I am a doctor I am often trying to think up new ways to help people.
+            Can you help me set up a new kind of software to help with that?"
+        You might extract the following facts:
+            - The individual is a doctor
+            - They are helpful
+
+        Another example:
+            "I am a software engineer who loves to play video games. I am also a huge fan of the
+            Star Wars franchise and I am a member of the 501st Legion."
+        You might extract the following facts:
+            - The individual is a software engineer
+            - The individual loves to play video games
+            - The individual is a huge fan of the Star Wars franchise
+            - The individual is a member of the 501st Legion
+
+        Another example:
+            "The quantum tunneling effect allows particles to pass through barriers
+            that classical physics says they shouldn't be able to cross. This has
+            huge implications for semiconductor design."
+        You might extract these facts:
+            - Quantum tunneling enables particles to pass through barriers that are
+              impassable according to classical physics
+            - The behavior of quantum tunneling has significant implications for
+              how semiconductors must be designed
+
+        Another example:
+            "People used to think the Earth was flat. Now we know it's spherical,
+            though technically it's an oblate spheroid due to its rotation."
+        You might extract these facts:
+            - People historically believed the Earth was flat
+            - It is now known that the Earth is an oblate spheroid
+            - The Earth's oblate spheroid shape is caused by its rotation
+
+        Another example:
+            "My research on black holes suggests they emit radiation, but my professor
+            says this conflicts with Einstein's work. After reading more papers, I
+            learned this is actually Hawking radiation and doesn't conflict at all."
+        You might extract the following facts:
+            - Black holes emit radiation
+            - The professor believes this radiation conflicts with Einstein's work
+            - The radiation from black holes is called Hawking radiation
+            - Hawking radiation does not conflict with Einstein's work
+
+        Another example:
+            "During the pandemic, many developers switched to remote work. I found
+            that I'm actually more productive at home, though my company initially
+            thought productivity would drop. Now they're keeping remote work permanent."
+        You might extract the following facts:
+            - The pandemic caused many developers to switch to remote work
+            - The individual discovered higher productivity when working from home
+            - The company predicted productivity would decrease with remote work
+            - The company decided to make remote work a permanent option
+
+        Thus, it is your mission to reliably extract lists of facts.
+
+    Here is the text:
+    Text: "{content_text}"
+
+    Facts should never be more than one or two sentences, and they should not be overly complex or literal. They must be explicitly
+    derived or inferred from the source text. Do not simply repeat the source text verbatim when stating the fact. 
+    
+    No two facts should share substantially similar claims. They should be conceptually distinct and pertain to distinct ideas, avoiding lengthy convoluted or compound facts .
+    Respond with JSON:
+    {{
+        "facts": [
+            {{
+                "statement": "fact statement that builds on input text to state a specific claim that can be falsified through reference to the source material",
+                "source_text": "text snippets related to the source text",
+                "type": "explicit or inferred"
+            }} 
+        ]
+    }}
+    """
+    
+    response = get_llm_response(prompt, 
+                                model=model,
+                                provider=provider, 
+                                format="json", 
+                                npc=npc,
+                                context=context,
+                                **kwargs)
+
+    return response["response"].get("facts", [])
+
+        
+
+def zoom_in(facts, model, provider, npc=None, context: str = None, **kwargs):
+    """Infer new implied facts from existing facts"""
+    valid_facts = []
+    for fact in facts:
+        if isinstance(fact, dict) and 'statement' in fact:
+            valid_facts.append(fact)
+    if not valid_facts:
+        return []     
+
+    fact_lines = []
+    for fact in valid_facts:
+        fact_lines.append(f"- {fact['statement']}")
+    facts_text = "\n".join(fact_lines)
+    
+    prompt = f"""
+    Look at these facts and infer new implied facts:
+
+    {facts_text}
+
+    What other facts can be reasonably inferred from these?
+
+    Respond with JSON:
+    {{
+        "implied_facts": [
+            {{
+                "statement": "new implied fact",
+                "inferred_from": ["which facts this comes from"]
+            }}
+        ]
+    }}
+    """
+    
+    response = get_llm_response(prompt, 
+                                model=model, 
+                                provider=provider, 
+                                format="json", 
+                                context=context,
+                                npc=npc,
+                                **kwargs)
+    return response["response"].get("implied_facts", [])
+def generate_groups(facts, 
+                    model, 
+                    provider, 
+                    npc=None,
+                    context: str =None, 
+                    **kwargs):
+    """Generate conceptual groups for facts"""
+    
+    facts_text = "\n".join([f"- {fact['statement']}" for fact in facts])
+    
+    prompt = f"""
+    Generate conceptual groups for this group off facts:
+
+    {facts_text}
+
+    Create categories that encompass multiple related facts, but do not unnecessarily combine facts with conjunctions. 
+    
+    Your aim is to generalize commonly occurring ideas into groups, not to just arbitrarily generate associations. 
+    Focus on the key commonly occurring items and expresions.     
+
+    Group names should never be more than two words. They should not contain gerunds. They should never contain conjunctions like "AND" or "OR".
+    Respond with JSON:
+    {{
+        "groups": [
+            {{
+                "name": "group name"
+            }}
+        ]
+    }}
+    """
+    
+    response = get_llm_response(prompt,
+                                model=model, 
+                                provider=provider, 
+                                format="json", 
+                                context=context,
+                                npc=npc,
+                                **kwargs)
+
+    return response["response"].get("groups", [])
+
+def remove_redundant_groups(groups, 
+                            model, 
+                            provider, 
+                            npc=None,
+                            context: str = None,
+                            **kwargs):
+    """Remove redundant groups"""
+    
+    groups_text = "\n".join([f"- {g['name']}" for g in groups])
+    
+    prompt = f"""
+    Remove redundant groups from this list:
+
+    {groups_text}
+
+
+
+    Merge similar groups and keep only distinct concepts.
+    Create abstract categories that encompass multiple related facts, but do not unnecessarily combine facts with conjunctions. For example, do not try to combine "characters", "settings", and "physical reactions" into a
+    compound group like "Characters, Setting, and Physical Reactions". This kind of grouping is not productive and only obfuscates true abstractions. 
+    For example, a group that might encompass the three aforermentioned names might be "Literary Themes" or "Video Editing Functionis", depending on the context.
+    Your aim is to abstract, not to just arbitrarily generate associations. 
+
+    Group names should never be more than two words. They should not contain gerunds. They should never contain conjunctions like "AND" or "OR".
+
+
+    Respond with JSON:
+    {{
+        "groups": [
+            {{
+                "name": "final group name"
+            }}
+        ]
+    }}
+    """
+    
+    response = get_llm_response(prompt, 
+                                model=model, 
+                                provider=provider, 
+                                format="json", 
+                                npc=npc,
+                                context=context,
+                                **kwargs)
+
+    return response["response"].get("groups", [])
+
+
+def prune_fact_subset_llm(fact_subset, 
+                          concept_name, 
+                          model, 
+                          provider, 
+                          npc=None,
+                          context : str = None,
+                          **kwargs):
+    """Identifies redundancies WITHIN a small, topically related subset of facts."""
+    print(f"  Step Sleep-A: Pruning fact subset for concept '{concept_name}'...")
+    
+
+    prompt = f"""
+    The following facts are all related to the concept "{concept_name}".
+    Review ONLY this subset and identify groups of facts that are semantically identical.
+    Return only the set of facts that are semantically distinct, and archive the rest.
+
+    Fact Subset: {json.dumps(fact_subset, indent=2)}
+
+    Return a json list of groups 
+    {{
+        "refined_facts": [
+            fact1,
+            fact2,
+            fact3,... 
+        ]
+    }}
+    """
+    response = get_llm_response(prompt, 
+                                model=model, 
+                                provider=provider, 
+                                npc=None,
+                                format="json", 
+                                context=context)
+    return response['response'].get('refined_facts', [])
+
+def consolidate_facts_llm(new_fact, 
+                          existing_facts, 
+                          model, 
+                          provider, 
+                          npc=None,
+                          context: str =None,
+                          **kwargs):
+    """
+    Uses an LLM to decide if a new fact is novel or redundant.
+    """
+    prompt = f"""
+        Analyze the "New Fact" in the context of the "Existing Facts" list.
+        Your task is to determine if the new fact provides genuinely new information or if it is essentially a repeat or minor rephrasing of information already present.
+
+        New Fact:
+        "{new_fact['statement']}"
+
+        Existing Facts:
+        {json.dumps([f['statement'] for f in existing_facts], indent=2)}
+
+        Possible decisions:
+        - 'novel': The fact introduces new, distinct information not covered by the existing facts.
+        - 'redundant': The fact repeats information already present in the existing facts.
+
+        Respond with a JSON object:
+        {{
+            "decision": "novel or redundant",
+            "reason": "A brief explanation for your decision."
+        }}
+        """
+    response = get_llm_response(prompt,
+                                model=model, 
+                                provider=provider, 
+                                format="json", 
+                                npc=npc,
+                                context=context,
+                                **kwargs)
+    return response['response']
+
+
+
+
+def find_best_link_concept_llm(candidate_concept_name, 
+                               existing_concept_names, 
+                               model, 
+                               provider,
+                               npc=None,
+                               context: str = None,
+                               **kwargs   ):
+    """
+    Finds the best existing concept to link a new candidate concept to.
+    This prompt now uses neutral "association" language.
+    """
+    prompt = f"""
+    Here is a new candidate concept: "{candidate_concept_name}"
+    
+    Which of the following existing concepts is it most closely related to? The relationship could be as a sub-category, a similar idea, or a related domain.
+
+    Existing Concepts:
+    {json.dumps(existing_concept_names, indent=2)}
+
+    Respond with the single best-fit concept to link to from the list, or respond with "none" if it is a genuinely new root idea.
+    {{
+      "best_link_concept": "The single best concept name OR none"
+    }}
+    """
+    response = get_llm_response(prompt, 
+                                model=model, 
+                                provider=provider, 
+                                format="json", 
+                                npc=npc,
+                                context=context,
+                                **kwargs)
+    return response['response'].get('best_link_concept')
+
+def asymptotic_freedom(parent_concept, 
+                       supporting_facts, 
+                       model, provider, npc = None,
+                       context: str = None, **kwargs):
+    """Given a concept and its facts, proposes an intermediate layer of sub-concepts."""
+    print(f"  Step Sleep-B: Attempting to deepen concept '{parent_concept['name']}'...")
+    fact_statements = []
+    for f in supporting_facts:
+        fact_statements.append(f['statement'])
+        
+    prompt = f"""
+    The concept "{parent_concept['name']}" is supported by many diverse facts.
+    Propose a layer of 2-4 more specific sub-concepts to better organize these facts.
+    These new concepts will exist as nodes that link to "{parent_concept['name']}".
+
+    Supporting Facts: {json.dumps(fact_statements, indent=2)}
+    Respond with JSON: {{
+        "new_sub_concepts": ["sub_layer1", "sub_layer2"]
+    }}
+    """
+    response = get_llm_response(prompt, 
+                                model=model, 
+                                provider=provider,
+                                format="json", 
+                                context=context, npc=npc,
+                                **kwargs)
+    return response['response'].get('new_sub_concepts', [])

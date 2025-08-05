@@ -61,29 +61,29 @@ def capture_screenshot( full=False) -> Dict[str, str]:
         A dictionary containing the filename, file path, and model kwargs.
     """
     # Ensure the directory exists
-    print('capturing screenshot')
+
     directory = os.path.expanduser("~/.npcsh/screenshots")
     timestamp = time.strftime("%Y%m%d_%H%M%S")
     filename = f"screenshot_{timestamp}.png"
 
     file_path = os.path.join(directory, filename)
     os.makedirs(directory, exist_ok=True)
-    print(directory)
+
 
 
     #file_path = os.path.join(directory, filename)
 
     system = platform.system()
-    print('System detected:', system)
+
     model_kwargs = {}
 
-    print(full, system)
+
     if full:
-        print('full')
+        #print('full')
         if system.lower() == "darwin":
-            print('mac os screencap')
+            #print('mac os screencap')
             subprocess.run(["screencapture", file_path], capture_output=True)
-            print(f"Full screenshot saved to: {file_path}")
+            #print(f"Full screenshot saved to: {file_path}")
         elif system == "Linux":
             if (
                 subprocess.run(
@@ -100,11 +100,7 @@ def capture_screenshot( full=False) -> Dict[str, str]:
                 subprocess.Popen(["scrot", file_path])
                 while not os.path.exists(file_path):
                     time.sleep(0.5)
-            else:
-                print(
-                    "No supported screenshot jinx found. Please install gnome-screenshot or scrot."
-                )
-                return None
+
         elif system == "Windows":
             # For full screen on Windows, we'll use a different approach
             try:
