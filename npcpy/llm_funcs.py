@@ -161,7 +161,7 @@ def get_llm_response(
         
         system_message = get_system_message(npc, team) 
     else: 
-        "You are a helpful assistant."
+        system_message = "You are a helpful assistant."
     #print(system_message)
 
     if context is not None:
