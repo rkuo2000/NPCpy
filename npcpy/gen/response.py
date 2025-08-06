@@ -158,9 +158,15 @@ def get_ollama_response(
     options = {}
     for key, value in kwargs.items():
         if key in [
-            "stop", "temperature", "top_p", "max_tokens", "max_completion_tokens",
-            "extra_headers", "parallel_tool_calls",
-            "response_format", "user",
+            "stop", 
+            "temperature", 
+            "top_p", 
+            "max_tokens",
+            "max_completion_tokens",
+            "extra_headers", 
+            "parallel_tool_calls",
+            "response_format",
+            "user",
         ]:
             options[key] = value
     if tool_choice:
@@ -321,11 +327,21 @@ def get_litellm_response(
         "tool_calls": [], 
         "tool_results":[],
     }
-    if provider == "ollama":
+    if provider == "ollama" and 'gpt-oss' not in model:
         return get_ollama_response(
-            prompt, model, images=images, tools=tools, tool_choice=tool_choice, tool_map=tool_map, think=think,
-            format=format, messages=messages, stream=stream, attachments=attachments, 
-            auto_process_tool_calls=auto_process_tool_calls, **kwargs
+            prompt, 
+            model, 
+            images=images, 
+            tools=tools, 
+            tool_choice=tool_choice, 
+            tool_map=tool_map,
+            think=think,
+            format=format, 
+            messages=messages, 
+            stream=stream, 
+            attachments=attachments, 
+            auto_process_tool_calls=auto_process_tool_calls, 
+            **kwargs
         )
     
 
@@ -424,14 +440,13 @@ def get_litellm_response(
         api_params["api_base"] = api_url
         provider = "openai"
     
-    if format == "json" and not stream:
-        api_params["response_format"] = {"type": "json_object"}
-    elif isinstance(format, BaseModel):
+    
+    if isinstance(format, BaseModel):
         api_params["response_format"] = format
     if model is None:
         model = os.environ.get("NPCSH_CHAT_MODEL", "llama3.2")
     if provider is None:
-        provider = os.environ.get("NPCSH_CHAT_PROVIDER", "openai")
+        provider = os.environ.get("NPCSH_CHAT_PROVIDER")
 
     api_params["model"] = f"{provider}/{model}" if "/" not in model else model
     if api_key is not None: 

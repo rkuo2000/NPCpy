@@ -144,11 +144,11 @@ def find_similar_groups(
 ) -> List[str]:
     """Find existing groups that might contain this fact"""
     response = conn.execute(f"MATCH (g:Groups) RETURN g.name;")  # Execute query
-    print(response)
-    print(type(response))
-    print(dir(response))
+    #print(response)
+    #print(type(response))
+    #print(dir(response))
     groups = response.fetch_as_df()
-    print(f"Groups: {groups}")
+    #print(f"Groups: {groups}")
     if not groups:
         return []
 

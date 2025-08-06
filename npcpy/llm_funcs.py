@@ -929,6 +929,8 @@ Respond ONLY with the plan.
         messages=[]
     )
     response_content = action_response.get("response", {})
+    #print(action_response)
+    #print(type(action_response))
     return response_content.get("actions", [])
 
 def execute_multi_step_plan(

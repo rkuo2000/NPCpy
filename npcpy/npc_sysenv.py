@@ -425,7 +425,7 @@ def print_and_process_stream_with_markdown(response, model, provider):
         dot_count += 1
 
         # Extract tool call info based on provider
-        if provider == "ollama":
+        if provider == "ollama" and 'gpt-oss' not in model:
             # Ollama tool call extraction
             if "message" in chunk and "tool_calls" in chunk["message"]:
                 for tool_call in chunk["message"]["tool_calls"]:
@@ -438,7 +438,7 @@ def print_and_process_stream_with_markdown(response, model, provider):
                             tool_call_data["arguments"] += tool_call["function"]["arguments"]
             
             chunk_content = chunk["message"]["content"] if "message" in chunk and "content" in chunk["message"] else ""
-
+            reasoning_content = chunk['message'].get('thinking')
         else:
             
             # LiteLLM tool call extraction
