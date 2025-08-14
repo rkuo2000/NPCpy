@@ -760,7 +760,7 @@ def jinx_context_filler(npc, team):
             for name, jinx in getattr(npc, "jinxs_dict", {}).items()
         )
         if getattr(npc, "jinxs_dict", None)
-        else None
+        else ''
     )
     
     # Generate team jinxs listing
@@ -770,7 +770,7 @@ def jinx_context_filler(npc, team):
             for name, jinx in getattr(team, "jinxs_dict", {}).items()
         )
         if team and getattr(team, "jinxs_dict", None)
-        else  None
+        else ''
     )
     
     # Guidelines for jinx usage
@@ -805,6 +805,9 @@ Do not use the jinx names as the action keys. You must use the action 'invoke_ji
 Do not invent jinx names. Use only those provided.
 
 Here are the currently available jinxs:"""
+
+
+    
 
     if not npc_jinxs and not team_jinxs:
         return "No jinxs are available."
