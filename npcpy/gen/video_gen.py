@@ -84,12 +84,9 @@ def generate_video_veo3(
     import os
     from google import genai
     from google.genai import types
-    
-    client = genai.Client()
-    if 'GEMINI_API_KEY' in os.environ:
-        api_key =os.environ['GEMINI_API_KEY']
-    else:
-        api_key= None
+    api_key =os.environ.get('GEMINI_API_KEY')
+
+    client = genai.Client(        api_key=api_key)
     
     config = types.GenerateVideosConfig()
     if negative_prompt:
@@ -99,7 +96,6 @@ def generate_video_veo3(
         model="veo-3.0-generate-preview",
         prompt=prompt,
         config=config,
-        api_key=api_key
     )
     
     while not operation.done:
