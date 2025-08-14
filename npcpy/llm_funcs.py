@@ -13,7 +13,7 @@ from npcpy.npc_sysenv import (
 )
 from npcpy.gen.response import get_litellm_response
 from npcpy.gen.image_gen import generate_image
-from npcpy.gen.video_gen import generate_video_diffusers
+from npcpy.gen.video_gen import generate_video_diffusers, generate_video_veo3
 
 def gen_image(
     prompt: str,
@@ -59,7 +59,6 @@ def gen_image(
     return image
 
 
-
 def gen_video(
     prompt,
     model: str = None,
@@ -71,34 +70,62 @@ def gen_video(
     num_frames=25,
     height=256,
     width=256,
+    negative_prompt="",
     messages: list = None,
 ):
     """
     Function Description:
-        This function generates a video using the Stable Diffusion API.
+        This function generates a video using either Diffusers or Veo 3 via Gemini API.
     Args:
         prompt (str): The prompt for generating the video.
-        model_id (str): The Hugging Face model ID to use for Stable Diffusion.
+    Keyword Args:
+        model (str): The model to use for generating the video.
+        provider (str): The provider to use for generating the video (gemini for Veo 3).
         device (str): The device to run the model on ('cpu' or 'cuda').
+        negative_prompt (str): What to avoid in the video (Veo 3 only).
     Returns:
-        PIL.Image: The generated image.
+        dict: Response with output path and messages.
     """
-    output_path = generate_video_diffusers(
-        prompt,
-        model,
-        npc=npc,
-        device=device,
-        output_path=output_path,
-        num_inference_steps=num_inference_steps,
-        num_frames=num_frames,
-        height=height,
-        width=width,
-    )
-    if provider == "diffusers":
-        return {"output": "output path at " + output_path, "messages": messages}
-
-
-
+    
+    if provider == "gemini":
+        
+        try:
+            output_path = generate_video_veo3(
+                prompt=prompt,
+                negative_prompt=negative_prompt,
+                output_path=output_path,
+            )
+            return {
+                "output": f"High-fidelity video with synchronized audio generated at {output_path}",
+                "messages": messages
+            }
+        except Exception as e:
+            print(f"Veo 3 generation failed: {e}")
+            print("Falling back to diffusers...")
+            provider = "diffusers"
+    
+    if provider == "diffusers" or provider is None:
+        # Use diffusers as default/fallback
+        output_path = generate_video_diffusers(
+            prompt,
+            model,
+            npc=npc,
+            device=device,
+            output_path=output_path,
+            num_inference_steps=num_inference_steps,
+            num_frames=num_frames,
+            height=height,
+            width=width,
+        )
+        return {
+            "output": f"Video generated at {output_path}",
+            "messages": messages
+        }
+    
+    return {
+        "output": f"Unsupported provider: {provider}",
+        "messages": messages
+    }
 
 
 def get_llm_response(
@@ -869,8 +896,10 @@ Use the following context about available actions and tools to construct the pla
         if callable(ctx):
             try:
                 # Pass the npc object to the lambda so it can access the jinxs_dict.
+                print(ctx)
                 ctx = ctx(npc=npc, team=team)
             except Exception as e:
+                print( actions)
                 print(f"[WARN] Failed to render context for action '{action_name}': {e}")
                 ctx = None
         

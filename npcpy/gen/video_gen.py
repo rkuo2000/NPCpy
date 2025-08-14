@@ -68,3 +68,52 @@ def generate_video_diffusers(
         output_path = "~/.npcsh/videos/" + prompt[0:8] + ".mp4"
     save_frames_to_video(output.frames, output_path)
     return output_path
+
+
+
+# In video_gen.py
+def generate_video_veo3(
+    prompt: str,
+    negative_prompt: str = "",
+    output_path: str = "",
+):
+    """
+    Generate video using Google's Veo 3 API with synchronized audio.
+    """
+    import time
+    import os
+    from google import genai
+    from google.genai import types
+    
+    client = genai.Client()
+    if 'GEMINI_API_KEY' in os.environ:
+        api_key =os.environ['GEMINI_API_KEY']
+    else:
+        api_key= None
+    
+    config = types.GenerateVideosConfig()
+    if negative_prompt:
+        config.negative_prompt = negative_prompt
+    
+    operation = client.models.generate_videos(
+        model="veo-3.0-generate-preview",
+        prompt=prompt,
+        config=config,
+        api_key=api_key
+    )
+    
+    while not operation.done:
+        time.sleep(20)
+        operation = client.operations.get(operation)
+    
+    generated_video = operation.result.generated_videos[0]
+    
+    os.makedirs(os.path.expanduser("~/.npcsh/videos/"), exist_ok=True)
+    if output_path == "":
+        safe_prompt = "".join(c for c in prompt[:20] if c.isalnum() or c in (' ', '-', '_')).rstrip()
+        output_path = os.path.expanduser("~/.npcsh/videos/") + safe_prompt.replace(" ", "_") + "_veo3.mp4"
+    
+    client.files.download(file=generated_video.video)
+    generated_video.video.save(output_path)
+    
+    return output_path
