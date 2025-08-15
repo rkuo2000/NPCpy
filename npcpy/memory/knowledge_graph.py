@@ -6,7 +6,12 @@ try:
 except ModuleNotFoundError:
     print("kuzu not installed")
 from typing import Optional, Dict, List, Union, Tuple, Any, Set
-from npcpy.llm_funcs import get_llm_response, get_facts, zoom_in, generate_groups
+from npcpy.llm_funcs import ( 
+    get_llm_response, 
+    get_facts, 
+    zoom_in, 
+    generate_groups, 
+    get_related_concepts_multi,)
 from npcpy.npc_compiler import NPC
 import random 
 import json
@@ -234,23 +239,41 @@ def get_related_facts_llm(new_fact_statement, existing_fact_statements, model, p
     response = get_llm_response(prompt, model=model, provider=provider, format="json", context=context)
     return response["response"].get("related_facts", [])
 
-def kg_evolve_incremental(existing_kg, new_content_text, model, provider, context=''):
+def kg_evolve_incremental(existing_kg, 
+                          new_content_text, 
+                          model = None, 
+                          provider=None, 
+                          npc=None, 
+                          context=''):
 
     current_gen = existing_kg.get('generation', 0)
     next_gen = current_gen + 1
     print(f"\n--- ABSORBING INFO (with fact-linking): Gen {current_gen} -> Gen {next_gen} ---")
 
-    new_facts = get_facts(new_content_text, model, provider, context=context)
-    new_implied = zoom_in(new_facts, model, provider, context=context)
+    new_facts = get_facts(new_content_text, 
+                          model=model,
+                          provider=provider,
+                          npc = npc, 
+                          context=context)
+    new_implied = zoom_in(new_facts, 
+                          model=model,
+                          provider=provider, 
+                          npc=npc, 
+                          context=context)
     all_new_facts = new_facts + new_implied
-    for fact in all_new_facts: fact['generation'] = next_gen
+    for fact in all_new_facts: 
+        fact['generation'] = next_gen
     
     existing_facts = existing_kg.get('facts', [])
     existing_concepts = existing_kg.get('concepts', [])
     final_facts = existing_facts + all_new_facts
     
 
-    candidate_concepts = generate_groups(all_new_facts, model, provider, context=context)
+    candidate_concepts = generate_groups(all_new_facts, 
+                                         model = model, 
+                                         provider = provider, 
+                                         npc=npc, 
+                                         context=context)
     existing_concept_names = {c['name'] for c in existing_concepts}
     newly_added_concepts = []
     concept_links = list(existing_kg.get('concept_links', []))
@@ -260,7 +283,13 @@ def kg_evolve_incremental(existing_kg, new_content_text, model, provider, contex
         if cand_name in existing_concept_names: continue
         cand_concept['generation'] = next_gen
         newly_added_concepts.append(cand_concept)
-        related_concepts = get_related_concepts_multi(cand_name, "concept", all_concept_names, model, provider, context)
+        related_concepts = get_related_concepts_multi(cand_name,
+                                                      "concept", 
+                                                      all_concept_names, 
+                                                      model, 
+                                                      provider,
+                                                      npc, 
+                                                      context)
         for related_name in related_concepts:
             if related_name != cand_name: concept_links.append((cand_name, related_name))
         all_concept_names.append(cand_name)
@@ -269,7 +298,13 @@ def kg_evolve_incremental(existing_kg, new_content_text, model, provider, contex
 
     fact_to_concept_links = defaultdict(list, existing_kg.get('fact_to_concept_links', {}))
     for fact in all_new_facts:
-        fact_to_concept_links[fact['statement']] = get_related_concepts_multi(fact['statement'], "fact", all_concept_names, model, provider, context)
+        fact_to_concept_links[fact['statement']] = get_related_concepts_multi(fact['statement'], 
+                                                                              "fact", 
+                                                                              all_concept_names, 
+                                                                              model, 
+                                                                              provider,
+                                                                              npc,  
+                                                                              context)
         
 
     fact_to_fact_links = list(existing_kg.get('fact_to_fact_links', []))
@@ -337,7 +372,12 @@ def kg_sleep_process(existing_kg, model, provider, context='', operations_config
     return new_kg, {}
 
 
-def kg_dream_process(existing_kg, model, provider, context='', num_seeds=3):
+def kg_dream_process(existing_kg, 
+                     model = None,
+                     provider = None,
+                     npc=None,
+                     context='', 
+                     num_seeds=3):
     current_gen = existing_kg.get('generation', 0)
     next_gen = current_gen + 1
     print(f"\n--- DREAMING (Creative Synthesis): Gen {current_gen} -> Gen {next_gen} ---")
@@ -353,14 +393,17 @@ def kg_dream_process(existing_kg, model, provider, context='', num_seeds=3):
     Invent a brief narrative or a hypothetical situation.
     Respond with JSON: {{"dream_text": "A short paragraph..."}}
     """
-    response = get_llm_response(prompt, model=model, provider=provider, format="json", context=context)
+    response = get_llm_response(prompt, 
+                                model=model, 
+                                provider=provider, npc = npc,  
+                                format="json", context=context)
     dream_text = response['response'].get('dream_text')
     if not dream_text:
         print("  - Failed to generate a dream narrative. Skipping.")
         return existing_kg, {}
     print(f"  - Generated Dream: '{dream_text[:150]}...'")
     
-    dream_kg, _ = kg_evolve_incremental(existing_kg, dream_text, model, provider, context)
+    dream_kg, _ = kg_evolve_incremental(existing_kg, dream_text, model, provider, npc,  context)
     
     original_fact_stmts = {f['statement'] for f in existing_kg['facts']}
     for fact in dream_kg['facts']:

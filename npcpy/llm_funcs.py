@@ -899,7 +899,7 @@ Use the following context about available actions and tools to construct the pla
         if callable(ctx):
             try:
                 # Pass the npc object to the lambda so it can access the jinxs_dict.
-                print(ctx)
+                #print(ctx)
                 ctx = ctx(npc=npc, team=team)
             except Exception as e:
                 print( actions)
@@ -1128,7 +1128,7 @@ Final Synthesized Response that addresses the user in a polite and informative m
         **kwargs
     )
     synthesized = response.get("response", "")
-    if synthesized and synthesized.strip():
+    if synthesized:
         return synthesized    
     return '\n'.join(outputs)  # Fallback to joining outputs if synthesis fails
 
@@ -1448,8 +1448,8 @@ def remove_idempotent_groups(
 
 def breathe(
     messages: List[Dict[str, str]],
-    model: str,
-    provider: str,
+    model: str = None,
+    provider: str = None, 
     npc=  None,
     context: str = None,
     **kwargs: Any
@@ -1461,7 +1461,9 @@ def breathe(
     conversation_text = "\n".join([f"{m['role']}: {m['content']}" for m in messages])
 
     # Extract facts, mistakes, and lessons learned
-    facts = extract_facts(conversation_text, model, provider, 
+    facts = extract_facts(conversation_text, 
+                          model, 
+                          provider, 
                           npc=npc, 
                           context=context, 
                           **kwargs)
@@ -1619,8 +1621,8 @@ def extract_facts(
 
 
 def get_facts(content_text, 
-              model, 
-              provider, 
+              model= None,
+              provider = None,
               npc=None,
               context : str=None, 
               **kwargs):
@@ -1720,8 +1722,8 @@ def get_facts(content_text,
     response = get_llm_response(prompt, 
                                 model=model,
                                 provider=provider, 
-                                format="json", 
                                 npc=npc,
+                                format="json", 
                                 context=context,
                                 **kwargs)
 

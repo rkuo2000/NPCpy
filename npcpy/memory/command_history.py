@@ -156,6 +156,103 @@ def setup_chroma_db(collection, description='', db_path: str= ''):
     except Exception as e:
         print(f"Error setting up Chroma DB: {e}")
         raise
+def init_kg_schema(conn: sqlite3.Connection):
+    """Creates the multi-scoped, path-aware KG tables in SQLite."""
+    cursor = conn.cursor()
+    # Add team_name and npc_name to all tables. directory_path is still present.
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS kg_facts (
+        statement TEXT NOT NULL,
+        team_name TEXT NOT NULL,
+        npc_name TEXT NOT NULL,
+        directory_path TEXT NOT NULL,
+        source_text TEXT, type TEXT, generation INTEGER, origin TEXT,
+        PRIMARY KEY (statement, team_name, npc_name, directory_path)
+    )""")
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS kg_concepts (
+        name TEXT NOT NULL,
+        team_name TEXT NOT NULL,
+        npc_name TEXT NOT NULL,
+        directory_path TEXT NOT NULL,
+        generation INTEGER, origin TEXT,
+        PRIMARY KEY (name, team_name, npc_name, directory_path)
+    )""")
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS kg_links (
+        source TEXT NOT NULL, target TEXT NOT NULL,
+        team_name TEXT NOT NULL, npc_name TEXT NOT NULL, directory_path TEXT NOT NULL,
+        type TEXT NOT NULL,
+        PRIMARY KEY (source, target, type, team_name, npc_name, directory_path)
+    )""")
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS kg_metadata (
+        key TEXT NOT NULL,
+        team_name TEXT NOT NULL, npc_name TEXT NOT NULL, directory_path TEXT NOT NULL,
+        value TEXT,
+        PRIMARY KEY (key, team_name, npc_name, directory_path)
+    )""")
+    conn.commit()
+
+def load_kg_from_db(conn: sqlite3.Connection, team_name: str, npc_name: str, directory_path: str) -> Dict[str, Any]:
+    """Loads the KG for a specific scope (team, npc, path) from SQLite."""
+    kg = { "generation": 0, "facts": [], "concepts": [], "concept_links": [], "fact_to_concept_links": {}, "fact_to_fact_links": [] }
+    params = (team_name, npc_name, directory_path)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT value FROM kg_metadata WHERE team_name = ? AND npc_name = ? AND directory_path = ? AND key = 'generation'", params)
+        if row := cursor.fetchone(): kg['generation'] = int(row[0])
+
+        cursor.execute("SELECT statement, source_text, type, generation, origin FROM kg_facts WHERE team_name = ? AND npc_name = ? AND directory_path = ?", params)
+        kg['facts'] = [{"statement": r[0], "source_text": r[1], "type": r[2], "generation": r[3], "origin": r[4]} for r in cursor.fetchall()]
+
+        cursor.execute("SELECT name, generation, origin FROM kg_concepts WHERE team_name = ? AND npc_name = ? AND directory_path = ?", params)
+        kg['concepts'] = [{"name": r[0], "generation": r[1], "origin": r[2]} for r in cursor.fetchall()]
+
+        links = {}
+        cursor.execute("SELECT source, target, type FROM kg_links WHERE team_name = ? AND npc_name = ? AND directory_path = ?", params)
+        for s, t, link_type in cursor.fetchall():
+            if link_type == 'fact_to_concept':
+                if s not in links: links[s] = []
+                links[s].append(t)
+            elif link_type == 'concept_to_concept': kg['concept_links'].append((s, t))
+            elif link_type == 'fact_to_fact': kg['fact_to_fact_links'].append((s, t))
+        kg['fact_to_concept_links'] = links
+    except sqlite3.OperationalError:
+        init_kg_schema(conn)
+    return kg
+
+def save_kg_to_db(conn: sqlite3.Connection, kg: Dict[str, Any], team_name: str, npc_name: str, directory_path: str):
+    """Saves a KG dictionary to SQLite for a specific scope."""
+    params = (team_name, npc_name, directory_path)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("BEGIN")
+        cursor.execute("DELETE FROM kg_facts WHERE team_name = ? AND npc_name = ? AND directory_path = ?", params)
+        cursor.execute("DELETE FROM kg_concepts WHERE team_name = ? AND npc_name = ? AND directory_path = ?", params)
+        cursor.execute("DELETE FROM kg_links WHERE team_name = ? AND npc_name = ? AND directory_path = ?", params)
+        cursor.execute("DELETE FROM kg_metadata WHERE team_name = ? AND npc_name = ? AND directory_path = ?", params)
+
+        cursor.execute("INSERT INTO kg_metadata (key, team_name, npc_name, directory_path, value) VALUES ('generation', ?, ?, ?, ?)", (*params, str(kg.get('generation', 0))))
+
+        facts = [(f['statement'], *params, f.get('source_text'), f.get('type'), f.get('generation'), f.get('origin')) for f in kg.get('facts', []) if f.get('statement')]
+        if facts: cursor.executemany("INSERT INTO kg_facts (statement, team_name, npc_name, directory_path, source_text, type, generation, origin) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", facts)
+
+        concepts = [(c['name'], *params, c.get('generation'), c.get('origin')) for c in kg.get('concepts', []) if c.get('name')]
+        if concepts: cursor.executemany("INSERT INTO kg_concepts (name, team_name, npc_name, directory_path, generation, origin) VALUES (?, ?, ?, ?, ?, ?)", concepts)
+
+        links = []
+        for s, ts in kg.get('fact_to_concept_links', {}).items():
+            for t in ts: links.append((s, t, *params, 'fact_to_concept'))
+        for s, t in kg.get('concept_links', []): links.append((s, t, *params, 'concept_to_concept'))
+        for s, t in kg.get('fact_to_fact_links', []): links.append((s, t, *params, 'fact_to_fact'))
+        if links: cursor.executemany("INSERT INTO kg_links (source, target, team_name, npc_name, directory_path, type) VALUES (?, ?, ?, ?, ?, ?)", links)
+
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        print(f"Failed to save KG for scope '({team_name}, {npc_name}, {directory_path})': {e}")
+
 
 class CommandHistory:
     def __init__(self, db: Union[str, sqlite3.Connection, Engine] = "~/npcsh_history.db"):
@@ -210,6 +307,7 @@ class CommandHistory:
         self.create_conversation_table()
         self.create_attachment_table()
         self.create_jinx_call_table()
+        init_kg_schema(self.conn) # This remains the same.
 
 
     def _execute(self, sql: str, params: Optional[Union[tuple, Dict]] = None, script: bool = False, requires_fk: bool = False) -> Optional[int]:
