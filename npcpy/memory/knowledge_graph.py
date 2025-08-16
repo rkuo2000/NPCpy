@@ -244,79 +244,99 @@ def kg_evolve_incremental(existing_kg,
                           model = None, 
                           provider=None, 
                           npc=None, 
-                          context=''):
+                          context='', 
+                          get_concepts=False,
+                          link_concepts_facts = False, 
+                          link_concepts_concepts=False, 
+                          link_facts_facts = False, 
+                          
+                          ):
 
     current_gen = existing_kg.get('generation', 0)
     next_gen = current_gen + 1
     print(f"\n--- ABSORBING INFO (with fact-linking): Gen {current_gen} -> Gen {next_gen} ---")
+
+    print('extracting facts...')
+
+    newly_added_concepts = []
+    concept_links = list(existing_kg.get('concept_links', []))
+    fact_to_concept_links = defaultdict(list, existing_kg.get('fact_to_concept_links', {}))
+    fact_to_fact_links = list(existing_kg.get('fact_to_fact_links', []))
+
+    existing_facts = existing_kg.get('facts', [])
+    existing_concepts = existing_kg.get('concepts', [])
+    existing_concept_names = {c['name'] for c in existing_concepts}
+    existing_fact_statements = [f['statement'] for f in existing_facts]
+    all_concept_names = list(existing_concept_names)
+
 
     new_facts = get_facts(new_content_text, 
                           model=model,
                           provider=provider,
                           npc = npc, 
                           context=context)
-    new_implied = zoom_in(new_facts, 
-                          model=model,
-                          provider=provider, 
-                          npc=npc, 
-                          context=context)
-    all_new_facts = new_facts + new_implied
-    for fact in all_new_facts: 
+
+    for fact in new_facts: 
         fact['generation'] = next_gen
     
-    existing_facts = existing_kg.get('facts', [])
-    existing_concepts = existing_kg.get('concepts', [])
-    final_facts = existing_facts + all_new_facts
+    final_facts = existing_facts + new_facts
     
+    if get_concepts:
+        print('generating groups...')
 
-    candidate_concepts = generate_groups(all_new_facts, 
-                                         model = model, 
-                                         provider = provider, 
-                                         npc=npc, 
-                                         context=context)
-    existing_concept_names = {c['name'] for c in existing_concepts}
-    newly_added_concepts = []
-    concept_links = list(existing_kg.get('concept_links', []))
-    all_concept_names = list(existing_concept_names)
-    for cand_concept in candidate_concepts:
-        cand_name = cand_concept['name']
-        if cand_name in existing_concept_names: continue
-        cand_concept['generation'] = next_gen
-        newly_added_concepts.append(cand_concept)
-        related_concepts = get_related_concepts_multi(cand_name,
-                                                      "concept", 
-                                                      all_concept_names, 
-                                                      model, 
-                                                      provider,
-                                                      npc, 
-                                                      context)
-        for related_name in related_concepts:
-            if related_name != cand_name: concept_links.append((cand_name, related_name))
-        all_concept_names.append(cand_name)
-    final_concepts = existing_concepts + newly_added_concepts
+        candidate_concepts = generate_groups(new_facts, 
+                                            model = model, 
+                                            provider = provider, 
+                                            npc=npc, 
+                                            context=context)
+    
+        print('linking concepts and concepts...')
+        for cand_concept in candidate_concepts:
+            cand_name = cand_concept['name']
+            if cand_name in existing_concept_names: 
+                continue
+            cand_concept['generation'] = next_gen
+            newly_added_concepts.append(cand_concept)
+            if link_concepts_concepts:
 
+                related_concepts = get_related_concepts_multi(cand_name,
+                                                            "concept", 
+                                                            all_concept_names, 
+                                                            model, 
+                                                            provider,
+                                                            npc, 
+                                                            context)
+                for related_name in related_concepts:
+                    if related_name != cand_name: 
+                        concept_links.append((cand_name, related_name))
+            all_concept_names.append(cand_name)
 
-    fact_to_concept_links = defaultdict(list, existing_kg.get('fact_to_concept_links', {}))
-    for fact in all_new_facts:
-        fact_to_concept_links[fact['statement']] = get_related_concepts_multi(fact['statement'], 
-                                                                              "fact", 
-                                                                              all_concept_names, 
-                                                                              model, 
-                                                                              provider,
-                                                                              npc,  
-                                                                              context)
-        
+        final_concepts = existing_concepts + newly_added_concepts
 
-    fact_to_fact_links = list(existing_kg.get('fact_to_fact_links', []))
-    existing_fact_statements = [f['statement'] for f in existing_facts]
-    for new_fact in all_new_facts:
-        related_fact_stmts = get_related_facts_llm(new_fact['statement'], existing_fact_statements, model, provider, context)
-        for related_stmt in related_fact_stmts:
-            fact_to_fact_links.append((new_fact['statement'], related_stmt))
-            
+        if link_concepts_facts:
+            print('linking facts and concepts...')
+            for fact in new_facts:
+                fact_to_concept_links[fact['statement']] = get_related_concepts_multi(fact['statement'], 
+                                                                                    "fact", 
+                                                                                    all_concept_names, 
+                                                                                    model, 
+                                                                                    provider,
+                                                                                    npc,  
+                                                                                    context)
+    else:
+        final_concepts = existing_concepts
+    if link_facts_facts:
+        for new_fact in new_facts:
+            related_fact_stmts = get_related_facts_llm(new_fact['statement'], existing_fact_statements, model, provider, context)
+            for related_stmt in related_fact_stmts:
+                fact_to_fact_links.append((new_fact['statement'], related_stmt))
+                
     final_kg = {
-        "generation": next_gen, "facts": final_facts, "concepts": final_concepts,
-        "concept_links": concept_links, "fact_to_concept_links": dict(fact_to_concept_links),
+        "generation": next_gen, 
+        "facts": final_facts, 
+        "concepts": final_concepts,
+        "concept_links": concept_links, 
+        "fact_to_concept_links": dict(fact_to_concept_links),
         "fact_to_fact_links": fact_to_fact_links
         
     }
@@ -359,11 +379,11 @@ def kg_sleep_process(existing_kg, model, provider, context='', operations_config
                 related_in_cluster = get_related_facts_llm(anchor_fact, [f for f in facts_in_cluster if f != anchor_fact], model, provider, context)
                 for related_fact in related_in_cluster:
                     fact_to_fact_links.add(tuple(sorted((anchor_fact, related_fact))))
-        
-
 
     new_kg = {
-        "generation": next_gen, "facts": list(facts_map.values()), "concepts": list(concepts_map.values()),
+        "generation": next_gen, 
+        "facts": list(facts_map.values()), 
+        "concepts": list(concepts_map.values()),
         "concept_links": [list(link) for link in concept_links], 
         "fact_to_concept_links": dict(fact_links),
         "fact_to_fact_links": [list(link) for link in fact_to_fact_links] 
