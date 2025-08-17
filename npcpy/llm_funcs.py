@@ -1458,21 +1458,57 @@ def breathe(
     if not messages:
         return {"output": {}, "messages": []}
 
+    if 'stream' in kwargs:
+        kwargs['stream'] = False
     conversation_text = "\n".join([f"{m['role']}: {m['content']}" for m in messages])
 
-    # Extract facts, mistakes, and lessons learned
-    facts = extract_facts(conversation_text, 
-                          model, 
-                          provider, 
-                          npc=npc, 
-                          context=context, 
-                          **kwargs)
 
-    output = {
-        "facts": facts,
+    prompt = f'''
+    Read the following conversation:
+
+    {conversation_text}
+
+    ''' +'''
+
+    Now identify the following items:
+
+    1. The high level objective
+    2. The most recent task
+    3. The accomplishments thus far
+    4. The failures thus far
+
+
+    Return a JSON like so:
+
+    {
+        'high_level_objective': 'the overall goal so far for the user', 
+        'most_recent_task': 'The currently ongoing task', 
+        'accomplishments': ['accomplishment1', 'accomplishment2'], 
+        'failures': ['falures1', 'failures2'], 
     }
 
-    return {"output": output, "messages": []}
+    '''
+
+    
+    result = get_llm_response(prompt, 
+                           model=model, 
+                           provider=provider, 
+                           npc=npc, 
+                           context=context, 
+                           format='json', 
+                           **kwargs)
+
+    res = result.get('response', {})
+    format_output = f"""Here is a summary of the previous session. 
+    The high level objective was: {res.get('high_level_objective')} \n The accomplishments were: {res.get('accomplishments')}, 
+    the failures were: {res.get('failures')} and the most recent task was: {res.get('most_recent_task')}   """
+    return {'output': format_output, 
+            'messages': [
+                         {
+                           'content': format_output, 
+                           'role': 'assistant'}
+                           ] 
+                          }
 def abstract(groups, 
              model, 
              provider, 
