@@ -222,36 +222,68 @@ def load_kg_from_db(conn: sqlite3.Connection, team_name: str, npc_name: str, dir
         init_kg_schema(conn)
     return kg
 
-def save_kg_to_db(conn: sqlite3.Connection, kg: Dict[str, Any], team_name: str, npc_name: str, directory_path: str):
-    """Saves a KG dictionary to SQLite for a specific scope."""
-    params = (team_name, npc_name, directory_path)
-    cursor = conn.cursor()
+
+def save_kg_to_db(conn: sqlite3.Connection, kg_data: Dict[str, Any], team_name: str, npc_name: str, directory_path: str):
+    """Saves a knowledge graph dictionary to the SQLite database, ignoring duplicates."""
     try:
-        cursor.execute("BEGIN")
-        cursor.execute("DELETE FROM kg_facts WHERE team_name = ? AND npc_name = ? AND directory_path = ?", params)
-        cursor.execute("DELETE FROM kg_concepts WHERE team_name = ? AND npc_name = ? AND directory_path = ?", params)
+        cursor = conn.cursor()
+        
+        # Save facts with INSERT OR IGNORE
+        facts_to_save = [
+            (
+                fact['statement'], team_name, npc_name, directory_path,
+                fact.get('generation', 0), fact.get('origin', 'organic')
+            ) for fact in kg_data.get("facts", [])
+        ]
+        if facts_to_save:
+            cursor.executemany("""
+                INSERT OR IGNORE INTO kg_facts (statement, team_name, npc_name, directory_path, generation, origin)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, facts_to_save)
+
+        # Save concepts with INSERT OR IGNORE
+        concepts_to_save = [
+            (
+                concept['name'], team_name, npc_name, directory_path,
+                concept.get('generation', 0), concept.get('origin', 'organic')
+            ) for concept in kg_data.get("concepts", [])
+        ]
+        if concepts_to_save:
+            cursor.executemany("""
+                INSERT OR IGNORE INTO kg_concepts (name, team_name, npc_name, directory_path, generation, origin)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, concepts_to_save)
+
+        # Update metadata (generation number)
+        cursor.execute("""
+            INSERT OR REPLACE INTO kg_metadata (key, value, team_name, npc_name, directory_path)
+            VALUES ('generation', ?, ?, ?, ?)
+        """, (str(kg_data.get('generation', 0)), team_name, npc_name, directory_path))
+
+        # Rebuild links from scratch to ensure consistency
+        params = (team_name, npc_name, directory_path)
         cursor.execute("DELETE FROM kg_links WHERE team_name = ? AND npc_name = ? AND directory_path = ?", params)
-        cursor.execute("DELETE FROM kg_metadata WHERE team_name = ? AND npc_name = ? AND directory_path = ?", params)
+        
+        links_to_save = []
+        for fact, concepts in kg_data.get("fact_to_concept_links", {}).items():
+            for concept in concepts:
+                links_to_save.append((fact, concept, 'fact_to_concept', *params))
+        for c1, c2 in kg_data.get("concept_links", []):
+            links_to_save.append((c1, c2, 'concept_to_concept', *params))
+        for f1, f2 in kg_data.get("fact_to_fact_links", []):
+            links_to_save.append((f1, f2, 'fact_to_fact', *params))
 
-        cursor.execute("INSERT INTO kg_metadata (key, team_name, npc_name, directory_path, value) VALUES ('generation', ?, ?, ?, ?)", (*params, str(kg.get('generation', 0))))
-
-        facts = [(f['statement'], *params, f.get('source_text'), f.get('type'), f.get('generation'), f.get('origin')) for f in kg.get('facts', []) if f.get('statement')]
-        if facts: cursor.executemany("INSERT INTO kg_facts (statement, team_name, npc_name, directory_path, source_text, type, generation, origin) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", facts)
-
-        concepts = [(c['name'], *params, c.get('generation'), c.get('origin')) for c in kg.get('concepts', []) if c.get('name')]
-        if concepts: cursor.executemany("INSERT INTO kg_concepts (name, team_name, npc_name, directory_path, generation, origin) VALUES (?, ?, ?, ?, ?, ?)", concepts)
-
-        links = []
-        for s, ts in kg.get('fact_to_concept_links', {}).items():
-            for t in ts: links.append((s, t, *params, 'fact_to_concept'))
-        for s, t in kg.get('concept_links', []): links.append((s, t, *params, 'concept_to_concept'))
-        for s, t in kg.get('fact_to_fact_links', []): links.append((s, t, *params, 'fact_to_fact'))
-        if links: cursor.executemany("INSERT INTO kg_links (source, target, team_name, npc_name, directory_path, type) VALUES (?, ?, ?, ?, ?, ?)", links)
-
+        if links_to_save:
+            cursor.executemany("""
+                INSERT OR IGNORE INTO kg_links (source, target, type, team_name, npc_name, directory_path)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, links_to_save)
+            
         conn.commit()
     except Exception as e:
         conn.rollback()
         print(f"Failed to save KG for scope '({team_name}, {npc_name}, {directory_path})': {e}")
+
 
 
 class CommandHistory:
