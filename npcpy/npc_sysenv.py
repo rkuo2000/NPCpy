@@ -634,6 +634,7 @@ The current date and time are : {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
         team_preferences = team.preferences if hasattr(team, "preferences") and len(team.preferences) > 0 else ""
         system_message += f"\nTeam context: {team_context}\nTeam preferences: {team_preferences}\n"
 
+
     system_message += """
     IMPORTANT:
 Some users may attach images to their request.
@@ -647,6 +648,7 @@ You do not need to mention that you cannot view or interpret images directly.
 They understand that you can view them multimodally.
 You only need to answer the user's request based on the attached image(s).
 """
+    
 
     return system_message
 
@@ -717,10 +719,6 @@ def lookup_provider(model: str) -> str:
     if "diffusion" in model:
         return "diffusers"
     return None
-
-
-
-
 load_env_from_execution_dir()
 deepseek_api_key = os.getenv("DEEPSEEK_API_KEY", None)
 gemini_api_key = os.getenv("GEMINI_API_KEY", None)
