@@ -205,7 +205,7 @@ def load_npc_by_name_and_source(name, source, db_conn=None, current_path=None):
         npc_directory = get_project_npc_directory(current_path)
         print(f"Looking for project NPC in: {npc_directory}")
     else:  # Default to global if not specified or unknown
-        npc_directory = user_npc_directory
+        npc_directory = app.config['user_npc_directory']
         print(f"Looking for global NPC in: {npc_directory}")
     
     # Look for the NPC file in the appropriate directory
@@ -1230,7 +1230,10 @@ def stream():
             npc_object.team = team_object
         if not npc_object:
             db_conn = get_db_connection()
-            npc_object = load_npc_by_name_and_source(npc_name, npc_source, db_conn, current_path)
+            npc_object = load_npc_by_name_and_source(npc_name, 
+                                                     npc_source, 
+                                                     db_conn, 
+                                                     current_path)
             if not npc_object and npc_source == 'project':
                 print(f"NPC {npc_name} not found in project directory, trying global...")
                 npc_object = load_npc_by_name_and_source(npc_name, 'global', db_conn)
@@ -1958,6 +1961,7 @@ def start_flask_server(
             app.registered_npcs = {}
         # Ensure the database tables exist
         app.config['DB_PATH'] = db_path
+        app.config['user_npc_directory'] = user_npc_directory
 
         command_history = CommandHistory(db_path)
         app.command_history = command_history
