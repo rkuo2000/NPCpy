@@ -184,7 +184,6 @@ def find_similar_groups(
         npc=npc,
         context=context,
         **kwargs
-        
     )
     response = response["response"]
     return response["group_list"]

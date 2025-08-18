@@ -1970,7 +1970,12 @@ def consolidate_facts_llm(new_fact,
     return response['response']
 
 
-def get_related_facts_llm(new_fact_statement, existing_fact_statements, model, provider, context=''):
+def get_related_facts_llm(new_fact_statement, 
+                          existing_fact_statements, 
+                          model = None, 
+                          provider = None,
+                          npc = None, 
+                          context=''):
     """Identifies which existing facts are causally or thematically related to a new fact."""
     prompt = f"""
     A new fact has been learned: "{new_fact_statement}"
@@ -1986,15 +1991,16 @@ def get_related_facts_llm(new_fact_statement, existing_fact_statements, model, p
     response = get_llm_response(prompt, 
                                 model=model, 
                                 provider=provider, 
+                                npc = npc,
                                 format="json", 
                                 context=context)
     return response["response"].get("related_facts", [])
 
 def find_best_link_concept_llm(candidate_concept_name, 
                                existing_concept_names, 
-                               model, 
-                               provider,
-                               npc=None,
+                               model = None,
+                               provider = None,
+                               npc = None,
                                context: str = None,
                                **kwargs   ):
     """
