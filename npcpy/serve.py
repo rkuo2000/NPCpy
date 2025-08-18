@@ -23,7 +23,7 @@ from npcpy.memory.command_history import (
     CommandHistory,
     save_conversation_message,
 )
-from npcpy.npc_compiler import  Jinx, NPC
+from npcpy.npc_compiler import  Jinx, NPC, Team 
 
 from npcpy.llm_funcs import (
     get_llm_response, check_llm_command
@@ -1056,7 +1056,6 @@ def stream():
         cancellation_flags[stream_id] = False
     print(f"Starting stream with ID: {stream_id}")
     
-    # Your original code...
     commandstr = data.get("commandstr")
     conversation_id = data.get("conversationId")
     model = data.get("model", None)
@@ -1066,7 +1065,6 @@ def stream():
         
     npc_name = data.get("npc", None)
     npc_source = data.get("npcSource", "global")
-    team = data.get("team", None)
     current_path = data.get("currentPath")
     
     if current_path:
@@ -1074,45 +1072,97 @@ def stream():
         print(f"Loaded project env variables for stream request: {list(loaded_vars.keys())}")
     
     npc_object = None
+    team_object = None
+    team = None  # Initialize team as None, will be inferred
+    
     if npc_name:
-        # First check if there's a registered team and the NPC exists within that team
-        if team and hasattr(app, 'registered_teams') and team in app.registered_teams:
-            team_object = app.registered_teams[team]
-            # Check if NPC exists in team's npcs (could be dict or list)
-            if hasattr(team_object, 'npcs'):
-                team_npcs = team_object.npcs
-                if isinstance(team_npcs, dict):
-                    if npc_name in team_npcs:
-                        npc_object = team_npcs[npc_name]
-                        print(f"Found NPC {npc_name} in registered team {team}")
-                elif isinstance(team_npcs, list):
-                    for npc in team_npcs:
-                        if hasattr(npc, 'name') and npc.name == npc_name:
-                            npc_object = npc
-                            print(f"Found NPC {npc_name} in registered team {team}")
+        # First check registered teams and capture team name if found
+        print('checking')
+        if hasattr(app, 'registered_teams'):
+            print('has registered teams')
+            for team_name, team_object in app.registered_teams.items():
+                print('team', team_object)
+
+                if hasattr(team_object, 'npcs'):
+                    team_npcs = team_object.npcs
+                    if isinstance(team_npcs, dict):
+                        if npc_name in team_npcs:
+                            npc_object = team_npcs[npc_name]
+                            team = team_name  # Capture the team name
+                            npc_object.team = team_object
+                            print(f"Found NPC {npc_name} in registered team {team_name}")
                             break
-            # Also check the forenpc
-            if not npc_object and hasattr(team_object, 'forenpc') and hasattr(team_object.forenpc, 'name'):
-                if team_object.forenpc.name == npc_name:
-                    npc_object = team_object.forenpc
-                    print(f"Found NPC {npc_name} as forenpc in team {team}")
+                    elif isinstance(team_npcs, list):
+                        for npc in team_npcs:
+                            if hasattr(npc, 'name') and npc.name == npc_name:
+                                npc_object = npc
+                                team = team_name  # Capture the team name
+                                npc_object.team = team_object
+                                print(f"Found NPC {npc_name} in registered team {team_name}")
+                                break
+
+                if not npc_object and hasattr(team_object, 'forenpc') and hasattr(team_object.forenpc, 'name'):
+                    if team_object.forenpc.name == npc_name:
+                        npc_object = team_object.forenpc
+                        npc_object.team = team_object
+
+                        team = team_name  # Capture the team name
+                        print(f"Found NPC {npc_name} as forenpc in team {team_name}")
+                        break
+                
+
+                if npc_object:
+                    break
         
-        # If not found in team, check registered NPCs directly
+
         if not npc_object and hasattr(app, 'registered_npcs') and npc_name in app.registered_npcs:
             npc_object = app.registered_npcs[npc_name]
-            print(f"Found NPC {npc_name} in registered NPCs")
-        
-        # Finally fall back to loading from database/files
+            print(f"Found NPC {npc_name} in registered NPCs (no specific team)")
+            team_object = Team(team_path=npc_object.npc_directory, db_conn=db_conn)
+            npc_object.team = team_object
         if not npc_object:
             db_conn = get_db_connection()
             npc_object = load_npc_by_name_and_source(npc_name, npc_source, db_conn, current_path)
             if not npc_object and npc_source == 'project':
                 print(f"NPC {npc_name} not found in project directory, trying global...")
                 npc_object = load_npc_by_name_and_source(npc_name, 'global', db_conn)
+            if npc_object and hasattr(npc_object, 'npc_directory') and npc_object.npc_directory:
+                team_directory = npc_object.npc_directory
+                
+                if os.path.exists(team_directory):
+                    team_object = Team(team_path=team_directory, db_conn=db_conn)
+                    print('team', team_object)
+
+                else:
+                    # Create team with just this NPC
+                    team_object = Team(npcs=[npc_object], db_conn=db_conn)
+                    team_object.name = os.path.basename(team_directory) if team_directory else f"{npc_name}_team"
+                    npc_object.team = team_object
+                    print('team', team_object)                    
+                team_name = team_object.name
+                # Register the team in the app
+                if not hasattr(app, 'registered_teams'):
+                    app.registered_teams = {}
+                app.registered_teams[team_name] = team_object
+                
+                # Set the team variable for this request
+                team = team_name
+                
+                print(f"Created and registered team '{team_name}' with NPC {npc_name}")
+            
+            if npc_object:
+                npc_object.team = team_object
+
+                print(f"Successfully loaded NPC {npc_name} from {npc_source} directory")
+            else:
+                print(f"Warning: Could not load NPC {npc_name}")
             if npc_object:
                 print(f"Successfully loaded NPC {npc_name} from {npc_source} directory")
             else:
                 print(f"Warning: Could not load NPC {npc_name}")
+
+
+
 
     attachments = data.get("attachments", [])
     command_history = CommandHistory(db_path)
@@ -1142,9 +1192,11 @@ def stream():
 
     messages = fetch_messages_for_conversation(conversation_id)
     if len(messages) == 0 and npc_object is not None:
-        messages = [{'role': 'system', 'content': npc_object.get_system_prompt()}]
+        messages = [{'role': 'system', 
+                     'content': npc_object.get_system_prompt()}]
     elif len(messages) > 0 and messages[0]['role'] != 'system' and npc_object is not None:
-        messages.insert(0, {'role': 'system', 'content': npc_object.get_system_prompt()})
+        messages.insert(0, {'role': 'system', 
+                            'content': npc_object.get_system_prompt()})
     elif len(messages) > 0 and npc_object is not None:
         messages[0]['content'] = npc_object.get_system_prompt()
     if npc_object is not None and messages and messages[0]['role'] == 'system':
@@ -1152,43 +1204,53 @@ def stream():
 
     message_id = command_history.generate_message_id()
     save_conversation_message(
-        command_history, conversation_id, "user", commandstr,
-        wd=current_path, model=model, provider=provider, npc=npc_name,
-        team=team, attachments=attachments_loaded, message_id=message_id,
+        command_history, 
+        conversation_id, 
+        "user", commandstr,
+        wd=current_path, 
+        model=model, 
+        provider=provider, 
+        npc=npc_name,
+        team=team, 
+        attachments=attachments_loaded, 
+        message_id=message_id,
     )
-    # Then pass attachment_paths to get_llm_response:
-    # Pass tools and tool_map from NPC if available
     tool_args = {}
     if npc_object is not None:
-        # Always convert tools to OpenAI-compatible schema and tool_map
         if hasattr(npc_object, 'tools') and npc_object.tools:
-            # If tools is a list of callables, convert to schema/map
             if isinstance(npc_object.tools, list) and callable(npc_object.tools[0]):
                 tools_schema, tool_map = auto_tools(npc_object.tools)
                 tool_args['tools'] = tools_schema
                 tool_args['tool_map'] = tool_map
             else:
-                # If already schema, just use as is
                 tool_args['tools'] = npc_object.tools
                 if hasattr(npc_object, 'tool_map') and npc_object.tool_map:
                     tool_args['tool_map'] = npc_object.tool_map
         elif hasattr(npc_object, 'tool_map') and npc_object.tool_map:
             tool_args['tool_map'] = npc_object.tool_map
-        # --- Always force tool use if tools are present ---
         if 'tools' in tool_args and tool_args['tools']:
             tool_args['tool_choice'] = {"type": "auto"}
-    # --- DEBUG LOGGING: Print tool schema and tool_map before LLM call ---
+
     print("\n[DEBUG] Passing tools to get_llm_response:")
     print("tools schema:", json.dumps(tool_args.get('tools', None), indent=2))
     print("tool_map keys:", list(tool_args.get('tool_map', {}).keys()) if 'tool_map' in tool_args else None)
     print("tool_choice:", tool_args.get('tool_choice', None))
+
     stream_response = get_llm_response(
-        commandstr, messages=messages, images=images, model=model,
-        provider=provider, npc=npc_object, stream=True, attachments=attachment_paths,
+        commandstr, 
+        messages=messages, 
+        images=images, 
+        model=model,
+        provider=provider, 
+        npc=npc_object, 
+        team=team_object,
+        stream=True, 
+        attachments=attachment_paths,
         auto_process_tool_calls=True,
         **tool_args
     )
 
+    print(messages[0])
     message_id = command_history.generate_message_id()
 
     def event_stream(current_stream_id):
@@ -1292,7 +1354,7 @@ def stream():
 def execute():
     data = request.json
     
-    # --- MODIFIED: Get or create a stream_id for cancellation tracking ---
+
     stream_id = data.get("streamId")
     if not stream_id:
         import uuid
@@ -1326,6 +1388,7 @@ def execute():
     
     # Handle team execution
     if team:
+        print(team)
         if hasattr(app, 'registered_teams') and team in app.registered_teams:
             team_object = app.registered_teams[team]
             print(f"Using registered team: {team}")
@@ -1337,6 +1400,7 @@ def execute():
         # First check if there's a registered team and the NPC exists within that team
         if team and hasattr(app, 'registered_teams') and team in app.registered_teams:
             team_object = app.registered_teams[team]
+            print('team', team_object)
             # Check if NPC exists in team's npcs (could be dict or list)
             if hasattr(team_object, 'npcs'):
                 team_npcs = team_object.npcs
