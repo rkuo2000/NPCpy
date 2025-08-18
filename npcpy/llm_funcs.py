@@ -1970,7 +1970,25 @@ def consolidate_facts_llm(new_fact,
     return response['response']
 
 
+def get_related_facts_llm(new_fact_statement, existing_fact_statements, model, provider, context=''):
+    """Identifies which existing facts are causally or thematically related to a new fact."""
+    prompt = f"""
+    A new fact has been learned: "{new_fact_statement}"
 
+    Which of the following existing facts are directly related to it (causally, sequentially, or thematically)?
+    Select only the most direct and meaningful connections.
+
+    Existing Facts:
+    {json.dumps(existing_fact_statements, indent=2)}
+
+    Respond with JSON: {{"related_facts": ["statement of a related fact", ...]}}
+    """
+    response = get_llm_response(prompt, 
+                                model=model, 
+                                provider=provider, 
+                                format="json", 
+                                context=context)
+    return response["response"].get("related_facts", [])
 
 def find_best_link_concept_llm(candidate_concept_name, 
                                existing_concept_names, 
