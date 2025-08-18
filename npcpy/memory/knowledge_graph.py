@@ -241,7 +241,9 @@ def kg_initial(content_text=None,
         if other_fact_statements:
             related_fact_stmts = get_related_facts_llm(fact['statement'], other_fact_statements, model=model, provider=provider, npc=npc, context=context)
             for related_stmt in related_fact_stmts:
+
                 fact_to_fact_links.append((fact['statement'], related_stmt))
+                print(fact['statement'], realted_stmt)
 
     return {
         "generation": CURRENT_GENERATION, 

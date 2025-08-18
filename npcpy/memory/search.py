@@ -439,7 +439,8 @@ def execute_brainblast_command(
     command: str,
     command_history,
     messages=None,
-    top_k: int = 5,  # Fewer results per chunk to keep total manageable
+    top_k: int = 5,  
+    
     **kwargs
 ) -> dict:
     """
