@@ -237,7 +237,7 @@ def kg_initial(content_text=None,
     fact_to_fact_links = []
     fact_statements = [f['statement'] for f in all_facts]
     for i, fact in enumerate(all_facts):
-        other_fact_statements = fact_statements[i+1:]
+        other_fact_statements = fact_statements[all_facts != fact]
         if other_fact_statements:
             related_fact_stmts = get_related_facts_llm(fact['statement'], other_fact_statements, model=model, provider=provider, npc=npc, context=context)
             for related_stmt in related_fact_stmts:
