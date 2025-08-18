@@ -17,6 +17,12 @@ from dotenv import load_dotenv
 from PIL import Image
 from PIL import ImageFile
 from io import BytesIO
+import networkx as nx
+from collections import defaultdict
+import numpy as np
+import pandas as pd 
+
+
 
 from npcpy.npc_sysenv import get_locally_available_models
 from npcpy.memory.command_history import (
@@ -39,18 +45,13 @@ from pathlib import Path
 from flask_cors import CORS
 
 # Path for storing settings
-SETTINGS_FILE = Path(os.path.expanduser("~/.npcshrc"))
-
-# Configuration
-db_path = os.path.expanduser("~/npcsh_history.db")
-user_npc_directory = os.path.expanduser("~/.npcsh/npc_team")
-# Make project_npc_directory a function that updates based on current path
 # instead of a static path relative to server launch directory
 
 
 # --- NEW: Global dictionary to track stream cancellation requests ---
 cancellation_flags = {}
 cancellation_lock = threading.Lock()
+
 
 def get_project_npc_directory(current_path=None):
     """
@@ -109,10 +110,31 @@ def load_project_env(current_path):
     return loaded_vars
 
 # Initialize components
+def load_kg_data(generation=None):
+
+    """Helper function to load data up to a specific generation."""
+    db_path = app.config.get('DB_PATH')
+
+    conn = sqlite3.connect(db_path)
+
+    
+    query_suffix = f" WHERE generation <= {generation}" if generation is not None else ""
+    
+    concepts_df = pd.read_sql_query(f"SELECT * FROM kg_concepts{query_suffix}", conn)
+    facts_df = pd.read_sql_query(f"SELECT * FROM kg_facts{query_suffix}", conn)
+    
+    # Links don't have generation, so we filter them based on the loaded nodes
+    all_links_df = pd.read_sql_query("SELECT * FROM kg_links", conn)
+    valid_nodes = set(concepts_df['name']).union(set(facts_df['statement']))
+    links_df = all_links_df[all_links_df['source'].isin(valid_nodes) & all_links_df['target'].isin(valid_nodes)]
+        
+    conn.close()
+    return concepts_df, facts_df, links_df
 
 
 app = Flask(__name__)
 app.config["REDIS_URL"] = "redis://localhost:6379"
+app.config['DB_PATH'] = ''
 
 
 redis_client = redis.Redis(host="localhost", port=6379, decode_responses=True)
@@ -128,7 +150,7 @@ CORS(
 
 
 def get_db_connection():
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(app.config.get('DB_PATH'))
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -200,6 +222,92 @@ def load_npc_by_name_and_source(name, source, db_conn=None, current_path=None):
         print(f"NPC file not found: {npc_path}")
         return None
 
+@app.route('/api/kg/generations')
+def list_generations():
+    try:
+        conn = sqlite3.connect(app.config.get('DB_PATH'))
+        # Combine generations from both tables to be safe
+        generations = pd.read_sql_query("SELECT DISTINCT generation FROM kg_concepts UNION SELECT DISTINCT generation FROM kg_facts", conn).iloc[:, 0].tolist()
+        conn.close()
+        return jsonify({"generations": sorted([g for g in generations if g is not None])})
+    except Exception as e:
+        # If tables don't exist yet, return empty list
+        print(f"Error listing generations (likely new DB): {e}")
+        return jsonify({"generations": []})
+
+@app.route('/api/kg/graph')
+def get_graph_data():
+    generation_str = request.args.get('generation')
+    generation = int(generation_str) if generation_str and generation_str != 'null' else None
+    
+    concepts_df, facts_df, links_df = load_kg_data(generation)
+    
+    nodes = []
+    nodes.extend([{'id': name, 'type': 'concept'} for name in concepts_df['name']])
+    nodes.extend([{'id': statement, 'type': 'fact'} for statement in facts_df['statement']])
+    
+    links = [{'source': row['source'], 'target': row['target']} for _, row in links_df.iterrows()]
+    
+    return jsonify(graph={'nodes': nodes, 'links': links})
+
+@app.route('/api/kg/network-stats')
+def get_network_stats():
+    generation = request.args.get('generation', type=int)
+    _, _, links_df = load_kg_data(generation)
+    G = nx.DiGraph()
+    for _, link in links_df.iterrows():
+        G.add_edge(link['source'], link['target'])
+    n_nodes = G.number_of_nodes()
+    if n_nodes == 0:
+        return jsonify(stats={'nodes': 0, 'edges': 0, 'density': 0, 'avg_degree': 0, 'node_degrees': {}})
+    degrees = dict(G.degree())
+    stats = {
+        'nodes': n_nodes, 'edges': G.number_of_edges(), 'density': nx.density(G),
+        'avg_degree': np.mean(list(degrees.values())) if degrees else 0, 'node_degrees': degrees
+    }
+    return jsonify(stats=stats)
+
+@app.route('/api/kg/cooccurrence')
+def get_cooccurrence_network():
+    generation = request.args.get('generation', type=int)
+    min_cooccurrence = request.args.get('min_cooccurrence', 2, type=int)
+    _, _, links_df = load_kg_data(generation)
+    fact_to_concepts = defaultdict(set)
+    for _, link in links_df.iterrows():
+        if link['type'] == 'fact_to_concept':
+            fact_to_concepts[link['source']].add(link['target'])
+    cooccurrence = defaultdict(int)
+    for concepts in fact_to_concepts.values():
+        concepts_list = list(concepts)
+        for i, c1 in enumerate(concepts_list):
+            for c2 in concepts_list[i+1:]:
+                pair = tuple(sorted((c1, c2)))
+                cooccurrence[pair] += 1
+    G_cooccur = nx.Graph()
+    for (c1, c2), weight in cooccurrence.items():
+        if weight >= min_cooccurrence:
+            G_cooccur.add_edge(c1, c2, weight=weight)
+    if G_cooccur.number_of_nodes() == 0:
+        return jsonify(network={'nodes': [], 'links': []})
+    components = list(nx.connected_components(G_cooccur))
+    node_to_community = {node: i for i, component in enumerate(components) for node in component}
+    nodes = [{'id': node, 'type': 'concept', 'community': node_to_community.get(node, 0)} for node in G_cooccur.nodes()]
+    links = [{'source': u, 'target': v, 'weight': d['weight']} for u, v, d in G_cooccur.edges(data=True)]
+    return jsonify(network={'nodes': nodes, 'links': links})
+
+@app.route('/api/kg/centrality')
+def get_centrality_data():
+    generation = request.args.get('generation', type=int)
+    concepts_df, _, links_df = load_kg_data(generation)
+    G = nx.Graph()
+    fact_concept_links = links_df[links_df['type'] == 'fact_to_concept']
+    for _, link in fact_concept_links.iterrows():
+        if link['target'] in concepts_df['name'].values:
+            G.add_edge(link['source'], link['target'])
+    concept_degree = {node: cent for node, cent in nx.degree_centrality(G).items() if node in concepts_df['name'].values}
+    return jsonify(centrality={'degree': concept_degree})
+
+
 def fetch_messages_for_conversation(conversation_id):
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -228,7 +336,7 @@ def fetch_messages_for_conversation(conversation_id):
 def get_message_attachments(message_id):
     """Get all attachments for a message"""
     try:
-        command_history = CommandHistory(db_path)
+        command_history = CommandHistory(app.config.get('DB_PATH'))
         attachments = command_history.get_message_attachments(message_id)
         return jsonify({"attachments": attachments, "error": None})
     except Exception as e:
@@ -239,7 +347,7 @@ def get_message_attachments(message_id):
 def get_attachment(attachment_id):
     """Get specific attachment data"""
     try:
-        command_history = CommandHistory(db_path)
+        command_history = CommandHistory(app.config.get('DB_PATH'))
         data, name, type = command_history.get_attachment_data(attachment_id)
 
         if data:
@@ -957,7 +1065,7 @@ def get_attachment_response():
     messages = data.get("messages")
     conversation_id = data.get("conversationId")
     current_path = data.get("currentPath")
-    command_history = CommandHistory(db_path)
+    command_history = CommandHistory(app.config.get('DB_PATH'))
     model = data.get("model")
     npc_name = data.get("npc")
     npc_source = data.get("npcSource", "global")
@@ -1165,7 +1273,7 @@ def stream():
 
 
     attachments = data.get("attachments", [])
-    command_history = CommandHistory(db_path)
+    command_history = CommandHistory(app.config.get('DB_PATH'))
     images = []
     attachments_loaded = []
     if attachments:
@@ -1440,7 +1548,7 @@ def execute():
                 print(f"Warning: Could not load NPC {npc_name}")
 
     attachments = data.get("attachments", [])
-    command_history = CommandHistory(db_path)
+    command_history = CommandHistory(app.config.get('DB_PATH'))
     images = []
     attachments_loaded = []
     
@@ -1764,11 +1872,6 @@ def after_request(response):
     return response
 
 
-def get_db_connection():
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
-    return conn
-
 
 extension_map = {
     "PNG": "images",
@@ -1836,7 +1939,9 @@ def start_flask_server(
     static_files=None, 
     debug=False,
     teams=None,
-    npcs=None
+    npcs=None,
+    db_path: str ='',
+    user_npc_directory = None
 ):
     try:
         # Register teams and NPCs with the app
@@ -1852,10 +1957,10 @@ def start_flask_server(
         else:
             app.registered_npcs = {}
         # Ensure the database tables exist
-
+        app.config['DB_PATH'] = db_path
 
         command_history = CommandHistory(db_path)
-
+        app.command_history = command_history
 
         # Only apply CORS if origins are specified
         if cors_origins:
@@ -1877,4 +1982,11 @@ def start_flask_server(
 
 
 if __name__ == "__main__":
-    start_flask_server()
+
+    SETTINGS_FILE = Path(os.path.expanduser("~/.npcshrc"))
+
+    # Configuration
+    db_path = os.path.expanduser("~/npcsh_history.db")
+    user_npc_directory = os.path.expanduser("~/.npcsh/npc_team")
+    # Make project_npc_directory a function that updates based on current path
+    start_flask_server(db_path=db_path, user_npc_directory=user_npc_directory)
