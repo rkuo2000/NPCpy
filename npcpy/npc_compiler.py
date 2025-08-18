@@ -800,6 +800,9 @@ class NPC:
 
     def to_dict(self):
         """Convert NPC to dictionary representation"""
+        jinx_rep = [] 
+        if self.jinxs is not None:
+            jinx_rep = [ jinx.to_dict() if isinstance(jinx, Jinx) else jinx for jinx in self.jinxs]
         return {
             "name": self.name,
             "primary_directive": self.primary_directive,
@@ -807,7 +810,7 @@ class NPC:
             "provider": self.provider,
             "api_url": self.api_url,
             "api_key": self.api_key,
-            "jinxs": [jinx.to_dict() if isinstance(jinx, Jinx) else jinx for jinx in self.jinxs],
+            "jinxs": jinx_rep, 
             "use_global_jinxs": self.use_global_jinxs
         }
         

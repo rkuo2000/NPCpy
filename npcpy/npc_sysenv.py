@@ -3,6 +3,8 @@ from dotenv import load_dotenv
 import logging
 import re
 import os
+import socket
+import concurrent.futures # For managing timeouts on blocking calls
 import platform
 import sqlite3
 from typing import Dict, List
@@ -30,7 +32,7 @@ try:
     import readline
 except ImportError:
     readline = None
-    print('no readline support, some features may not work as desired.')
+    logging.warning('no readline support, some features may not work as desired.')
 
 # Try/except for rich imports
 try:
@@ -58,9 +60,18 @@ warnings.filterwarnings("ignore", module="torch.serialization")
 os.environ["PYTHONWARNINGS"] = "ignore"
 os.environ["SDL_AUDIODRIVER"] = "dummy"
 
+def check_internet_connection(timeout=0.5):
+    """
+    Checks for internet connectivity by trying to connect to a well-known host.
+    """
+    try:
+        socket.create_connection(("8.8.8.8", 53), timeout=timeout)
+        return True
+    except OSError:
+        return False
 
 
-def get_locally_available_models(project_directory):
+def get_locally_available_models(project_directory, airplane_mode=False):
     available_models = {}
     env_path = os.path.join(project_directory, ".env")
     env_vars = {}
@@ -73,79 +84,119 @@ def get_locally_available_models(project_directory):
                         key, value = line.split("=", 1)
                         env_vars[key.strip()] = value.strip().strip("\"'")
 
-    if "ANTHROPIC_API_KEY" in env_vars or os.environ.get("ANTHROPIC_API_KEY"):
-        try:
-            import anthropic
+    # --- Internet check here ---
+    internet_available = check_internet_connection()
+    if not internet_available:
+        logging.info("No internet connection detected. External API calls will be skipped (effective airplane_mode).")
+        # If no internet, force airplane_mode to True, regardless of its initial value.
+        airplane_mode = True
+    else:
+        logging.info("Internet connection detected. Proceeding based on 'airplane_mode' parameter.")
+    # --- End internet check ---
 
-            client = anthropic.Anthropic(api_key=env_vars.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_API_KEY"))
-            models = client.models.list()
-            for model in models.data:
-                available_models[model.id] = 'anthropic'
+    if not airplane_mode:
+        timeout_seconds = 0.5
+        # Use a single ThreadPoolExecutor for all network-dependent API calls
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+
+            if "ANTHROPIC_API_KEY" in env_vars or os.environ.get("ANTHROPIC_API_KEY"):
+                try:
+                    import anthropic
                     
-        except:
-            print("anthropic models not indexed")
-    if "OPENAI_API_KEY" in env_vars or os.environ.get("OPENAI_API_KEY"):
-        try:
-            import openai
+                    def fetch_anthropic_models():
+                        client = anthropic.Anthropic(api_key=env_vars.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_API_KEY"))
+                        # Modern Anthropic client can also take a timeout in constructor:
+                        # client = anthropic.Anthropic(api_key=..., timeout=timeout_seconds)
+                        return client.models.list()
 
-            openai.api_key = env_vars.get("OPENAI_API_KEY", None) or os.environ.get("OPENAI_API_KEY", None)
-            models = openai.models.list()
+                    future = executor.submit(fetch_anthropic_models)
+                    models = future.result(timeout=timeout_seconds) # Apply timeout
 
-            for model in models.data:
-                if (
-                    (
-                        "gpt" in model.id
-                        or "o1" in model.id
-                        or "o3" in model.id
-                        or "chat" in model.id
-                    )
-                    and "audio" not in model.id
-                    and "realtime" not in model.id
-                ):
-                    available_models[model.id] = "openai"
-        except:
-            print("openai models not indexed")
+                    for model in models.data:
+                        available_models[model.id] = 'anthropic'
+                            
+                except (ImportError, anthropic.APIError, concurrent.futures.TimeoutError, Exception) as e:
+                    logging.info(f"Anthropic models not indexed or timed out: {e}")
 
-    if "GEMINI_API_KEY" in env_vars or os.environ.get("GEMINI_API_KEY"):
-        try:
+            if "OPENAI_API_KEY" in env_vars or os.environ.get("OPENAI_API_KEY"):
+                try:
+                    import openai
 
-            from google import genai
-        
-            #print('GEMINI_API_KEY', genai)
+                    def fetch_openai_models():
+                        # For older OpenAI client versions (<1.0.0), global api_key is common.
+                        # For openai>=1.0.0, it's client = openai.OpenAI(api_key=..., timeout=timeout_seconds)
+                        openai.api_key = env_vars.get("OPENAI_API_KEY", None) or os.environ.get("OPENAI_API_KEY", None)
+                        return openai.models.list()
 
-            client = genai.Client(api_key = env_vars.get("GEMINI_API_KEY") or os.environ.get("GEMINI_API_KEY"))
-            models= []
-            #import pdb 
-            #pdb.set_trace()
+                    future = executor.submit(fetch_openai_models)
+                    models = future.result(timeout=timeout_seconds) # Apply timeout
+
+                    for model in models.data:
+                        if (
+                            (
+                                "gpt" in model.id
+                                or "o1" in model.id
+                                or "o3" in model.id
+                                or "chat" in model.id
+                            )
+                            and "audio" not in model.id
+                            and "realtime" not in model.id
+                        ):
+                            available_models[model.id] = "openai"
+                except (ImportError, openai.APIError, concurrent.futures.TimeoutError, Exception) as e:
+                    logging.info(f"OpenAI models not indexed or timed out: {e}")
+
+            if "GEMINI_API_KEY" in env_vars or os.environ.get("GEMINI_API_KEY"):
+                try:
+                    from google import generativeai as genai
+                
+                    def fetch_gemini_models():
+                        client = genai.Client(api_key = env_vars.get("GEMINI_API_KEY") or os.environ.get("GEMINI_API_KEY"))
+                        found_models = []
+                        # client.models.list() returns an iterator, consume it fully within the callable
+                        for m in client.models.list():
+                            for action in m.supported_actions:
+                                if action == "generateContent":
+                                    if 'models/' in m.name:
+                                        if m.name.split('/')[1] in ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-2.0-pro', 'gemini-1.5-pro', 'gemini-1.5-flash']:
+                                            found_models.append(m.name.split('/')[1])
+                        return set(found_models)
+                    
+                    future = executor.submit(fetch_gemini_models)
+                    models = future.result(timeout=timeout_seconds) # Apply timeout
+
+                    for model in models: # 'models' is already a set of strings here
+                        if "gemini" in model:
+                            available_models[model] = "gemini"
+                except (ImportError, concurrent.futures.TimeoutError, Exception) as e:
+                    logging.info(f"Gemini models not indexed or timed out: {e}")
             
-            for m in client.models.list():
-                for action in m.supported_actions:
-                    if action == "generateContent":
-                        if 'models/' in m.name:
-                            if m.name.split('/')[1] in ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-2.0-pro', 'gemini-1.5-pro', 'gemini-1.5-flash']:
-                                models.append(m.name.split('/')[1])
-            for model in set(models):
-                if "gemini" in model:
-                    available_models[model] = "gemini"
-        except Exception as e:
-            print(f"gemini models not indexed: {e}")
-    if "DEEPSEEK_API_KEY" in env_vars or os.environ.get("DEEPSEEK_API_KEY"):
-        available_models['deepseek-chat'] = 'deepseek'
-        available_models['deepseek-reasoner'] = 'deepseek'        
+            if "DEEPSEEK_API_KEY" in env_vars or os.environ.get("DEEPSEEK_API_KEY"):
+                # Assuming Deepseek models are just added if the key exists, without an API call
+                # If an API call is needed here, apply similar timeout logic.
+                available_models['deepseek-chat'] = 'deepseek'
+                available_models['deepseek-reasoner'] = 'deepseek'        
+    
+    # Ollama is typically local, but its `list()` call might still involve a network request
+    # to the local Ollama server, so applying a timeout is still good practice.
     try:
         import ollama
-        models = ollama.list()
-        for model in models.models:
+        timeout_seconds = 0.5 # Re-using the same timeout
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ollama_executor:
+            def fetch_ollama_models():
+                return ollama.list()
+            
+            future = ollama_executor.submit(fetch_ollama_models)
+            models = future.result(timeout=timeout_seconds) # Apply timeout to Ollama call
 
+        for model in models.models:
             if "embed" not in model.model:
                 mod = model.model
                 available_models[mod] = "ollama"
-    except Exception as e:
-        print(f"Error loading ollama models: {e}")
-    #print("locally available models", available_models)
+    except (ImportError, concurrent.futures.TimeoutError, Exception) as e:
+        logging.info(f"Error loading Ollama models or timed out: {e}")
         
     return available_models
-
 
 
 
@@ -412,69 +463,76 @@ def render_code_block(code: str, language: str = None) -> None:
     )
     console.print(syntax)
 def print_and_process_stream_with_markdown(response, model, provider):
-    str_output = ""
-    dot_count = 0  # Keep track of how many dots we've printed
-    tool_call_data = {"id": None, "function_name": None, "arguments": ""}
-    if isinstance(response, str):
-        render_markdown(response)  # If response is a string, render it directly
-        print('\n') 
-        return response  # If response is a string, return it directly
-    for chunk in response:
-        # Get chunk content based on provider
-        print('.', end="", flush=True)
-        dot_count += 1
-
-        # Extract tool call info based on provider
-        if provider == "ollama" and 'gpt-oss' not in model:
-            # Ollama tool call extraction
-            if "message" in chunk and "tool_calls" in chunk["message"]:
-                for tool_call in chunk["message"]["tool_calls"]:
-                    if "id" in tool_call:
-                        tool_call_data["id"] = tool_call["id"]
-                    if "function" in tool_call:
-                        if "name" in tool_call["function"]:
-                            tool_call_data["function_name"] = tool_call["function"]["name"]
-                        if "arguments" in tool_call["function"]:
-                            tool_call_data["arguments"] += tool_call["function"]["arguments"]
-            
-            chunk_content = chunk["message"]["content"] if "message" in chunk and "content" in chunk["message"] else ""
-            reasoning_content = chunk['message'].get('thinking')
-        else:
-            
-            # LiteLLM tool call extraction
-            for c in chunk.choices:
-                if hasattr(c.delta, "tool_calls") and c.delta.tool_calls:
-                    for tool_call in c.delta.tool_calls:
-                        if tool_call.id:
-                            tool_call_data["id"] = tool_call.id
-                        if tool_call.function:
-                            if hasattr(tool_call.function, "name") and tool_call.function.name:
-                                tool_call_data["function_name"] = tool_call.function.name
-                            if hasattr(tool_call.function, "arguments") and tool_call.function.arguments:
-                                tool_call_data["arguments"] += tool_call.function.arguments
-            
-            chunk_content = ''
-            reasoning_content = ''
-            for c in chunk.choices:
-                if hasattr(c.delta, "reasoning_content"):        
-                    reasoning_content += c.delta.reasoning_content
-            
-            if reasoning_content:
-                chunk_content = reasoning_content
-                    
-            chunk_content += "".join(
-                c.delta.content for c in chunk.choices if c.delta.content
-            )
-
-        
-        if not chunk_content:
-            continue
-        str_output += chunk_content
     
-    # Clear the dots by returning to the start of line and printing spaces
+    str_output = ""
+    dot_count = 0  
+    tool_call_data = {"id": None, "function_name": None, "arguments": ""}
+    interrupted = False
+    
+    if isinstance(response, str):
+        render_markdown(response)  
+        print('\n') 
+        return response 
+    
+    try:
+        for chunk in response:
+
+            print('.', end="", flush=True)
+            dot_count += 1
+
+            if provider == "ollama" and 'gpt-oss' not in model:
+
+                if "message" in chunk and "tool_calls" in chunk["message"]:
+                    for tool_call in chunk["message"]["tool_calls"]:
+                        if "id" in tool_call:
+                            tool_call_data["id"] = tool_call["id"]
+                        if "function" in tool_call:
+                            if "name" in tool_call["function"]:
+                                tool_call_data["function_name"] = tool_call["function"]["name"]
+                            if "arguments" in tool_call["function"]:
+                                tool_call_data["arguments"] += tool_call["function"]["arguments"]
+                
+                chunk_content = chunk["message"]["content"] if "message" in chunk and "content" in chunk["message"] else ""
+                reasoning_content = chunk['message'].get('thinking')
+            else:
+                
+
+                for c in chunk.choices:
+                    if hasattr(c.delta, "tool_calls") and c.delta.tool_calls:
+                        for tool_call in c.delta.tool_calls:
+                            if tool_call.id:
+                                tool_call_data["id"] = tool_call.id
+                            if tool_call.function:
+                                if hasattr(tool_call.function, "name") and tool_call.function.name:
+                                    tool_call_data["function_name"] = tool_call.function.name
+                                if hasattr(tool_call.function, "arguments") and tool_call.function.arguments:
+                                    tool_call_data["arguments"] += tool_call.function.arguments
+                
+                chunk_content = ''
+                reasoning_content = ''
+                for c in chunk.choices:
+                    if hasattr(c.delta, "reasoning_content"):        
+                        reasoning_content += c.delta.reasoning_content
+                
+                if reasoning_content:
+                    chunk_content = reasoning_content
+                        
+                chunk_content += "".join(
+                    c.delta.content for c in chunk.choices if c.delta.content
+                )
+
+            
+            if not chunk_content:
+                continue
+            str_output += chunk_content
+    
+    except KeyboardInterrupt:
+        interrupted = True
+        print('\n⚠️ Stream interrupted by user')
+    
     print('\r' + ' ' * dot_count*2 + '\r', end="", flush=True)
     
-    # Add tool call information to str_output if any was found
+
     if tool_call_data["id"] or tool_call_data["function_name"] or tool_call_data["arguments"]:
         str_output += "\n\n### Jinx Call Data\n"
         if tool_call_data["id"]:
@@ -489,10 +547,17 @@ def print_and_process_stream_with_markdown(response, model, provider):
             except:
                 str_output += f"**Arguments:** `{tool_call_data['arguments']}`"
     
+
+    if interrupted:
+        str_output += "\n\n[⚠️ Response interrupted by user]"
+    
     print('\n')
     render_markdown('\n' + str_output)
     
     return str_output
+
+
+
 def print_and_process_stream(response, model, provider):
     conversation_result = ""
     
@@ -586,7 +651,7 @@ You only need to answer the user's request based on the attached image(s).
     return system_message
 
 
-# Load environment variables from .env file
+
 def load_env_from_execution_dir() -> None:
     """
     Function Description:
@@ -599,18 +664,14 @@ def load_env_from_execution_dir() -> None:
         None
     """
 
-    # Get the directory where the script is being executed
-    execution_dir = os.path.abspath(os.getcwd())
-    # print(f"Execution directory: {execution_dir}")
-    # Construct the path to the .env file
-    env_path = os.path.join(execution_dir, ".env")
 
-    # Load the .env file if it exists
+    execution_dir = os.path.abspath(os.getcwd())
+    env_path = os.path.join(execution_dir, ".env")
     if os.path.exists(env_path):
         load_dotenv(dotenv_path=env_path)
-        print(f"Loaded .env file from {execution_dir}")
+        logging.info(f"Loaded .env file from {execution_dir}")
     else:
-        print(f"Warning: No .env file found in {execution_dir}")
+        logging.warning(f"Warning: No .env file found in {execution_dir}")
 
 
 

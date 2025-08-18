@@ -316,8 +316,7 @@ def get_litellm_response(
     api_url: str = None,
     stream: bool = False,
     attachments: List[str] = None,
-    auto_process_tool_calls: bool = False,  # New kwarg
-
+    auto_process_tool_calls: bool = False, 
     **kwargs,
 ) -> Dict[str, Any]:
     result = {

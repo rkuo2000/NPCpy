@@ -1458,21 +1458,57 @@ def breathe(
     if not messages:
         return {"output": {}, "messages": []}
 
+    if 'stream' in kwargs:
+        kwargs['stream'] = False
     conversation_text = "\n".join([f"{m['role']}: {m['content']}" for m in messages])
 
-    # Extract facts, mistakes, and lessons learned
-    facts = extract_facts(conversation_text, 
-                          model, 
-                          provider, 
-                          npc=npc, 
-                          context=context, 
-                          **kwargs)
 
-    output = {
-        "facts": facts,
+    prompt = f'''
+    Read the following conversation:
+
+    {conversation_text}
+
+    ''' +'''
+
+    Now identify the following items:
+
+    1. The high level objective
+    2. The most recent task
+    3. The accomplishments thus far
+    4. The failures thus far
+
+
+    Return a JSON like so:
+
+    {
+        'high_level_objective': 'the overall goal so far for the user', 
+        'most_recent_task': 'The currently ongoing task', 
+        'accomplishments': ['accomplishment1', 'accomplishment2'], 
+        'failures': ['falures1', 'failures2'], 
     }
 
-    return {"output": output, "messages": []}
+    '''
+
+    
+    result = get_llm_response(prompt, 
+                           model=model, 
+                           provider=provider, 
+                           npc=npc, 
+                           context=context, 
+                           format='json', 
+                           **kwargs)
+
+    res = result.get('response', {})
+    format_output = f"""Here is a summary of the previous session. 
+    The high level objective was: {res.get('high_level_objective')} \n The accomplishments were: {res.get('accomplishments')}, 
+    the failures were: {res.get('failures')} and the most recent task was: {res.get('most_recent_task')}   """
+    return {'output': format_output, 
+            'messages': [
+                         {
+                           'content': format_output, 
+                           'role': 'assistant'}
+                           ] 
+                          }
 def abstract(groups, 
              model, 
              provider, 
@@ -1934,13 +1970,37 @@ def consolidate_facts_llm(new_fact,
     return response['response']
 
 
+def get_related_facts_llm(new_fact_statement, 
+                          existing_fact_statements, 
+                          model = None, 
+                          provider = None,
+                          npc = None, 
+                          context=''):
+    """Identifies which existing facts are causally or thematically related to a new fact."""
+    prompt = f"""
+    A new fact has been learned: "{new_fact_statement}"
 
+    Which of the following existing facts are directly related to it (causally, sequentially, or thematically)?
+    Select only the most direct and meaningful connections.
+
+    Existing Facts:
+    {json.dumps(existing_fact_statements, indent=2)}
+
+    Respond with JSON: {{"related_facts": ["statement of a related fact", ...]}}
+    """
+    response = get_llm_response(prompt, 
+                                model=model, 
+                                provider=provider, 
+                                npc = npc,
+                                format="json", 
+                                context=context)
+    return response["response"].get("related_facts", [])
 
 def find_best_link_concept_llm(candidate_concept_name, 
                                existing_concept_names, 
-                               model, 
-                               provider,
-                               npc=None,
+                               model = None,
+                               provider = None,
+                               npc = None,
                                context: str = None,
                                **kwargs   ):
     """
