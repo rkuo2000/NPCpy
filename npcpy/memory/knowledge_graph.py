@@ -249,7 +249,7 @@ def kg_initial(content_text=None,
             for related_stmt in related_fact_stmts:
 
                 fact_to_fact_links.append((fact['statement'], related_stmt))
-                print(fact['statement'], realted_stmt)
+                print(fact['statement'], related_stmt)
 
     return {
         "generation": CURRENT_GENERATION, 
