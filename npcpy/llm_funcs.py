@@ -400,19 +400,7 @@ def handle_jinx_call(
             print("not available")
             print(jinx_name, npc.jinxs_dict, team.jinxs_dict)
             if attempt < n_attempts:
-                print(f"attempt {attempt+1} to generate jinx name failed, trying again")
-
-                fix_jinx_name = check_llm_command(
-
-                    model = model, 
-                    provider=provider, 
-                    npc = npc, 
-                    team=team,
-                    messages=messages,
-                    context=context
-                    
-                )
-                
+                print(f"attempt {attempt+1} to generate jinx name failed, trying again")                
                 return check_llm_command(
                                         '''
                     In the previous attempt, the jinx name was: {jinx_name}.
@@ -423,7 +411,7 @@ def handle_jinx_call(
 
 
                     Here was the original command: BEGIN ORIGINAL COMMAND 
-                    '''+ command +' END ORIGINAL COMMAND'
+                    '''+ command +' END ORIGINAL COMMAND',
                     jinx_name,
                     model=model,
                     provider=provider,
