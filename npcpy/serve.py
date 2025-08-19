@@ -1,3 +1,4 @@
+import datetime
 from flask import Flask, request, jsonify, Response
 from flask_sse import sse
 import redis
@@ -21,7 +22,11 @@ import networkx as nx
 from collections import defaultdict
 import numpy as np
 import pandas as pd 
-
+import subprocess
+try:
+    import ollama 
+except:
+    pass
 
 
 from npcpy.npc_sysenv import get_locally_available_models
@@ -1875,6 +1880,91 @@ def after_request(response):
     return response
 
 
+
+@app.route('/api/ollama/status', methods=['GET'])
+def ollama_status():
+    try:
+        # The library's list function is a reliable way to check for a connection.
+        # It will raise an exception if it can't connect.
+        ollama.list()
+        return jsonify({"status": "running"})
+    except ollama.RequestError as e:
+        # This catches connection errors, indicating Ollama is not running
+        print(f"Ollama status check failed: {e}")
+        return jsonify({"status": "not_found"})
+    except Exception as e:
+        print(f"An unexpected error occurred during Ollama status check: {e}")
+        return jsonify({"status": "not_found"})
+
+
+@app.route('/api/ollama/models', methods=['GET'])
+def get_ollama_models():
+    response = ollama.list()
+    models_list = []
+    
+    # The response is a list of Model objects. Access attributes with dot notation.
+    for model_obj in response['models']:
+        models_list.append({
+            "name": model_obj.model,
+            "size": model_obj.details.parameter_size, 
+            
+        })
+            
+    return jsonify(models_list)
+
+
+
+@app.route('/api/ollama/delete', methods=['POST'])
+def delete_ollama_model():
+    data = request.get_json()
+    model_name = data.get('name')
+    if not model_name:
+        return jsonify({"error": "Model name is required"}), 400
+    try:
+        ollama.delete(model_name)
+        return jsonify({"success": True, "message": f"Model {model_name} deleted."})
+    except ollama.ResponseError as e:
+        # This will catch errors from Ollama, like "model not found"
+        return jsonify({"error": e.error}), e.status_code
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/ollama/pull', methods=['POST'])
+def pull_ollama_model():
+    data = request.get_json()
+    model_name = data.get('name')
+    if not model_name:
+        return jsonify({"error": "Model name is required"}), 400
+
+    def generate_progress():
+        try:
+            stream = ollama.pull(model_name, stream=True)
+            for progress_obj in stream:
+                # The stream yields ProgressResponse objects.
+                # Access their attributes and convert to a dictionary for JSON.
+                yield json.dumps({
+                    'status': getattr(progress_obj, 'status', None),
+                    'digest': getattr(progress_obj, 'digest', None),
+                    'total': getattr(progress_obj, 'total', None),
+                    'completed': getattr(progress_obj, 'completed', None)
+                }) + '\n'
+        except ollama.ResponseError as e:
+            error_message = {"status": "Error", "details": e.error}
+            yield json.dumps(error_message) + '\n'
+        except Exception as e:
+            error_message = {"status": "Error", "details": str(e)}
+            yield json.dumps(error_message) + '\n'
+
+    return Response(generate_progress(), content_type='application/x-ndjson')
+@app.route('/api/ollama/install', methods=['POST'])
+def install_ollama():
+    try:
+        install_command = "curl -fsSL https://ollama.com/install.sh | sh"
+        result = subprocess.run(install_command, shell=True, check=True, capture_output=True, text=True)
+        return jsonify({"success": True, "output": result.stdout})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 extension_map = {
     "PNG": "images",
