@@ -416,35 +416,6 @@ def play_audio(filename, state):
         pass
 
 
-def select_model():
-    models = [
-        "gpt-4o-mini",
-        "claude-haiku-3-5-latest",
-    ]
-
-    while True:
-        try:
-            choice = input(
-                "\nSelect a model number (or press Enter for default): "
-            ).strip()
-            if not choice:
-                return models[0]["name"]
-
-            choice = int(choice)
-            if 1 <= choice <= len(models):
-                selected_model = models[choice - 1]["name"]
-                print(f"Selected model: {selected_model}")
-                return selected_model
-            else:
-                print(f"Please enter a number between 1 and {len(models)}")
-        except ValueError:
-            print("Please enter a valid number")
-        except Exception as e:
-            print(f"Error selecting model: {str(e)}")
-            if models:
-                return models[0]["name"]
-            return "gemma:2b"
-
 
 def process_response_chunk(text_chunk):
     if not text_chunk.strip():
