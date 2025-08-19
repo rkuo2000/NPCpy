@@ -1124,7 +1124,10 @@ def stream():
             extension = attachment["name"].split(".")[-1]
             extension_mapped = extension_map.get(extension.upper(), "others")
             file_path = os.path.expanduser("~/.npcsh/" + extension_mapped + "/" + attachment["name"])
+            print(attachment)
+
             attachment_paths.append(attachment["path"])  # Use original path for processing
+            
             if extension_mapped == "images":
                 ImageFile.LOAD_TRUNCATED_IMAGES = True
                 img = Image.open(attachment["path"])
@@ -1134,8 +1137,10 @@ def stream():
                 img.save(file_path, optimize=True, quality=50)
                 images.append(file_path)  # Just append file path string
                 attachments_loaded.append({
-                    "name": attachment["name"], "type": extension_mapped,
-                    "data": img_byte_arr.read(), "size": os.path.getsize(file_path)
+                    "name": attachment["name"], 
+                    "type": extension_mapped,
+                    "data": img_byte_arr.read(), 
+                    "size": os.path.getsize(file_path)
                 })
     else:
         attachment_paths = []

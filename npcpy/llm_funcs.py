@@ -377,18 +377,7 @@ def handle_jinx_call(
                 print(f"attempt {attempt+1} to generate jinx name failed, trying again")
 
                 fix_jinx_name = check_llm_command(
-                    '''
-                    In the previous attempt, the jinx name was: {jinx_name}.
-                    Please suggest a valid jinx name from the available jinxs.
-                    Here are the available jinxs:
-                    
-                    npc jinxs  {npc.jinxs_dict}
-                    team.jinxs_dict: {team.jinxs_dict}
-                
-                    If there are no available jinxs, simply return 'null'. If the previously selected jinx name was non existent, then use a different action.
-                    Otherwise only return the verbatim name of the jinx to use.
-                    Do not include any comments or additional formatting. begin and end with the name.
-                    ''', 
+
                     model = model, 
                     provider=provider, 
                     npc = npc, 
@@ -399,7 +388,16 @@ def handle_jinx_call(
                 )
                 
                 return check_llm_command(
-                    command,
+                                        '''
+                    In the previous attempt, the jinx name was: {jinx_name}.
+
+                    That jinx was not available, only select those that are available.
+                
+                    If there are no available jinxs choose an alternative action. Do not invoke the jinx action. 
+
+
+                    Here was the original command: BEGIN ORIGINAL COMMAND 
+                    '''+ command +' END ORIGINAL COMMAND'
                     jinx_name,
                     model=model,
                     provider=provider,
