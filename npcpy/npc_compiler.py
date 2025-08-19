@@ -423,6 +423,7 @@ class NPC:
         name: str = None,
         primary_directive: str = None,
         plain_system_message: bool = False,
+        team = None, 
         jinxs: list = None,
         tools: list = None,
         model: str = None,
@@ -461,6 +462,7 @@ class NPC:
             self.provider = provider 
             self.api_url = api_url 
             self.api_key = api_key
+            self.team = team
             #for these cases
             # if npcsh is initialized, use the ~/.npcsh/npc_team
             # otherwise imply
@@ -578,7 +580,7 @@ class NPC:
             return self.primary_directive
         else:
                 
-            return get_system_message(self)
+            return get_system_message(self, team=self.team)
     def _setup_db(self):
         """Set up database tables and determine type"""
         try:
@@ -800,6 +802,9 @@ class NPC:
 
     def to_dict(self):
         """Convert NPC to dictionary representation"""
+        jinx_rep = [] 
+        if self.jinxs is not None:
+            jinx_rep = [ jinx.to_dict() if isinstance(jinx, Jinx) else jinx for jinx in self.jinxs]
         return {
             "name": self.name,
             "primary_directive": self.primary_directive,
@@ -807,7 +812,7 @@ class NPC:
             "provider": self.provider,
             "api_url": self.api_url,
             "api_key": self.api_key,
-            "jinxs": [jinx.to_dict() if isinstance(jinx, Jinx) else jinx for jinx in self.jinxs],
+            "jinxs": jinx_rep, 
             "use_global_jinxs": self.use_global_jinxs
         }
         

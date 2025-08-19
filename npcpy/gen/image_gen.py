@@ -17,23 +17,83 @@ def generate_image_diffusers(
     height: int = 512,
     width: int = 512,
 ):
-    """Generate an image using the Stable Diffusion API."""
-    if 'Qwen' in model:
-        from diffusers import DiffusionPipeline
-
-        pipe = DiffusionPipeline.from_pretrained(model)
-        pipe = pipe.to(device)
-    else:        
-        from diffusers import StableDiffusionPipeline
-
-        pipe = StableDiffusionPipeline.from_pretrained(model)
-        pipe = pipe.to(device)
-
-    # Generate the image
-    image = pipe(prompt, height=height, width=width)
-    image = image.images[0]
+    """Generate an image using the Stable Diffusion API with memory optimization."""
+    import torch
+    import gc
     
-    return image
+    try:
+        # Memory optimization for CPU/low-memory systems
+        torch_dtype = torch.float16 if device != "cpu" and torch.cuda.is_available() else torch.float32
+        
+        if 'Qwen' in model:
+            from diffusers import DiffusionPipeline
+            
+            # Load with memory optimizations
+            pipe = DiffusionPipeline.from_pretrained(
+                model,
+                torch_dtype=torch_dtype,
+                use_safetensors=True,
+                variant="fp16" if torch_dtype == torch.float16 else None,
+            )
+        else:        
+            from diffusers import StableDiffusionPipeline
+            
+            # Load with memory optimizations
+            pipe = StableDiffusionPipeline.from_pretrained(
+                model,
+                torch_dtype=torch_dtype,
+                use_safetensors=True,
+                variant="fp16" if torch_dtype == torch.float16 else None,
+            )
+        
+        # Apply memory-efficient attention if available
+        if hasattr(pipe, 'enable_attention_slicing'):
+            pipe.enable_attention_slicing()
+        
+        # Enable model CPU offloading for better memory management
+        if hasattr(pipe, 'enable_model_cpu_offload') and device != "cpu":
+            pipe.enable_model_cpu_offload()
+        else:
+            pipe = pipe.to(device)
+        
+        # Enable memory efficient attention
+        if hasattr(pipe, 'enable_xformers_memory_efficient_attention'):
+            try:
+                pipe.enable_xformers_memory_efficient_attention()
+            except Exception:
+                pass  # xformers not available, continue without it
+        
+        # Generate the image
+        with torch.inference_mode():
+            result = pipe(prompt, height=height, width=width, num_inference_steps=20)
+            image = result.images[0]
+        
+        # Cleanup memory
+        del pipe
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        gc.collect()
+        
+        return image
+        
+    except Exception as e:
+        # Cleanup on error
+        if 'pipe' in locals():
+            del pipe
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        gc.collect()
+        
+        # Suggest fallback options
+        if "out of memory" in str(e).lower() or "killed" in str(e).lower():
+            print(f"Memory error during image generation: {e}")
+            print("Suggestions:")
+            print("1. Try using a smaller model like 'CompVis/stable-diffusion-v1-4'")
+            print("2. Reduce image dimensions (e.g., height=256, width=256)")
+            print("3. Use a cloud service for image generation")
+            raise MemoryError(f"Insufficient memory for image generation with model {model}. Try a smaller model or reduce image size.")
+        else:
+            raise e
 
 
 def openai_image_gen(
@@ -196,7 +256,6 @@ def generate_image(
     Returns:
         PIL.Image: The generated image.
     """
-    # Set default model if none provided
     if model is None:
         if provider == "openai":
             model = "dall-e-2"
@@ -205,14 +264,34 @@ def generate_image(
         elif provider == "gemini":
             model = "imagen-3.0-generate-002"
     
-    # Generate or edit the image based on provider
     if provider == "diffusers":
-        image = generate_image_diffusers(
-            prompt=prompt, 
-            model=model, 
-            height=height, 
-            width=width
-        )
+        try:
+            image = generate_image_diffusers(
+                prompt=prompt, 
+                model=model, 
+                height=height, 
+                width=width
+            )
+        except MemoryError as e:
+            print(f"Memory error with model {model}: {e}")
+            fallback_model = "CompVis/stable-diffusion-v1-4"
+            if model != fallback_model:
+                print(f"Trying fallback model: {fallback_model}")
+                try:
+                    image = generate_image_diffusers(
+                        prompt=prompt, 
+                        model=fallback_model, 
+                        height=min(256, height), 
+                        width=min(256, width)
+                    )
+                except Exception as fallback_error:
+                    print(f"Fallback also failed: {fallback_error}")
+                    raise MemoryError("Unable to generate image due to memory constraints. Please try using OpenAI or Gemini providers instead.")
+            else:
+                raise e
+        except Exception as e:
+            print(f"Error generating image with diffusers: {e}")
+            raise e
     elif provider == "openai":
         image = openai_image_gen(
             prompt=prompt,

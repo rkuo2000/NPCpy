@@ -1,3 +1,4 @@
+import datetime
 from flask import Flask, request, jsonify, Response
 from flask_sse import sse
 import redis
@@ -17,13 +18,23 @@ from dotenv import load_dotenv
 from PIL import Image
 from PIL import ImageFile
 from io import BytesIO
+import networkx as nx
+from collections import defaultdict
+import numpy as np
+import pandas as pd 
+import subprocess
+try:
+    import ollama 
+except:
+    pass
+
 
 from npcpy.npc_sysenv import get_locally_available_models
 from npcpy.memory.command_history import (
     CommandHistory,
     save_conversation_message,
 )
-from npcpy.npc_compiler import  Jinx, NPC
+from npcpy.npc_compiler import  Jinx, NPC, Team 
 
 from npcpy.llm_funcs import (
     get_llm_response, check_llm_command
@@ -39,18 +50,13 @@ from pathlib import Path
 from flask_cors import CORS
 
 # Path for storing settings
-SETTINGS_FILE = Path(os.path.expanduser("~/.npcshrc"))
-
-# Configuration
-db_path = os.path.expanduser("~/npcsh_history.db")
-user_npc_directory = os.path.expanduser("~/.npcsh/npc_team")
-# Make project_npc_directory a function that updates based on current path
 # instead of a static path relative to server launch directory
 
 
 # --- NEW: Global dictionary to track stream cancellation requests ---
 cancellation_flags = {}
 cancellation_lock = threading.Lock()
+
 
 def get_project_npc_directory(current_path=None):
     """
@@ -109,10 +115,31 @@ def load_project_env(current_path):
     return loaded_vars
 
 # Initialize components
+def load_kg_data(generation=None):
+
+    """Helper function to load data up to a specific generation."""
+    db_path = app.config.get('DB_PATH')
+
+    conn = sqlite3.connect(db_path)
+
+    
+    query_suffix = f" WHERE generation <= {generation}" if generation is not None else ""
+    
+    concepts_df = pd.read_sql_query(f"SELECT * FROM kg_concepts{query_suffix}", conn)
+    facts_df = pd.read_sql_query(f"SELECT * FROM kg_facts{query_suffix}", conn)
+    
+    # Links don't have generation, so we filter them based on the loaded nodes
+    all_links_df = pd.read_sql_query("SELECT * FROM kg_links", conn)
+    valid_nodes = set(concepts_df['name']).union(set(facts_df['statement']))
+    links_df = all_links_df[all_links_df['source'].isin(valid_nodes) & all_links_df['target'].isin(valid_nodes)]
+        
+    conn.close()
+    return concepts_df, facts_df, links_df
 
 
 app = Flask(__name__)
 app.config["REDIS_URL"] = "redis://localhost:6379"
+app.config['DB_PATH'] = ''
 
 
 redis_client = redis.Redis(host="localhost", port=6379, decode_responses=True)
@@ -128,7 +155,7 @@ CORS(
 
 
 def get_db_connection():
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(app.config.get('DB_PATH'))
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -183,7 +210,7 @@ def load_npc_by_name_and_source(name, source, db_conn=None, current_path=None):
         npc_directory = get_project_npc_directory(current_path)
         print(f"Looking for project NPC in: {npc_directory}")
     else:  # Default to global if not specified or unknown
-        npc_directory = user_npc_directory
+        npc_directory = app.config['user_npc_directory']
         print(f"Looking for global NPC in: {npc_directory}")
     
     # Look for the NPC file in the appropriate directory
@@ -199,6 +226,92 @@ def load_npc_by_name_and_source(name, source, db_conn=None, current_path=None):
     else:
         print(f"NPC file not found: {npc_path}")
         return None
+
+@app.route('/api/kg/generations')
+def list_generations():
+    try:
+        conn = sqlite3.connect(app.config.get('DB_PATH'))
+        # Combine generations from both tables to be safe
+        generations = pd.read_sql_query("SELECT DISTINCT generation FROM kg_concepts UNION SELECT DISTINCT generation FROM kg_facts", conn).iloc[:, 0].tolist()
+        conn.close()
+        return jsonify({"generations": sorted([g for g in generations if g is not None])})
+    except Exception as e:
+        # If tables don't exist yet, return empty list
+        print(f"Error listing generations (likely new DB): {e}")
+        return jsonify({"generations": []})
+
+@app.route('/api/kg/graph')
+def get_graph_data():
+    generation_str = request.args.get('generation')
+    generation = int(generation_str) if generation_str and generation_str != 'null' else None
+    
+    concepts_df, facts_df, links_df = load_kg_data(generation)
+    
+    nodes = []
+    nodes.extend([{'id': name, 'type': 'concept'} for name in concepts_df['name']])
+    nodes.extend([{'id': statement, 'type': 'fact'} for statement in facts_df['statement']])
+    
+    links = [{'source': row['source'], 'target': row['target']} for _, row in links_df.iterrows()]
+    
+    return jsonify(graph={'nodes': nodes, 'links': links})
+
+@app.route('/api/kg/network-stats')
+def get_network_stats():
+    generation = request.args.get('generation', type=int)
+    _, _, links_df = load_kg_data(generation)
+    G = nx.DiGraph()
+    for _, link in links_df.iterrows():
+        G.add_edge(link['source'], link['target'])
+    n_nodes = G.number_of_nodes()
+    if n_nodes == 0:
+        return jsonify(stats={'nodes': 0, 'edges': 0, 'density': 0, 'avg_degree': 0, 'node_degrees': {}})
+    degrees = dict(G.degree())
+    stats = {
+        'nodes': n_nodes, 'edges': G.number_of_edges(), 'density': nx.density(G),
+        'avg_degree': np.mean(list(degrees.values())) if degrees else 0, 'node_degrees': degrees
+    }
+    return jsonify(stats=stats)
+
+@app.route('/api/kg/cooccurrence')
+def get_cooccurrence_network():
+    generation = request.args.get('generation', type=int)
+    min_cooccurrence = request.args.get('min_cooccurrence', 2, type=int)
+    _, _, links_df = load_kg_data(generation)
+    fact_to_concepts = defaultdict(set)
+    for _, link in links_df.iterrows():
+        if link['type'] == 'fact_to_concept':
+            fact_to_concepts[link['source']].add(link['target'])
+    cooccurrence = defaultdict(int)
+    for concepts in fact_to_concepts.values():
+        concepts_list = list(concepts)
+        for i, c1 in enumerate(concepts_list):
+            for c2 in concepts_list[i+1:]:
+                pair = tuple(sorted((c1, c2)))
+                cooccurrence[pair] += 1
+    G_cooccur = nx.Graph()
+    for (c1, c2), weight in cooccurrence.items():
+        if weight >= min_cooccurrence:
+            G_cooccur.add_edge(c1, c2, weight=weight)
+    if G_cooccur.number_of_nodes() == 0:
+        return jsonify(network={'nodes': [], 'links': []})
+    components = list(nx.connected_components(G_cooccur))
+    node_to_community = {node: i for i, component in enumerate(components) for node in component}
+    nodes = [{'id': node, 'type': 'concept', 'community': node_to_community.get(node, 0)} for node in G_cooccur.nodes()]
+    links = [{'source': u, 'target': v, 'weight': d['weight']} for u, v, d in G_cooccur.edges(data=True)]
+    return jsonify(network={'nodes': nodes, 'links': links})
+
+@app.route('/api/kg/centrality')
+def get_centrality_data():
+    generation = request.args.get('generation', type=int)
+    concepts_df, _, links_df = load_kg_data(generation)
+    G = nx.Graph()
+    fact_concept_links = links_df[links_df['type'] == 'fact_to_concept']
+    for _, link in fact_concept_links.iterrows():
+        if link['target'] in concepts_df['name'].values:
+            G.add_edge(link['source'], link['target'])
+    concept_degree = {node: cent for node, cent in nx.degree_centrality(G).items() if node in concepts_df['name'].values}
+    return jsonify(centrality={'degree': concept_degree})
+
 
 def fetch_messages_for_conversation(conversation_id):
     conn = get_db_connection()
@@ -228,7 +341,7 @@ def fetch_messages_for_conversation(conversation_id):
 def get_message_attachments(message_id):
     """Get all attachments for a message"""
     try:
-        command_history = CommandHistory(db_path)
+        command_history = CommandHistory(app.config.get('DB_PATH'))
         attachments = command_history.get_message_attachments(message_id)
         return jsonify({"attachments": attachments, "error": None})
     except Exception as e:
@@ -239,7 +352,7 @@ def get_message_attachments(message_id):
 def get_attachment(attachment_id):
     """Get specific attachment data"""
     try:
-        command_history = CommandHistory(db_path)
+        command_history = CommandHistory(app.config.get('DB_PATH'))
         data, name, type = command_history.get_attachment_data(attachment_id)
 
         if data:
@@ -957,7 +1070,7 @@ def get_attachment_response():
     messages = data.get("messages")
     conversation_id = data.get("conversationId")
     current_path = data.get("currentPath")
-    command_history = CommandHistory(db_path)
+    command_history = CommandHistory(app.config.get('DB_PATH'))
     model = data.get("model")
     npc_name = data.get("npc")
     npc_source = data.get("npcSource", "global")
@@ -1056,7 +1169,6 @@ def stream():
         cancellation_flags[stream_id] = False
     print(f"Starting stream with ID: {stream_id}")
     
-    # Your original code...
     commandstr = data.get("commandstr")
     conversation_id = data.get("conversationId")
     model = data.get("model", None)
@@ -1066,7 +1178,6 @@ def stream():
         
     npc_name = data.get("npc", None)
     npc_source = data.get("npcSource", "global")
-    team = data.get("team", None)
     current_path = data.get("currentPath")
     
     if current_path:
@@ -1074,48 +1185,103 @@ def stream():
         print(f"Loaded project env variables for stream request: {list(loaded_vars.keys())}")
     
     npc_object = None
+    team_object = None
+    team = None  # Initialize team as None, will be inferred
+    
     if npc_name:
-        # First check if there's a registered team and the NPC exists within that team
-        if team and hasattr(app, 'registered_teams') and team in app.registered_teams:
-            team_object = app.registered_teams[team]
-            # Check if NPC exists in team's npcs (could be dict or list)
-            if hasattr(team_object, 'npcs'):
-                team_npcs = team_object.npcs
-                if isinstance(team_npcs, dict):
-                    if npc_name in team_npcs:
-                        npc_object = team_npcs[npc_name]
-                        print(f"Found NPC {npc_name} in registered team {team}")
-                elif isinstance(team_npcs, list):
-                    for npc in team_npcs:
-                        if hasattr(npc, 'name') and npc.name == npc_name:
-                            npc_object = npc
-                            print(f"Found NPC {npc_name} in registered team {team}")
+        # First check registered teams and capture team name if found
+        print('checking')
+        if hasattr(app, 'registered_teams'):
+            print('has registered teams')
+            for team_name, team_object in app.registered_teams.items():
+                print('team', team_object)
+
+                if hasattr(team_object, 'npcs'):
+                    team_npcs = team_object.npcs
+                    if isinstance(team_npcs, dict):
+                        if npc_name in team_npcs:
+                            npc_object = team_npcs[npc_name]
+                            team = team_name  # Capture the team name
+                            npc_object.team = team_object
+                            print(f"Found NPC {npc_name} in registered team {team_name}")
                             break
-            # Also check the forenpc
-            if not npc_object and hasattr(team_object, 'forenpc') and hasattr(team_object.forenpc, 'name'):
-                if team_object.forenpc.name == npc_name:
-                    npc_object = team_object.forenpc
-                    print(f"Found NPC {npc_name} as forenpc in team {team}")
+                    elif isinstance(team_npcs, list):
+                        for npc in team_npcs:
+                            if hasattr(npc, 'name') and npc.name == npc_name:
+                                npc_object = npc
+                                team = team_name  # Capture the team name
+                                npc_object.team = team_object
+                                print(f"Found NPC {npc_name} in registered team {team_name}")
+                                break
+
+                if not npc_object and hasattr(team_object, 'forenpc') and hasattr(team_object.forenpc, 'name'):
+                    if team_object.forenpc.name == npc_name:
+                        npc_object = team_object.forenpc
+                        npc_object.team = team_object
+
+                        team = team_name  # Capture the team name
+                        print(f"Found NPC {npc_name} as forenpc in team {team_name}")
+                        break
+                
+
+                if npc_object:
+                    break
         
-        # If not found in team, check registered NPCs directly
+
         if not npc_object and hasattr(app, 'registered_npcs') and npc_name in app.registered_npcs:
             npc_object = app.registered_npcs[npc_name]
-            print(f"Found NPC {npc_name} in registered NPCs")
-        
-        # Finally fall back to loading from database/files
+            print(f"Found NPC {npc_name} in registered NPCs (no specific team)")
+            team_object = Team(team_path=npc_object.npc_directory, db_conn=db_conn)
+            npc_object.team = team_object
         if not npc_object:
             db_conn = get_db_connection()
-            npc_object = load_npc_by_name_and_source(npc_name, npc_source, db_conn, current_path)
+            npc_object = load_npc_by_name_and_source(npc_name, 
+                                                     npc_source, 
+                                                     db_conn, 
+                                                     current_path)
             if not npc_object and npc_source == 'project':
                 print(f"NPC {npc_name} not found in project directory, trying global...")
                 npc_object = load_npc_by_name_and_source(npc_name, 'global', db_conn)
+            if npc_object and hasattr(npc_object, 'npc_directory') and npc_object.npc_directory:
+                team_directory = npc_object.npc_directory
+                
+                if os.path.exists(team_directory):
+                    team_object = Team(team_path=team_directory, db_conn=db_conn)
+                    print('team', team_object)
+
+                else:
+                    # Create team with just this NPC
+                    team_object = Team(npcs=[npc_object], db_conn=db_conn)
+                    team_object.name = os.path.basename(team_directory) if team_directory else f"{npc_name}_team"
+                    npc_object.team = team_object
+                    print('team', team_object)                    
+                team_name = team_object.name
+                # Register the team in the app
+                if not hasattr(app, 'registered_teams'):
+                    app.registered_teams = {}
+                app.registered_teams[team_name] = team_object
+                
+                # Set the team variable for this request
+                team = team_name
+                
+                print(f"Created and registered team '{team_name}' with NPC {npc_name}")
+            
+            if npc_object:
+                npc_object.team = team_object
+
+                print(f"Successfully loaded NPC {npc_name} from {npc_source} directory")
+            else:
+                print(f"Warning: Could not load NPC {npc_name}")
             if npc_object:
                 print(f"Successfully loaded NPC {npc_name} from {npc_source} directory")
             else:
                 print(f"Warning: Could not load NPC {npc_name}")
 
+
+
+
     attachments = data.get("attachments", [])
-    command_history = CommandHistory(db_path)
+    command_history = CommandHistory(app.config.get('DB_PATH'))
     images = []
     attachments_loaded = []
     if attachments:
@@ -1147,9 +1313,11 @@ def stream():
 
     messages = fetch_messages_for_conversation(conversation_id)
     if len(messages) == 0 and npc_object is not None:
-        messages = [{'role': 'system', 'content': npc_object.get_system_prompt()}]
+        messages = [{'role': 'system', 
+                     'content': npc_object.get_system_prompt()}]
     elif len(messages) > 0 and messages[0]['role'] != 'system' and npc_object is not None:
-        messages.insert(0, {'role': 'system', 'content': npc_object.get_system_prompt()})
+        messages.insert(0, {'role': 'system', 
+                            'content': npc_object.get_system_prompt()})
     elif len(messages) > 0 and npc_object is not None:
         messages[0]['content'] = npc_object.get_system_prompt()
     if npc_object is not None and messages and messages[0]['role'] == 'system':
@@ -1157,43 +1325,53 @@ def stream():
 
     message_id = command_history.generate_message_id()
     save_conversation_message(
-        command_history, conversation_id, "user", commandstr,
-        wd=current_path, model=model, provider=provider, npc=npc_name,
-        team=team, attachments=attachments_loaded, message_id=message_id,
+        command_history, 
+        conversation_id, 
+        "user", commandstr,
+        wd=current_path, 
+        model=model, 
+        provider=provider, 
+        npc=npc_name,
+        team=team, 
+        attachments=attachments_loaded, 
+        message_id=message_id,
     )
-    # Then pass attachment_paths to get_llm_response:
-    # Pass tools and tool_map from NPC if available
     tool_args = {}
     if npc_object is not None:
-        # Always convert tools to OpenAI-compatible schema and tool_map
         if hasattr(npc_object, 'tools') and npc_object.tools:
-            # If tools is a list of callables, convert to schema/map
             if isinstance(npc_object.tools, list) and callable(npc_object.tools[0]):
                 tools_schema, tool_map = auto_tools(npc_object.tools)
                 tool_args['tools'] = tools_schema
                 tool_args['tool_map'] = tool_map
             else:
-                # If already schema, just use as is
                 tool_args['tools'] = npc_object.tools
                 if hasattr(npc_object, 'tool_map') and npc_object.tool_map:
                     tool_args['tool_map'] = npc_object.tool_map
         elif hasattr(npc_object, 'tool_map') and npc_object.tool_map:
             tool_args['tool_map'] = npc_object.tool_map
-        # --- Always force tool use if tools are present ---
         if 'tools' in tool_args and tool_args['tools']:
             tool_args['tool_choice'] = {"type": "auto"}
-    # --- DEBUG LOGGING: Print tool schema and tool_map before LLM call ---
+
     print("\n[DEBUG] Passing tools to get_llm_response:")
     print("tools schema:", json.dumps(tool_args.get('tools', None), indent=2))
     print("tool_map keys:", list(tool_args.get('tool_map', {}).keys()) if 'tool_map' in tool_args else None)
     print("tool_choice:", tool_args.get('tool_choice', None))
+
     stream_response = get_llm_response(
-        commandstr, messages=messages, images=images, model=model,
-        provider=provider, npc=npc_object, stream=True, attachments=attachment_paths,
+        commandstr, 
+        messages=messages, 
+        images=images, 
+        model=model,
+        provider=provider, 
+        npc=npc_object, 
+        team=team_object,
+        stream=True, 
+        attachments=attachment_paths,
         auto_process_tool_calls=True,
         **tool_args
     )
 
+    print(messages[0])
     message_id = command_history.generate_message_id()
 
     def event_stream(current_stream_id):
@@ -1297,7 +1475,7 @@ def stream():
 def execute():
     data = request.json
     
-    # --- MODIFIED: Get or create a stream_id for cancellation tracking ---
+
     stream_id = data.get("streamId")
     if not stream_id:
         import uuid
@@ -1331,6 +1509,7 @@ def execute():
     
     # Handle team execution
     if team:
+        print(team)
         if hasattr(app, 'registered_teams') and team in app.registered_teams:
             team_object = app.registered_teams[team]
             print(f"Using registered team: {team}")
@@ -1342,6 +1521,7 @@ def execute():
         # First check if there's a registered team and the NPC exists within that team
         if team and hasattr(app, 'registered_teams') and team in app.registered_teams:
             team_object = app.registered_teams[team]
+            print('team', team_object)
             # Check if NPC exists in team's npcs (could be dict or list)
             if hasattr(team_object, 'npcs'):
                 team_npcs = team_object.npcs
@@ -1381,7 +1561,7 @@ def execute():
                 print(f"Warning: Could not load NPC {npc_name}")
 
     attachments = data.get("attachments", [])
-    command_history = CommandHistory(db_path)
+    command_history = CommandHistory(app.config.get('DB_PATH'))
     images = []
     attachments_loaded = []
     
@@ -1705,11 +1885,91 @@ def after_request(response):
     return response
 
 
-def get_db_connection():
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
-    return conn
 
+@app.route('/api/ollama/status', methods=['GET'])
+def ollama_status():
+    try:
+        # The library's list function is a reliable way to check for a connection.
+        # It will raise an exception if it can't connect.
+        ollama.list()
+        return jsonify({"status": "running"})
+    except ollama.RequestError as e:
+        # This catches connection errors, indicating Ollama is not running
+        print(f"Ollama status check failed: {e}")
+        return jsonify({"status": "not_found"})
+    except Exception as e:
+        print(f"An unexpected error occurred during Ollama status check: {e}")
+        return jsonify({"status": "not_found"})
+
+
+@app.route('/api/ollama/models', methods=['GET'])
+def get_ollama_models():
+    response = ollama.list()
+    models_list = []
+    
+    # The response is a list of Model objects. Access attributes with dot notation.
+    for model_obj in response['models']:
+        models_list.append({
+            "name": model_obj.model,
+            "size": model_obj.details.parameter_size, 
+            
+        })
+            
+    return jsonify(models_list)
+
+
+
+@app.route('/api/ollama/delete', methods=['POST'])
+def delete_ollama_model():
+    data = request.get_json()
+    model_name = data.get('name')
+    if not model_name:
+        return jsonify({"error": "Model name is required"}), 400
+    try:
+        ollama.delete(model_name)
+        return jsonify({"success": True, "message": f"Model {model_name} deleted."})
+    except ollama.ResponseError as e:
+        # This will catch errors from Ollama, like "model not found"
+        return jsonify({"error": e.error}), e.status_code
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/ollama/pull', methods=['POST'])
+def pull_ollama_model():
+    data = request.get_json()
+    model_name = data.get('name')
+    if not model_name:
+        return jsonify({"error": "Model name is required"}), 400
+
+    def generate_progress():
+        try:
+            stream = ollama.pull(model_name, stream=True)
+            for progress_obj in stream:
+                # The stream yields ProgressResponse objects.
+                # Access their attributes and convert to a dictionary for JSON.
+                yield json.dumps({
+                    'status': getattr(progress_obj, 'status', None),
+                    'digest': getattr(progress_obj, 'digest', None),
+                    'total': getattr(progress_obj, 'total', None),
+                    'completed': getattr(progress_obj, 'completed', None)
+                }) + '\n'
+        except ollama.ResponseError as e:
+            error_message = {"status": "Error", "details": e.error}
+            yield json.dumps(error_message) + '\n'
+        except Exception as e:
+            error_message = {"status": "Error", "details": str(e)}
+            yield json.dumps(error_message) + '\n'
+
+    return Response(generate_progress(), content_type='application/x-ndjson')
+@app.route('/api/ollama/install', methods=['POST'])
+def install_ollama():
+    try:
+        install_command = "curl -fsSL https://ollama.com/install.sh | sh"
+        result = subprocess.run(install_command, shell=True, check=True, capture_output=True, text=True)
+        return jsonify({"success": True, "output": result.stdout})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 extension_map = {
     "PNG": "images",
@@ -1777,7 +2037,9 @@ def start_flask_server(
     static_files=None, 
     debug=False,
     teams=None,
-    npcs=None
+    npcs=None,
+    db_path: str ='',
+    user_npc_directory = None
 ):
     try:
         # Register teams and NPCs with the app
@@ -1793,10 +2055,11 @@ def start_flask_server(
         else:
             app.registered_npcs = {}
         # Ensure the database tables exist
-
+        app.config['DB_PATH'] = db_path
+        app.config['user_npc_directory'] = user_npc_directory
 
         command_history = CommandHistory(db_path)
-
+        app.command_history = command_history
 
         # Only apply CORS if origins are specified
         if cors_origins:
@@ -1818,4 +2081,11 @@ def start_flask_server(
 
 
 if __name__ == "__main__":
-    start_flask_server()
+
+    SETTINGS_FILE = Path(os.path.expanduser("~/.npcshrc"))
+
+    # Configuration
+    db_path = os.path.expanduser("~/npcsh_history.db")
+    user_npc_directory = os.path.expanduser("~/.npcsh/npc_team")
+    # Make project_npc_directory a function that updates based on current path
+    start_flask_server(db_path=db_path, user_npc_directory=user_npc_directory)
