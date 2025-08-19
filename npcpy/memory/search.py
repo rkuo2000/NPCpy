@@ -451,7 +451,12 @@ def execute_brainblast_command(
     RESET = "\033[0m"
     BOLD = "\033[1m"
     
-    print(f"\nBrainblast Query: {command}")
+
+    if not 'command_history' in kwargs:
+        raise Exception('Command history must be passed as a kwarg to this function')
+    command_history = kwargs.get('command_history')
+    top_k = kwargs.get('top_k', 10)
+    
     
     # Format header for display
     header = f"\n{BOLD}{BLUE}BRAINBLAST Query: {RESET}{GREEN}{command}{RESET}\n"
@@ -496,7 +501,6 @@ def execute_brainblast_command(
         
         for chunk in unique_chunks:
             results = command_history.search_conversations(chunk)
-            print(results)
             if results:
                 chunk_results[chunk] = results[:top_k]  # Limit results per chunk
                 all_results.extend(results[:top_k])
@@ -524,10 +528,10 @@ def execute_brainblast_command(
             
             response = get_llm_response(
                 prompt,
-                messages=messages,
+                messages=kwargs.get('messages'),
                 **kwargs
             )
-            return response
+            return {'output':response, 'messages':response.get('messages') or []}
         
         # Process the results for display
         processed_chunks = []
@@ -546,14 +550,11 @@ def execute_brainblast_command(
                 
                 processed_chunks.append(chunk_display)
         
-        # Display summarized chunk results
-        chunks_output = header + separator + "\n".join(processed_chunks)
-        render_markdown(f"BRAINBLAST SEARCH: {chunks_output}")
         
         # Prepare the consolidated results for the prompt
         plain_results = []
         for i, result in enumerate(unique_results[:15], 1):  # Limit to 15 total unique results
-            content = result.get('content', '')
+            content = result.get('content', '')[0:250]
             timestamp = result.get('timestamp', '')
             location = result.get('directory_path', '')
             
@@ -578,26 +579,20 @@ def execute_brainblast_command(
         Here's a summary of what matched:
         {f}
         
-        Here are the top unique matching commands from the search:
+        Here are the top unique matching items from the search:
         
         {e}
         
-        Please analyze these results and provide insights to the user. Look for:
-        1. Patterns in the commands they've used
-        2. Common themes or topics
-        3. Any interesting or unusual commands that might be useful
-        4. Suggestions for how the user might better leverage their command history
-        
-        Focus on being helpful and surfacing valuable insights from their command history.
+        Please analyze these results and attempt to generate some novel insight about them in one sentence. think outside the box.
+        Provide a summary as well.        
         """
-        
         # Get LLM response
         response = get_llm_response(
             prompt,
-            **kwargs
+            **kwargs, 
         )
-        return response
+        return  {"output": response.get('response'), "messages": response.get('messages',[]) }
         
     except Exception as e:
         traceback.print_exc()
-        return {"output": f"Error executing brainblast command: {e}", "messages": messages or []}
+        return {"output": f"Error executing brainblast command: {e}", "messages": kwargs.get('messages',[]) }
