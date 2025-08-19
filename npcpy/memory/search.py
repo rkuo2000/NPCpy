@@ -437,10 +437,6 @@ def execute_rag_command(
         
 def execute_brainblast_command(
     command: str,
-    command_history,
-    messages=None,
-    top_k: int = 5,  
-    
     **kwargs
 ) -> dict:
     """
@@ -598,7 +594,6 @@ def execute_brainblast_command(
         # Get LLM response
         response = get_llm_response(
             prompt,
-            messages=messages,
             **kwargs
         )
         return response

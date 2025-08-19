@@ -402,7 +402,7 @@ def handle_jinx_call(
             if attempt < n_attempts:
                 print(f"attempt {attempt+1} to generate jinx name failed, trying again")                
                 return check_llm_command(
-                                        '''
+                                        f'''
                     In the previous attempt, the jinx name was: {jinx_name}.
 
                     That jinx was not available, only select those that are available.
@@ -412,7 +412,6 @@ def handle_jinx_call(
 
                     Here was the original command: BEGIN ORIGINAL COMMAND 
                     '''+ command +' END ORIGINAL COMMAND',
-                    jinx_name,
                     model=model,
                     provider=provider,
                     messages=messages,
@@ -595,6 +594,7 @@ def handle_jinx_call(
             messages = response['messages']
             response = response.get("response", {})
             return {'messages':messages, 'output':response}
+        
         return {'messages': messages, 'output': jinx_output['output']}
 
 
