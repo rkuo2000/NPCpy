@@ -570,31 +570,31 @@ def handle_jinx_call(
                     n_attempts=n_attempts,
                     context=f""" \n \n \n "jinx failed: {e}  \n \n \n here was the previous attempt: {input_values}""",
                 )
-        if not stream and messages[-1]['role'] != 'assistant':
-            # if the jinx has already added a message to the output from a final prompt we dont want to double that
-            
-            render_markdown(f""" ## jinx OUTPUT FROM CALLING {jinx_name} \n \n output:{jinx_output['output']}""" )
-
-            
-            response = get_llm_response(f"""
-                The user had the following request: {command}. 
-                Here were the jinx outputs from calling {jinx_name}: {jinx_output}
+        if not stream and len(messages) > 0 :
+            if messages[-1]['role'] != 'assistant':
                 
-                Given the jinx outputs and the user request, please format a simple answer that 
-                provides the answer without requiring the user to carry out any further steps.
-                """,
-                model=model,
-                provider=provider,
+                render_markdown(f""" ## jinx OUTPUT FROM CALLING {jinx_name} \n \n output:{jinx_output['output']}""" )
 
-                npc=npc,
-                messages=messages,
-                context=context, 
-                stream=stream,
-            )
-            messages = response['messages']
-            response = response.get("response", {})
-            return {'messages':messages, 'output':response}
-        
+                
+                response = get_llm_response(f"""
+                    The user had the following request: {command}. 
+                    Here were the jinx outputs from calling {jinx_name}: {jinx_output}
+                    
+                    Given the jinx outputs and the user request, please format a simple answer that 
+                    provides the answer without requiring the user to carry out any further steps.
+                    """,
+                    model=model,
+                    provider=provider,
+
+                    npc=npc,
+                    messages=messages,
+                    context=context, 
+                    stream=stream,
+                )
+                messages = response['messages']
+                response = response.get("response", {})
+                return {'messages':messages, 'output':response}
+            
         return {'messages': messages, 'output': jinx_output['output']}
 
 

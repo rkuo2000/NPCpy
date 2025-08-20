@@ -473,6 +473,7 @@ def print_and_process_stream_with_markdown(response, model, provider):
         render_markdown(response)  
         print('\n') 
         return response 
+    print(response)
     
     try:
         for chunk in response:

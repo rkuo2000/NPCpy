@@ -1652,23 +1652,38 @@ def initialize_npc_project(
     npc_team_dir = os.path.join(directory, "npc_team")
     os.makedirs(npc_team_dir, exist_ok=True)
     
-    for subdir in ["jinxs", "assembly_lines", "sql_models", "jobs"]:
+    for subdir in ["jinxs", 
+                   "assembly_lines", 
+                   "sql_models", 
+                   "jobs", 
+                   "triggers"]:
         os.makedirs(os.path.join(npc_team_dir, subdir), exist_ok=True)
     
-    forenpc_path = os.path.join(npc_team_dir, "sibiji.npc")
+    forenpc_path = os.path.join(npc_team_dir, "forenpc.npc")
     
 
     # Always ensure default NPC exists
     if not os.path.exists(forenpc_path):
         # Use your new NPC class to create sibiji
         default_npc = {
-            "name": "sibiji",
-            "primary_directive": "You are sibiji, the forenpc of an NPC team...",
-            "model": model or "llama3.2",
-            "provider": provider or "ollama"
+            "name": "forenpc",
+            "primary_directive": "You are the forenpc of an NPC team", 
         }
         with open(forenpc_path, "w") as f:
             yaml.dump(default_npc, f)
+    ctx_path = os.path.join(npc_team_dir, "team.ctx")
+    if not os.path.exists(ctx_path):
+        default_ctx = {
+            'name': '',
+            'context' : '', 
+            'preferences': '', 
+            'mcp_servers': '', 
+            'databases':'', 
+            'use_global_jinxs': True,
+            'forenpc': 'forenpc'
+        }
+        with open(ctx_path, "w") as f:
+            yaml.dump(default_ctx, f)
             
     return f"NPC project initialized in {npc_team_dir}"
 

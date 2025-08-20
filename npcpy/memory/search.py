@@ -531,7 +531,7 @@ def execute_brainblast_command(
                 messages=kwargs.get('messages'),
                 **kwargs
             )
-            return {'output':response, 'messages':response.get('messages') or []}
+            return {'output':response.get('response'), 'messages':response.get('messages') or []}
         
         # Process the results for display
         processed_chunks = []
@@ -591,7 +591,8 @@ def execute_brainblast_command(
             prompt,
             **kwargs, 
         )
-        return  {"output": response.get('response'), "messages": response.get('messages',[]) }
+        return  {"output": response.get('response'), 
+                 "messages": response.get('messages',[]) }
         
     except Exception as e:
         traceback.print_exc()
