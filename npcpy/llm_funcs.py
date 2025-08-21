@@ -865,9 +865,7 @@ def plan_multi_step_actions(
     by dynamically building a prompt from the provided action space.
     """
     
-    # --- Start of the corrected logic ---
     
-    # 1. Build the prompt dynamically.
     prompt = f"""
 Analyze the user's request: "{command}"
 
@@ -876,13 +874,10 @@ Use the following context about available actions and tools to construct the pla
 
 """
 
-    # 2. Dynamically add context from the action space, executing lambdas as needed.
     for action_name, action_info in actions.items():
         ctx = action_info.get("context")
-        # If the context is a function (our lambda), call it to get the dynamic string.
         if callable(ctx):
             try:
-                # Pass the npc object to the lambda so it can access the jinxs_dict.
                 #print(ctx)
                 ctx = ctx(npc=npc, team=team)
             except Exception as e:
@@ -892,9 +887,9 @@ Use the following context about available actions and tools to construct the pla
         
         if ctx:
             prompt += f"\n--- Context for action '{action_name}' ---\n{ctx}\n"
+    if len(messages) >0:
+        prompt += f'Here were the previous 5 messages in the conversation: {messages[-5:]}'
 
-    #print(prompt)
-    # 3. Add the final instructions.
     prompt += f"""
 --- Instructions ---
 Based on the user's request and the context provided above, create a plan.
