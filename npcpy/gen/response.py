@@ -381,18 +381,18 @@ def get_litellm_response(
                         pass
 
     if prompt:
-        if messages and messages[-1]["role"] == "user":
+        if result['messages'] and result['messages'][-1]["role"] == "user":
             if isinstance(messages[-1]["content"], str):
-                messages[-1]["content"] = prompt
-            elif isinstance(messages[-1]["content"], list):
-                for i, item in enumerate(messages[-1]["content"]):
+                result['messages'][-1]["content"] = prompt
+            elif isinstance(result['messages'][-1]["content"], list):
+                for i, item in enumerate(result['messages'][-1]["content"]):
                     if item.get("type") == "text":
-                        messages[-1]["content"][i]["text"] = prompt
+                        result['messages'][-1]["content"][i]["text"] = prompt
                         break
                 else:
-                    messages[-1]["content"].append({"type": "text", "text": prompt})
+                    result['messages'][-1]["content"].append({"type": "text", "text": prompt})
         else:
-            messages.append({"role": "user", "content": prompt})
+            result['messages'].append({"role": "user", "content": prompt})
 
     if format == "json" and not stream:
         json_instruction = """If you are a returning a json object, begin directly with the opening {.
@@ -477,7 +477,8 @@ def get_litellm_response(
             # Non-streaming response
             llm_response = resp.choices[0].message.content
             result["response"] = llm_response
-            result["messages"].append({"role": "assistant", "content": llm_response})
+            result["messages"].append({"role": "assistant", 
+                                       "content": llm_response})
             
             # Check for tool calls
             if hasattr(resp.choices[0].message, 'tool_calls') and resp.choices[0].message.tool_calls:
@@ -508,7 +509,7 @@ def get_litellm_response(
     initial_api_params = api_params.copy()
     initial_api_params["stream"] = False
     
-    print("Initial API params:", initial_api_params)
+    
     resp = completion(**initial_api_params)
     result["raw_response"] = resp
     
@@ -521,7 +522,12 @@ def get_litellm_response(
         result["tool_calls"] = resp.choices[0].message.tool_calls
         
         # Process tool calls
-        processed_result = process_tool_calls(result, tool_map, model, provider, result["messages"], stream=False)
+        processed_result = process_tool_calls(result, 
+                                              tool_map, 
+                                              model, 
+                                              provider, 
+                                              result["messages"], 
+                                              stream=False)
         
         # If streaming was requested, make final streaming call with processed conversation
         if stream:

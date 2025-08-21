@@ -108,7 +108,8 @@ class Jinx:
         context.update({
             "jinxs": jinxs_dict,
             "llm_response": None,
-            "output": None
+            "output": None, 
+            "messages": messages,
         })
         
         # Process each step in sequence
@@ -156,7 +157,7 @@ class Jinx:
         if rendered_engine == "natural":
             if rendered_code.strip():
                 # Handle streaming case
-                response =  npc.get_llm_response(
+                response = npc.get_llm_response(
                     rendered_code,
                     context=context,
                     messages=messages,
@@ -198,8 +199,13 @@ class Jinx:
             
             # Handle explicit output
             if "output" in exec_locals:
-                context["output"] = exec_locals["output"]
-                context[step_name] = exec_locals["output"]
+                outp = exec_locals["output"]
+                context["output"] = outp
+                context[step_name] = outp
+                messages.append({'role':'assistant', 
+                                 'content': f'Jinx executed with following output: {outp}'})
+                context['messages'] = messages
+                
         else:
             # Handle unknown engine
             context[step_name] = {"error": f"Unsupported engine: {rendered_engine}"}
