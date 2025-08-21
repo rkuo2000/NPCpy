@@ -34,9 +34,10 @@ nav:
   - Home: index.md
   - Installation: installation.md
   - Using npcpy: npcpy.md
-  - TLDR Cheat Sheet: TLDR_Cheat_sheet.md
-  - API:
-    - Image: api/image.md
-    - LLM Functions: api/llm_funcs.md
-    - NPC, Team, Jinx: api/npc_compiler.md
-    - NPC Sys Env Helpers: api/npc_sys_env_helpers.md
+    - API:
+      - Image: api/image.md
+      - LLM Functions: api/llm_funcs.md
+      - NPC, Team, Jinx: api/npc_compiler.md
+      - NPC Sys Env Helpers: api/npc_sysenv.md
+      - Serve: api/serve.md
+      
