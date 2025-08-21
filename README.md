@@ -385,7 +385,15 @@ If you appreciate the work here, [consider supporting NPC Worldwide with a month
 - `npcpy` provides pioneering methods in the construction and updating of knowledge graphs as well as in the development and testing of novel mixture of agent scenarios.
 - In `npcpy`, all agentic capabilities are developed and tested using small local models (like `llama3.2`, `gemma3`) to ensure it can function reliably at the edge of computing.
 
-Check out our recent paper on the limitations of LLMs and on the quantum-like nature of natural language interpretation : [arxiv preprint](https://arxiv.org/abs/2506.10077), accepted for publication at [Quantum AI and NLP 2025](qnlp.ai)
+### Papers
+- Paper on the limitations of LLMs and on the quantum-like nature of natural language interpretation : [arxiv preprint](https://arxiv.org/abs/2506.10077), accepted for publication at [Quantum AI and NLP 2025](qnlp.ai)
+- Paper that considers the effects that might accompany simulating hormonal cycles for AI : [arxiv preprint](https://arxiv.org/abs/2508.11829)
+
+Has your research benefited from npcpy? Let us know and we'd be happy to feature you here!
+
+## NPCs
+
+Check out [lavanzaro](https://lavanzaro.com) to discuss the great things of life with an `npcpy` powered chatbot
 
 ## Installation
 `npcpy` is available on PyPI and can be installed using pip. Before installing, make sure you have the necessary dependencies installed on your system. Below are the instructions for installing such dependencies on Linux, Mac, and Windows. If you find any other dependencies that are needed, please let us know so we can update the installation instructions to be more accommodating.
