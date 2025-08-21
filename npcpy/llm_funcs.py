@@ -418,8 +418,6 @@ def handle_jinx_call(
                     npc=npc,
                     team=team,
                     stream=stream,
-                    attempt=attempt + 1,
-                    n_attempts=n_attempts,
                     context=context
                 )
             return {
