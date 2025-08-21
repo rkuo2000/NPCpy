@@ -204,11 +204,7 @@ def get_llm_response(
         if isinstance(messages[-1]["content"], str):
             messages[-1]["content"] += "\n" + prompt+context_str
     elif prompt:
-        messages.append({"role": "user", "content": prompt + context_str})
-
-    print('PROMPT: ', prompt+context_str)
-    print('Messages: ', messages)
-    
+        messages.append({"role": "user", "content": prompt + context_str})    
     response = get_litellm_response(
         prompt + context_str,
         messages=messages,
@@ -473,7 +469,6 @@ def handle_jinx_call(
         {json_format_str}
         }}
         """
-
         if npc and hasattr(npc, "shared_context"):
             if npc.shared_context.get("dataframes"):
                 context_info = "\nAvailable dataframes:\n"
@@ -481,6 +476,11 @@ def handle_jinx_call(
                     context_info += f"- {df_name}\n"
                 prompt += f"""Here is contextual info that may affect your choice: {context_info}
                 """
+
+        prompt += f'Here were the previous 5 messages in the conversation: {messages[-5:]}'
+
+                
+                
         response = get_llm_response(
             prompt,
             format="json",
@@ -684,7 +684,8 @@ def answer_handler(command, extracted_data, **kwargs):
         npc=kwargs.get('npc'),
         team=kwargs.get('team'), 
         stream=kwargs.get('stream', False),
-        images=kwargs.get('images')
+        images=kwargs.get('images'), 
+        context=kwargs.get('context')
     )
  
     return response
@@ -900,9 +901,6 @@ Based on the user's request and the context provided above, create a plan.
 The plan must be a JSON object with a single key, "actions". Each action must include:
 - "action": The name of the action to take.
 - "explanation": A clear description of the goal for this specific step.
-
-
-Example Request: "Find out who the current CEO of Microsoft is, then find their biography on Wikipedia"
  
 An Example Plan might look like this depending on the available actions:
 """ + """
@@ -940,7 +938,8 @@ Respond ONLY with the plan.
         npc=npc,
         team=team,
         format="json", 
-        messages=[]
+        messages=[], 
+        context=context,
     )
     response_content = action_response.get("response", {})
     #print(action_response)
@@ -995,7 +994,8 @@ def execute_multi_step_plan(
                                 npc=npc,
                                 stream=stream,
                                 team = team, 
-                                images=images)
+                                images=images, 
+                                context=context)
         return {"messages": result.get('messages',
                                        messages), 
                 "output": result.get('response')}
@@ -1033,7 +1033,7 @@ def execute_multi_step_plan(
            team=team,
            stream=stream, 
 
-           context=step_context, 
+           context=context+step_context, 
            images=images
         )
 
@@ -1048,8 +1048,6 @@ def execute_multi_step_plan(
             # can circumvent because compile sequence results just returns single output results.
             return {"messages": result.get('messages', current_messages), 
                     "output": action_output}
-        
-            
         step_outputs.append(action_output)        
         current_messages = result.get('messages', current_messages)
 
