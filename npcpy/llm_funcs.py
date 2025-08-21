@@ -206,6 +206,9 @@ def get_llm_response(
     elif prompt:
         messages.append({"role": "user", "content": prompt + context_str})
 
+    print('PROMPT: ', prompt+context_str)
+    print('Messages: ', messages)
+    
     response = get_litellm_response(
         prompt + context_str,
         messages=messages,
@@ -919,7 +922,7 @@ An Example Plan might look like this depending on the available actions:
   ]
 }
 
-The plans should not mostly be 1-2 actions and usually never more than 3 actions at a time.
+The plans should mostly be 1-2 actions and usually never more than 3 actions at a time.
 Interactivity is important, unless a user specifies a usage of a specific action, it is generally best to
 assume just to respond in the simplest way possible rather than trying to assume certain actions have been requested.
 
