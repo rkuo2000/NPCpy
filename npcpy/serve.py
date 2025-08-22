@@ -29,6 +29,9 @@ except:
     pass
 
 
+from sqlalchemy import create_engine, text
+from sqlalchemy.orm import sessionmaker
+
 from npcpy.npc_sysenv import get_locally_available_models
 from npcpy.memory.command_history import (
     CommandHistory,
@@ -116,24 +119,19 @@ def load_project_env(current_path):
 
 # Initialize components
 def load_kg_data(generation=None):
-
     """Helper function to load data up to a specific generation."""
-    db_path = app.config.get('DB_PATH')
-
-    conn = sqlite3.connect(db_path)
-
+    engine = create_engine('sqlite:///' + app.config.get('DB_PATH'))
     
     query_suffix = f" WHERE generation <= {generation}" if generation is not None else ""
     
-    concepts_df = pd.read_sql_query(f"SELECT * FROM kg_concepts{query_suffix}", conn)
-    facts_df = pd.read_sql_query(f"SELECT * FROM kg_facts{query_suffix}", conn)
+    concepts_df = pd.read_sql_query(f"SELECT * FROM kg_concepts{query_suffix}", engine)
+    facts_df = pd.read_sql_query(f"SELECT * FROM kg_facts{query_suffix}", engine)
     
     # Links don't have generation, so we filter them based on the loaded nodes
-    all_links_df = pd.read_sql_query("SELECT * FROM kg_links", conn)
+    all_links_df = pd.read_sql_query("SELECT * FROM kg_links", engine)
     valid_nodes = set(concepts_df['name']).union(set(facts_df['statement']))
     links_df = all_links_df[all_links_df['source'].isin(valid_nodes) & all_links_df['target'].isin(valid_nodes)]
         
-    conn.close()
     return concepts_df, facts_df, links_df
 
 
@@ -153,12 +151,14 @@ CORS(
     supports_credentials=True,
 )
 
-
 def get_db_connection():
-    conn = sqlite3.connect(app.config.get('DB_PATH'))
-    conn.row_factory = sqlite3.Row
-    return conn
+    engine = create_engine('sqlite:///' + app.config.get('DB_PATH'))
+    return engine
 
+def get_db_session():
+    engine = get_db_connection()
+    Session = sessionmaker(bind=engine)
+    return Session()
 
 extension_map = {
     "PNG": "images",
@@ -225,15 +225,73 @@ def load_npc_by_name_and_source(name, source, db_conn=None, current_path=None):
             return None
     else:
         print(f"NPC file not found: {npc_path}")
-        return None
+        
+        
 
+def get_conversation_history(conversation_id):
+    """Fetch all messages for a conversation in chronological order."""
+    if not conversation_id:
+        return []
+
+    engine = get_db_connection()
+    try:
+        with engine.connect() as conn:
+            query = text("""
+                SELECT role, content, timestamp
+                FROM conversation_history
+                WHERE conversation_id = :conversation_id
+                ORDER BY timestamp ASC
+            """)
+            result = conn.execute(query, {"conversation_id": conversation_id})
+            messages = result.fetchall()
+
+            return [
+                {
+                    "role": msg[0],  # role
+                    "content": msg[1],  # content
+                    "timestamp": msg[2],  # timestamp
+                }
+                for msg in messages
+            ]
+    except Exception as e:
+        print(f"Error fetching conversation history: {e}")
+        return []
+    
+def fetch_messages_for_conversation(conversation_id):
+    """Fetch all messages for a conversation in chronological order."""
+    engine = get_db_connection()
+    try:
+        with engine.connect() as conn:
+            query = text("""
+                SELECT role, content, timestamp
+                FROM conversation_history
+                WHERE conversation_id = :conversation_id
+                ORDER BY timestamp ASC
+            """)
+            result = conn.execute(query, {"conversation_id": conversation_id})
+            messages = result.fetchall()
+
+            return [
+                {
+                    "role": message[0],  # role
+                    "content": message[1],  # content
+                    "timestamp": message[2],  # timestamp
+                }
+                for message in messages
+            ]
+    except Exception as e:
+        print(f"Error fetching messages for conversation: {e}")
+        return []
+    
+            
 @app.route('/api/kg/generations')
 def list_generations():
     try:
-        conn = sqlite3.connect(app.config.get('DB_PATH'))
+        engine = create_engine('sqlite:///' + app.config.get('DB_PATH'))
         # Combine generations from both tables to be safe
-        generations = pd.read_sql_query("SELECT DISTINCT generation FROM kg_concepts UNION SELECT DISTINCT generation FROM kg_facts", conn).iloc[:, 0].tolist()
-        conn.close()
+        query = "SELECT DISTINCT generation FROM kg_concepts UNION SELECT DISTINCT generation FROM kg_facts"
+        generations_df = pd.read_sql_query(query, engine)
+        generations = generations_df.iloc[:, 0].tolist()
         return jsonify({"generations": sorted([g for g in generations if g is not None])})
     except Exception as e:
         # If tables don't exist yet, return empty list
@@ -312,29 +370,6 @@ def get_centrality_data():
     concept_degree = {node: cent for node, cent in nx.degree_centrality(G).items() if node in concepts_df['name'].values}
     return jsonify(centrality={'degree': concept_degree})
 
-
-def fetch_messages_for_conversation(conversation_id):
-    conn = get_db_connection()
-    cursor = conn.cursor()
-
-    query = """
-        SELECT role, content, timestamp
-        FROM conversation_history
-        WHERE conversation_id = ?
-        ORDER BY timestamp ASC
-    """
-    cursor.execute(query, (conversation_id,))
-    messages = cursor.fetchall()
-    conn.close()
-
-    return [
-        {
-            "role": message["role"],
-            "content": message["content"],
-            "timestamp": message["timestamp"],
-        }
-        for message in messages
-    ]
 
 
 @app.route("/api/attachments/<message_id>", methods=["GET"])
@@ -862,56 +897,49 @@ def get_npc_team_project():
     except Exception as e:
         print(f"Error fetching NPC team: {str(e)}")
         return jsonify({"npcs": [], "error": str(e)})
-
 def get_last_used_model_and_npc_in_directory(directory_path):
     """
     Fetches the model and NPC from the most recent message in any conversation
     within the given directory.
     """
-    conn = get_db_connection()
-    cursor = conn.cursor()
+    engine = get_db_connection()
     try:
-        # Query for the latest message in the given directory that has a model and npc specified
-        query = """
-            SELECT model, npc
-            FROM conversation_history
-            WHERE directory_path = ? AND model IS NOT NULL AND npc IS NOT NULL AND model != '' AND npc != ''
-            ORDER BY timestamp DESC, id DESC
-            LIMIT 1
-        """
-        cursor.execute(query, (directory_path,))
-        result = cursor.fetchone()
-        return {"model": result["model"], "npc": result["npc"]} if result else {"model": None, "npc": None}
+        with engine.connect() as conn:
+            query = text("""
+                SELECT model, npc
+                FROM conversation_history
+                WHERE directory_path = :directory_path 
+                AND model IS NOT NULL AND npc IS NOT NULL 
+                AND model != '' AND npc != ''
+                ORDER BY timestamp DESC, id DESC
+                LIMIT 1
+            """)
+            result = conn.execute(query, {"directory_path": directory_path}).fetchone()
+            return {"model": result[0], "npc": result[1]} if result else {"model": None, "npc": None}
     except Exception as e:
         print(f"Error getting last used model/NPC for directory {directory_path}: {e}")
         return {"model": None, "npc": None, "error": str(e)}
-    finally:
-        conn.close()
-
 def get_last_used_model_and_npc_in_conversation(conversation_id):
     """
     Fetches the model and NPC from the most recent message within a specific conversation.
     """
-    conn = get_db_connection()
-    cursor = conn.cursor()
+    engine = get_db_connection()
     try:
-        # Query for the latest message in the given conversation that has a model and npc specified
-        query = """
-            SELECT model, npc
-            FROM conversation_history
-            WHERE conversation_id = ? AND model IS NOT NULL AND npc IS NOT NULL AND model != '' AND npc != ''
-            ORDER BY timestamp DESC, id DESC
-            LIMIT 1
-        """
-        cursor.execute(query, (conversation_id,))
-        result = cursor.fetchone()
-        print(result)
-        return {"model": result["model"], "npc": result["npc"]} if result else {"model": None, "npc": None}
+        with engine.connect() as conn:
+            query = text("""
+                SELECT model, npc
+                FROM conversation_history
+                WHERE conversation_id = :conversation_id 
+                AND model IS NOT NULL AND npc IS NOT NULL 
+                AND model != '' AND npc != ''
+                ORDER BY timestamp DESC, id DESC
+                LIMIT 1
+            """)
+            result = conn.execute(query, {"conversation_id": conversation_id}).fetchone()
+            return {"model": result[0], "npc": result[1]} if result else {"model": None, "npc": None}
     except Exception as e:
         print(f"Error getting last used model/NPC for conversation {conversation_id}: {e}")
         return {"model": None, "npc": None, "error": str(e)}
-    finally:
-        conn.close()
 
 # Add these new API routes:
 
@@ -1729,35 +1757,6 @@ def interrupt_stream():
 
     return jsonify({"success": True, "message": f"Interruption for stream {stream_id_to_cancel} registered."})
 
-def get_conversation_history(conversation_id):
-    """Fetch all messages for a conversation in chronological order."""
-    if not conversation_id:
-        return []
-
-    conn = get_db_connection()
-    cursor = conn.cursor()
-
-    try:
-        query = """
-            SELECT role, content, timestamp
-            FROM conversation_history
-            WHERE conversation_id = ?
-            ORDER BY timestamp ASC
-        """
-        cursor.execute(query, (conversation_id,))
-        messages = cursor.fetchall()
-
-        return [
-            {
-                "role": msg["role"],
-                "content": msg["content"],
-                "timestamp": msg["timestamp"],
-            }
-            for msg in messages
-        ]
-    finally:
-        conn.close()
-
 
 @app.route("/api/conversations", methods=["GET"])
 def get_conversations():
@@ -1767,47 +1766,48 @@ def get_conversations():
         if not path:
             return jsonify({"error": "No path provided", "conversations": []}), 400
 
-        conn = get_db_connection()
+        engine = get_db_connection()
         try:
-            cursor = conn.cursor()
+            with engine.connect() as conn:
+                query = text("""
+                SELECT DISTINCT conversation_id,
+                       MIN(timestamp) as start_time,
+                       GROUP_CONCAT(content) as preview
+                FROM conversation_history
+                WHERE directory_path = :path_without_slash OR directory_path = :path_with_slash
+                GROUP BY conversation_id
+                ORDER BY start_time DESC
+                """)
 
-            query = """
-            SELECT DISTINCT conversation_id,
-                   MIN(timestamp) as start_time,
-                   GROUP_CONCAT(content) as preview
-            FROM conversation_history
-            WHERE directory_path = ? OR directory_path = ?
-            GROUP BY conversation_id
-            ORDER BY start_time DESC
-            """
+                # Check both with and without trailing slash
+                path_without_slash = path.rstrip('/')
+                path_with_slash = path_without_slash + '/'
+                
+                result = conn.execute(query, {
+                    "path_without_slash": path_without_slash,
+                    "path_with_slash": path_with_slash
+                })
+                conversations = result.fetchall()
 
-            # Check both with and without trailing slash
-            path_without_slash = path.rstrip('/')
-            path_with_slash = path_without_slash + '/'
-            
-            cursor.execute(query, [path_without_slash, path_with_slash])
-            conversations = cursor.fetchall()
-
-            return jsonify(
-                {
-                    "conversations": [
-                        {
-                            "id": conv["conversation_id"],
-                            "timestamp": conv["start_time"],
-                            "preview": (
-                                conv["preview"][:100] + "..."
-                                if conv["preview"] and len(conv["preview"]) > 100
-                                else conv["preview"]
-                            ),
-                        }
-                        for conv in conversations
-                    ],
-                    "error": None,
-                }
-            )
-
+                return jsonify(
+                    {
+                        "conversations": [
+                            {
+                                "id": conv[0],  # conversation_id
+                                "timestamp": conv[1],  # start_time
+                                "preview": (
+                                    conv[2][:100] + "..."  # preview
+                                    if conv[2] and len(conv[2]) > 100
+                                    else conv[2]
+                                ),
+                            }
+                            for conv in conversations
+                        ],
+                        "error": None,
+                    }
+                )
         finally:
-            conn.close()
+            engine.dispose()
 
     except Exception as e:
         print(f"Error getting conversations: {str(e)}")
@@ -1816,64 +1816,59 @@ def get_conversations():
 @app.route("/api/conversation/<conversation_id>/messages", methods=["GET"])
 def get_conversation_messages(conversation_id):
     try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
+        engine = get_db_connection()
+        with engine.connect() as conn:
+            # Modified query to ensure proper ordering and deduplication
+            query = text("""
+                WITH ranked_messages AS (
+                    SELECT
+                        ch.*,
+                        GROUP_CONCAT(ma.id) as attachment_ids,
+                        ROW_NUMBER() OVER (
+                            PARTITION BY ch.role, strftime('%s', ch.timestamp)
+                            ORDER BY ch.id DESC
+                        ) as rn
+                    FROM conversation_history ch
+                    LEFT JOIN message_attachments ma
+                        ON ch.message_id = ma.message_id
+                    WHERE ch.conversation_id = :conversation_id
+                    GROUP BY ch.id, ch.timestamp
+                )
+                SELECT *
+                FROM ranked_messages
+                WHERE rn = 1
+                ORDER BY timestamp ASC, id ASC
+            """)
 
-        # Modified query to ensure proper ordering and deduplication
-        query = """
-            WITH ranked_messages AS (
-                SELECT
-                    ch.*,
-                    GROUP_CONCAT(ma.id) as attachment_ids,
-                    ROW_NUMBER() OVER (
-                        PARTITION BY ch.role, strftime('%s', ch.timestamp)
-                        ORDER BY ch.id DESC
-                    ) as rn
-                FROM conversation_history ch
-                LEFT JOIN message_attachments ma
-                    ON ch.message_id = ma.message_id
-                WHERE ch.conversation_id = ?
-                GROUP BY ch.id, ch.timestamp
+            result = conn.execute(query, {"conversation_id": conversation_id})
+            messages = result.fetchall()
+
+            return jsonify(
+                {
+                    "messages": [
+                        {
+                            "message_id": msg[1] if len(msg) > 1 else None,  # Adjust indices based on your schema
+                            "role": msg[3] if len(msg) > 3 else None,
+                            "content": msg[4] if len(msg) > 4 else None,
+                            "timestamp": msg[5] if len(msg) > 5 else None,
+                            "model": msg[6] if len(msg) > 6 else None,
+                            "provider": msg[7] if len(msg) > 7 else None,
+                            "npc": msg[8] if len(msg) > 8 else None,
+                            "attachments": (
+                                get_message_attachments(msg[1])
+                                if len(msg) > 1 and msg[-1]  # attachment_ids
+                                else []
+                            ),
+                        }
+                        for msg in messages
+                    ],
+                    "error": None,
+                }
             )
-            SELECT *
-            FROM ranked_messages
-            WHERE rn = 1
-            ORDER BY timestamp ASC, id ASC
-        """
-
-        cursor.execute(query, [conversation_id])
-        messages = cursor.fetchall()
-        #print(messages)
-
-        return jsonify(
-            {
-                "messages": [
-                    {
-                        "message_id": msg["message_id"],
-                        "role": msg["role"],
-                        "content": msg["content"],
-                        "timestamp": msg["timestamp"],
-                        "model": msg["model"],
-                        "provider": msg["provider"],
-                        "npc": msg["npc"],
-                        "attachments": (
-                            get_message_attachments(msg["message_id"])
-                            if msg["attachment_ids"]
-                            else []
-                        ),
-                    }
-                    for msg in messages
-                ],
-                "error": None,
-            }
-        )
 
     except Exception as e:
         print(f"Error getting conversation messages: {str(e)}")
         return jsonify({"error": str(e), "messages": []}), 500
-    finally:
-        conn.close()
-
 
 
 
@@ -2002,28 +1997,7 @@ extension_map = {
 }
 
 
-def fetch_messages_for_conversation(conversation_id):
-    conn = get_db_connection()
-    cursor = conn.cursor()
-
-    query = """
-        SELECT role, content, timestamp
-        FROM conversation_history
-        WHERE conversation_id = ?
-        ORDER BY timestamp ASC
-    """
-    cursor.execute(query, (conversation_id,))
-    messages = cursor.fetchall()
-    conn.close()
-
-    return [
-        {
-            "role": message["role"],
-            "content": message["content"],
-            "timestamp": message["timestamp"],
-        }
-        for message in messages
-    ]
+    
 
 
 @app.route("/api/health", methods=["GET"])
