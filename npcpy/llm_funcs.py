@@ -204,8 +204,8 @@ def get_llm_response(
         if isinstance(messages[-1]["content"], str):
             messages[-1]["content"] += "\n" + prompt+context_str
     elif prompt:
-        messages.append({"role": "user", "content": prompt + context_str})
-
+        messages.append({"role": "user", 
+                         "content": prompt + context_str})    
     response = get_litellm_response(
         prompt + context_str,
         messages=messages,
@@ -418,8 +418,6 @@ def handle_jinx_call(
                     npc=npc,
                     team=team,
                     stream=stream,
-                    attempt=attempt + 1,
-                    n_attempts=n_attempts,
                     context=context
                 )
             return {
@@ -450,8 +448,13 @@ def handle_jinx_call(
 
         prompt = f"""
         The user wants to use the jinx '{jinx_name}' with the following request:
-        '{command}'
-        Here is the jinx file:
+        '{command}'"""
+
+
+        prompt += f'Here were the previous 5 messages in the conversation: {messages[-5:]}'
+
+
+        prompt+=f"""Here is the jinx file:
         ```
         {jinx.to_dict()}
         ```
@@ -465,13 +468,14 @@ def handle_jinx_call(
         If the jinx requires code to be generated, you must generate it exactly according to the instructions.
         Your inputs must satisfy the jinx's requirements.
 
+
+
+
         Return only the JSON object without any markdown formatting.
 
-        The format of the JSON object is:
-        {{
-        {json_format_str}
-        }}
-        """
+        The format of the JSON object is: 
+        
+        """+"{"+json_format_str+"}"
 
         if npc and hasattr(npc, "shared_context"):
             if npc.shared_context.get("dataframes"):
@@ -479,13 +483,13 @@ def handle_jinx_call(
                 for df_name in npc.shared_context["dataframes"].keys():
                     context_info += f"- {df_name}\n"
                 prompt += f"""Here is contextual info that may affect your choice: {context_info}
-                """
+                """                
         response = get_llm_response(
             prompt,
             format="json",
             model=model,
             provider=provider,
-
+            messages=messages[-10:], 
             npc=npc,
             context=context
         )
@@ -549,9 +553,6 @@ def handle_jinx_call(
                 npc=npc,
                 messages=messages,
             )
-            if 'llm_response' in jinx_output and 'messages' in jinx_output:
-                if len(jinx_output['llm_response'])>0:                
-                    messages = jinx_output['messages']
         except Exception as e:
             print(f"An error occurred while executing the jinx: {e}")
             print(f"trying again, attempt {attempt+1}")
@@ -570,31 +571,26 @@ def handle_jinx_call(
                     n_attempts=n_attempts,
                     context=f""" \n \n \n "jinx failed: {e}  \n \n \n here was the previous attempt: {input_values}""",
                 )
-        if not stream and len(messages) > 0 :
-            if messages[-1]['role'] != 'assistant':
+        if not stream and len(messages) > 0 :            
+            render_markdown(f""" ## jinx OUTPUT FROM CALLING {jinx_name} \n \n output:{jinx_output['output']}""" )            
+            response = get_llm_response(f"""
+                The user had the following request: {command}. 
+                Here were the jinx outputs from calling {jinx_name}: {jinx_output}
                 
-                render_markdown(f""" ## jinx OUTPUT FROM CALLING {jinx_name} \n \n output:{jinx_output['output']}""" )
-
-                
-                response = get_llm_response(f"""
-                    The user had the following request: {command}. 
-                    Here were the jinx outputs from calling {jinx_name}: {jinx_output}
-                    
-                    Given the jinx outputs and the user request, please format a simple answer that 
-                    provides the answer without requiring the user to carry out any further steps.
-                    """,
-                    model=model,
-                    provider=provider,
-
-                    npc=npc,
-                    messages=messages,
-                    context=context, 
-                    stream=stream,
-                )
-                messages = response['messages']
-                response = response.get("response", {})
-                return {'messages':messages, 'output':response}
-            
+                Given the jinx outputs and the user request, please format a simple answer that 
+                provides the answer without requiring the user to carry out any further steps.
+                """,
+                model=model,
+                provider=provider,
+                npc=npc,
+                messages=messages[-10:],
+                context=context, 
+                stream=stream,
+            )
+            messages = response['messages']
+            response = response.get("response", {})
+            return {'messages':messages, 'output':response}
+        
         return {'messages': messages, 'output': jinx_output['output']}
 
 
@@ -679,11 +675,12 @@ def answer_handler(command, extracted_data, **kwargs):
         provider=kwargs.get('provider'),
         api_url=kwargs.get('api_url'),
         api_key=kwargs.get('api_key'),
-        messages=kwargs.get('messages'),
+        messages=kwargs.get('messages',)[-10:],
         npc=kwargs.get('npc'),
         team=kwargs.get('team'), 
         stream=kwargs.get('stream', False),
-        images=kwargs.get('images')
+        images=kwargs.get('images'), 
+        context=kwargs.get('context')
     )
  
     return response
@@ -708,8 +705,7 @@ def check_llm_command(
 
     if actions is None:
         actions = DEFAULT_ACTION_SPACE.copy()
-
-    return execute_multi_step_plan(
+    exec =  execute_multi_step_plan(
         command=command,
         model=model,
         provider=provider,
@@ -724,6 +720,7 @@ def check_llm_command(
         actions=actions,
 
     )
+    return exec
 
 # Define `DEFAULT_ACTION_SPACE`
 
@@ -867,9 +864,7 @@ def plan_multi_step_actions(
     by dynamically building a prompt from the provided action space.
     """
     
-    # --- Start of the corrected logic ---
     
-    # 1. Build the prompt dynamically.
     prompt = f"""
 Analyze the user's request: "{command}"
 
@@ -878,13 +873,10 @@ Use the following context about available actions and tools to construct the pla
 
 """
 
-    # 2. Dynamically add context from the action space, executing lambdas as needed.
     for action_name, action_info in actions.items():
         ctx = action_info.get("context")
-        # If the context is a function (our lambda), call it to get the dynamic string.
         if callable(ctx):
             try:
-                # Pass the npc object to the lambda so it can access the jinxs_dict.
                 #print(ctx)
                 ctx = ctx(npc=npc, team=team)
             except Exception as e:
@@ -894,9 +886,9 @@ Use the following context about available actions and tools to construct the pla
         
         if ctx:
             prompt += f"\n--- Context for action '{action_name}' ---\n{ctx}\n"
+    if len(messages) >0:
+        prompt += f'Here were the previous 5 messages in the conversation: {messages[-5:]}'
 
-    #print(prompt)
-    # 3. Add the final instructions.
     prompt += f"""
 --- Instructions ---
 Based on the user's request and the context provided above, create a plan.
@@ -904,9 +896,6 @@ Based on the user's request and the context provided above, create a plan.
 The plan must be a JSON object with a single key, "actions". Each action must include:
 - "action": The name of the action to take.
 - "explanation": A clear description of the goal for this specific step.
-
-
-Example Request: "Find out who the current CEO of Microsoft is, then find their biography on Wikipedia"
  
 An Example Plan might look like this depending on the available actions:
 """ + """
@@ -926,7 +915,7 @@ An Example Plan might look like this depending on the available actions:
   ]
 }
 
-The plans should not mostly be 1-2 actions and usually never more than 3 actions at a time.
+The plans should mostly be 1-2 actions and usually never more than 3 actions at a time.
 Interactivity is important, unless a user specifies a usage of a specific action, it is generally best to
 assume just to respond in the simplest way possible rather than trying to assume certain actions have been requested.
 
@@ -944,7 +933,8 @@ Respond ONLY with the plan.
         npc=npc,
         team=team,
         format="json", 
-        messages=[]
+        messages=[], 
+        context=context,
     )
     response_content = action_response.get("response", {})
     #print(action_response)
@@ -999,7 +989,8 @@ def execute_multi_step_plan(
                                 npc=npc,
                                 stream=stream,
                                 team = team, 
-                                images=images)
+                                images=images, 
+                                context=context)
         return {"messages": result.get('messages',
                                        messages), 
                 "output": result.get('response')}
@@ -1037,25 +1028,25 @@ def execute_multi_step_plan(
            team=team,
            stream=stream, 
 
-           context=step_context, 
+           context=context+step_context, 
            images=images
         )
 
 
         action_output = result.get('output') or result.get('response')
-
+        
         if stream and len(planned_actions) > 1:
             # If streaming, we need to process the output with markdown rendering
             action_output = print_and_process_stream_with_markdown(action_output, model, provider)
         elif len(planned_actions) == 1:
             # If streaming and only one action, we can directly return the output
             # can circumvent because compile sequence results just returns single output results.
-            return {"messages": result.get('messages', current_messages), 
+            return {"messages": result.get('messages', 
+                                           current_messages), 
                     "output": action_output}
-        
-            
         step_outputs.append(action_output)        
-        current_messages = result.get('messages', current_messages)
+        current_messages = result.get('messages', 
+                                      current_messages)
 
     # render_markdown('## Reviewing output...')
     # need tot replace with a review step actually 
@@ -1101,6 +1092,7 @@ Do not mention the steps taken.
 
 Final Synthesized Response that addresses the user in a polite and informative manner:
 """
+    print(synthesis_prompt)
 
     response = get_llm_response(
         synthesis_prompt,

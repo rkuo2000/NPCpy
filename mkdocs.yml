@@ -33,18 +33,11 @@ plugins:
 nav:
   - Home: index.md
   - Installation: installation.md
-  - 'Using npcsh, the NPC Shell': guide.md
-  - 'Using alicanto': alicanto.md
-  - 'Using guac': guac.md
-  - 'Using pti': pti.md
-  - 'Using spool': spool.md
-  - 'Using wander': wander.md
-  - 'Using yap': yap.md
-
-
-  - TLDR Cheat Sheet: TLDR_Cheat_sheet.md
-  - API:
-    - Image: api/image.md
-    - LLM Functions: api/llm_funcs.md
-    - NPC, Team, Jinx: api/npc_compiler.md
-    - NPC Sys Env Helpers: api/npc_sys_env_helpers.md
+  - Using npcpy: npcpy.md
+    - API:
+      - Image: api/image.md
+      - LLM Functions: api/llm_funcs.md
+      - NPC, Team, Jinx: api/npc_compiler.md
+      - NPC Sys Env Helpers: api/npc_sysenv.md
+      - Serve: api/serve.md
+      
