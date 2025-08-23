@@ -1,6 +1,6 @@
 site_name: npcpy
 site_url: https://npcpy.readthedocs.io/
-repo_url: https://github.com/cagostino/npcpy
+repo_url: https://github.com/NPC-Worldwide/npcpy
 
 theme:
   name: readthedocs
@@ -40,4 +40,3 @@ nav:
       - NPC, Team, Jinx: api/npc_compiler.md
       - NPC Sys Env Helpers: api/npc_sysenv.md
       - Serve: api/serve.md
-      
