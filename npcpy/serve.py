@@ -28,6 +28,7 @@ try:
 except:
     pass
 
+from npcpy.llm_funcs import gen_image                                                                                                                                                                      
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
@@ -1182,6 +1183,29 @@ def get_attachment_response():
         "conversationId": conversation_id,
         "messages": messages,
     })
+
+                                                                                                                                                                                                           
+@app.route('/api/generate_images', methods=['POST'])                                                                                                                                                       
+def generate_images():                                                                                                                                                                                     
+    data = request.get_json()                                                                                                                                                                              
+    prompt = data.get('prompt')                                                                                                                                                                            
+    n = data.get('n', 4)  # Default to 4 images                                                                                                                                                            
+                                                                                                                                                                                                           
+    if not prompt:                                                                                                                                                                                         
+        return jsonify({"error": "Prompt is required."}), 400                                                                                                                                              
+                                                                                                                                                                                                           
+    generated_images = []                                                                                                                                                                                  
+    try:                                                                                                                                                                                                   
+        for _ in range(n):                                                                                                                                                                                 
+            image = gen_image(prompt, 
+                              model='runwayml/stable-diffusion-v1-5', 
+                              provider='diffusers')  # Use the desired model and provider                                                                  
+            generated_images.append(image)                                                                                                                                                                 
+                                                                                                                                                                                                           
+        return jsonify(generated_images)                                                                                                                                                                   
+    except Exception as e:                                                                                                                                                                                 
+        print(f"Image generation error: {str(e)}")                                                                                                                                                         
+        return jsonify({"error": str(e)}), 500      
 
 @app.route("/api/stream", methods=["POST"])
 def stream():

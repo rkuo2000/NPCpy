@@ -1,6 +1,6 @@
 import os
 import tempfile
-from npcpy.llm_funcs import get_llm_response, gen_image, execute_llm_command, check_llm_command
+from npcpy.llm_funcs import get_llm_response, gen_image, execute_llm_command, check_llm_command, breathe
 from npcpy.npc_compiler import NPC
 
 
@@ -132,3 +132,27 @@ def test_streaming_response():
         print(f"Streaming response: {response}")
     except Exception as e:
         print(f"Streaming failed: {e}")
+        
+def test_breathe():
+    messages = [
+    {'role': 'user', 'content': 'I need a function to add two numbers'},
+    {'role': 'assistant', 'content': 'def add(a, b): return a + b'},
+    {'role': 'user', 'content': 'Now make it work with strings too'}
+    ]
+    result = breathe(messages)
+    print("Test 2 - Coding:")
+    print(result)
+    print()
+
+    # Test 3: Project planning conversation
+    messages = [
+        {'role': 'user', 'content': 'I want to build a todo app'},
+        {'role': 'assistant', 'content': 'What features do you need?'},
+        {'role': 'user', 'content': 'Add tasks, mark complete, delete'},
+        {'role': 'assistant', 'content': 'Use Flask for backend and React for frontend?'},
+        {'role': 'user', 'content': 'Just Flask for now, keep it simple'}
+    ]
+    result = breathe(messages)
+    print("Test 3 - Project:")
+    print(result)
+

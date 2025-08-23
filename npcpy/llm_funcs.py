@@ -998,7 +998,7 @@ def execute_multi_step_plan(
 
     step_outputs = []
     current_messages = messages.copy()
-    render_markdown(f"### Plan for Command: {command}")
+    render_markdown(f"### Plan for Command: {command[100:]}")
     for action in planned_actions:
         step_info = json.dumps(action)
         render_markdown(f'- {step_info}')
@@ -1428,7 +1428,7 @@ def breathe(
     messages: List[Dict[str, str]],
     model: str = None,
     provider: str = None, 
-    npc=  None,
+    npc =  None,
     context: str = None,
     **kwargs: Any
 ) -> Dict[str, Any]:
@@ -1459,10 +1459,10 @@ def breathe(
     Return a JSON like so:
 
     {
-        'high_level_objective': 'the overall goal so far for the user', 
-        'most_recent_task': 'The currently ongoing task', 
-        'accomplishments': ['accomplishment1', 'accomplishment2'], 
-        'failures': ['falures1', 'failures2'], 
+        "high_level_objective": "the overall goal so far for the user", 
+        "most_recent_task": "The currently ongoing task", 
+        "accomplishments": ["accomplishment1", "accomplishment2"], 
+        "failures": ["falures1", "failures2"], 
     }
 
     '''
@@ -1477,6 +1477,8 @@ def breathe(
                            **kwargs)
 
     res = result.get('response', {})
+    if isinstance(res, str):
+        raise Exception
     format_output = f"""Here is a summary of the previous session. 
     The high level objective was: {res.get('high_level_objective')} \n The accomplishments were: {res.get('accomplishments')}, 
     the failures were: {res.get('failures')} and the most recent task was: {res.get('most_recent_task')}   """
