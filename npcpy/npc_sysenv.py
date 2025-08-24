@@ -551,7 +551,7 @@ def print_and_process_stream_with_markdown(response, model, provider, show=False
         print('\n⚠️ Stream interrupted by user')
     
     if tool_call_data["id"] or tool_call_data["function_name"] or tool_call_data["arguments"]:
-        str_output += "\n\n### Jinx Call Data\n"
+        str_output += "\n\n### Tool Call Data\n"
         if tool_call_data["id"]:
             str_output += f"**ID:** {tool_call_data['id']}\n\n"
         if tool_call_data["function_name"]:
