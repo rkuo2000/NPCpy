@@ -7,6 +7,7 @@ import socket
 import concurrent.futures # For managing timeouts on blocking calls
 import platform
 import sqlite3
+import sys
 from typing import Dict, List
 import textwrap
 
@@ -462,7 +463,9 @@ def render_code_block(code: str, language: str = None) -> None:
         code, language or "python", theme="monokai", line_numbers=False, padding=0
     )
     console.print(syntax)
-def print_and_process_stream_with_markdown(response, model, provider):
+    
+def print_and_process_stream_with_markdown(response, model, provider, show=False):
+    import sys
     
     str_output = ""
     dot_count = 0  
@@ -473,13 +476,13 @@ def print_and_process_stream_with_markdown(response, model, provider):
         render_markdown(response)  
         print('\n') 
         return response 
-    print(response)
+    
+    # Save cursor position at the start
+    sys.stdout.write('\033[s')  # Save cursor position
+    sys.stdout.flush()
     
     try:
         for chunk in response:
-
-            print('.', end="", flush=True)
-            dot_count += 1
 
             if provider == "ollama" and 'gpt-oss' not in model:
 
@@ -494,10 +497,17 @@ def print_and_process_stream_with_markdown(response, model, provider):
                                 tool_call_data["arguments"] += tool_call["function"]["arguments"]
                 
                 chunk_content = chunk["message"]["content"] if "message" in chunk and "content" in chunk["message"] else ""
-                reasoning_content = chunk['message'].get('thinking')
+                reasoning_content = chunk['message'].get('thinking', '')
+                if show:
+                    if len(reasoning_content) > 0:
+                        print(reasoning_content, end="", flush=True)
+                    if chunk_content != "":
+                        print(chunk_content, end="", flush=True)
+                else:
+                    print('.', end="", flush=True)
+                    dot_count += 1
+                    
             else:
-                
-
                 for c in chunk.choices:
                     if hasattr(c.delta, "tool_calls") and c.delta.tool_calls:
                         for tool_call in c.delta.tool_calls:
@@ -515,14 +525,21 @@ def print_and_process_stream_with_markdown(response, model, provider):
                     if hasattr(c.delta, "reasoning_content"):        
                         reasoning_content += c.delta.reasoning_content
                 
-                if reasoning_content:
+                if len(reasoning_content) > 0:
                     chunk_content = reasoning_content
                         
                 chunk_content += "".join(
                     c.delta.content for c in chunk.choices if c.delta.content
                 )
+                if show:
+                    if reasoning_content is not None:
+                        print(reasoning_content, end="", flush=True)
+                    if chunk_content != "":
+                        print(chunk_content, end="", flush=True)
+                else:
+                    print('.', end="", flush=True)
+                    dot_count += 1
 
-            
             if not chunk_content:
                 continue
             str_output += chunk_content
@@ -531,9 +548,6 @@ def print_and_process_stream_with_markdown(response, model, provider):
         interrupted = True
         print('\n⚠️ Stream interrupted by user')
     
-    print('\r' + ' ' * dot_count*2 + '\r', end="", flush=True)
-    
-
     if tool_call_data["id"] or tool_call_data["function_name"] or tool_call_data["arguments"]:
         str_output += "\n\n### Jinx Call Data\n"
         if tool_call_data["id"]:
@@ -547,16 +561,20 @@ def print_and_process_stream_with_markdown(response, model, provider):
                 str_output += f"**Arguments:**\n```json\n{json.dumps(args_parsed, indent=2)}\n```"
             except:
                 str_output += f"**Arguments:** `{tool_call_data['arguments']}`"
-    
 
     if interrupted:
         str_output += "\n\n[⚠️ Response interrupted by user]"
     
+    # Always restore cursor position and clear everything after it
+    sys.stdout.write('\033[u')  # Restore cursor position
+    sys.stdout.write('\033[J')  # Clear from cursor down
+    sys.stdout.flush()
+    
+    # Now render the markdown at the restored position
+    render_markdown(str_output)
     print('\n')
-    render_markdown('\n' + str_output)
     
     return str_output
-
 
 
 def print_and_process_stream(response, model, provider):
