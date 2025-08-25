@@ -10,7 +10,7 @@ import sqlite3
 import sys
 from typing import Dict, List
 import textwrap
-
+import json
 ON_WINDOWS = platform.system() == "Windows"
 
 # Try/except for termios, tty, pty, select, signal
@@ -494,8 +494,10 @@ def print_and_process_stream_with_markdown(response, model, provider, show=False
                             if "name" in tool_call["function"]:
                                 tool_call_data["function_name"] = tool_call["function"]["name"]
                             if "arguments" in tool_call["function"]:
-                                tool_call_data["arguments"] += tool_call["function"]["arguments"]
-                
+                                if isinstance(tool_call["function"]["arguments"], dict):
+                                    tool_call_data["arguments"] += json.dumps(tool_call["function"]["arguments"])
+                                else:
+                                    tool_call_data["arguments"] += tool_call["function"]["arguments"]                
                 chunk_content = chunk["message"]["content"] if "message" in chunk and "content" in chunk["message"] else ""
                 reasoning_content = chunk['message'].get('thinking', '')
                 if show:
@@ -556,7 +558,6 @@ def print_and_process_stream_with_markdown(response, model, provider, show=False
             str_output += f"**Function:** {tool_call_data['function_name']}\n\n"
         if tool_call_data["arguments"]:
             try:
-                import json
                 args_parsed = json.loads(tool_call_data["arguments"])
                 str_output += f"**Arguments:**\n```json\n{json.dumps(args_parsed, indent=2)}\n```"
             except:
