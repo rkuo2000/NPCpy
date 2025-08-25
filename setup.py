@@ -87,7 +87,7 @@ setup(
         "lite": api_requirements,  # Just API integrations
         "local": local_requirements,  # Local AI/ML features
         "yap": voice_requirements,  # Voice/Audio features
-        "all": api_requirements + local_requirements + voice_requirements + mcp_requirements,  # Everything
+        "all": api_requirements + local_requirements + voice_requirements,  # Everything
     },
     author="Christopher Agostino",
     author_email="info@npcworldwi.de",
