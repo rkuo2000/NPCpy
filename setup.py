@@ -44,6 +44,7 @@ base_requirements = [
     "redis",
     "psycopg2-binary",
     "flask_sse",
+    "mcp", 
 ]
 
 # API integration requirements
@@ -54,10 +55,6 @@ api_requirements = [
     "google-genai",
 ]
 
-# mcp integration requirements
-mcp_requirements = [
-    "mcp",
-]
 # Local ML/AI requirements
 local_requirements = [
     "sentence_transformers",
@@ -66,7 +63,6 @@ local_requirements = [
     "kuzu",
     "chromadb",
     "diffusers",
-    "nltk",
     "torch",
 ]
 
@@ -84,14 +80,13 @@ extra_files = package_files("npcpy/npc_team/")
 
 setup(
     name="npcpy",
-    version="1.1.18",
+    version="1.1.19",
     packages=find_packages(exclude=["tests*"]),
     install_requires=base_requirements,  # Only install base requirements by default
     extras_require={
         "lite": api_requirements,  # Just API integrations
         "local": local_requirements,  # Local AI/ML features
         "yap": voice_requirements,  # Voice/Audio features
-        "mcp": mcp_requirements,  # MCP integration
         "all": api_requirements + local_requirements + voice_requirements + mcp_requirements,  # Everything
     },
     author="Christopher Agostino",
