@@ -284,7 +284,6 @@ def execute_rag_command(
     vector_db_path: str, 
     embedding_model: str,
     embedding_provider: str,
-    messages=None,
     top_k: int = 15,
     file_contents=None,  # List of file content chunks
     **kwargs
@@ -346,13 +345,13 @@ def execute_rag_command(
         
         {plain_results}
         
-        Please respond to the user query based on these file contents.
+        Please respond to the user query based on the above information, integrating the information in an additive way, attempting to always find some possible connection
+        between the results and the initial input. do not do this haphazardly, be creative yet cautious.
         """
         
         # Get LLM response
         response = get_llm_response(
             prompt,
-            messages=messages,
             **kwargs
         )
         return response
@@ -419,20 +418,20 @@ def execute_rag_command(
             
             {plain_results}
             
-            Please respond to the user query based on the above information.
+            Please respond to the user query based on the above information, integrating the information in an additive way, attempting to always find some possible connection
+            between the results and the initial input. do not do this haphazardly, be creative yet cautious.
             """
             
             # Get LLM response
             response = get_llm_response(
                 prompt,
-                messages=messages,
                 **kwargs
             )
             return response
             
         except Exception as e:
             traceback.print_exc()
-            return {"output": f"Error searching knowledge base: {e}", "messages": messages}
+            return {"output": f"Error searching knowledge base: {e}", "messages": kwargs.get('messages', [])}
         
         
 def execute_brainblast_command(
