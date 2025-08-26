@@ -499,7 +499,7 @@ def print_and_process_stream_with_markdown(response, model, provider, show=False
                                 else:
                                     tool_call_data["arguments"] += tool_call["function"]["arguments"]                
                 chunk_content = chunk["message"]["content"] if "message" in chunk and "content" in chunk["message"] else ""
-                reasoning_content = chunk['message'].get('thinking', '')
+                reasoning_content = chunk['message'].get('thinking', '') if "message" in chunk and "thinking" in chunk['message'] else ""
                 if show:
                     if len(reasoning_content) > 0:
                         print(reasoning_content, end="", flush=True)
