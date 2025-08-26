@@ -1000,7 +1000,8 @@ def execute_multi_step_plan(
     current_messages = messages.copy()
     render_markdown(f"### Plan for Command: {command[100:]}")
     for action in planned_actions:
-        step_info = json.dumps(action)
+        step_info = json.dumps({'action': action.get('action', ''), 
+                                'explanation': str(action.get('explanation',''))[0:10]+'...'})
         render_markdown(f'- {step_info}')
 
 
@@ -1092,7 +1093,6 @@ Do not mention the steps taken.
 
 Final Synthesized Response that addresses the user in a polite and informative manner:
 """
-    print(synthesis_prompt)
 
     response = get_llm_response(
         synthesis_prompt,
