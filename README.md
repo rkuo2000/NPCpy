@@ -5,7 +5,7 @@
 
 # npcpy
 
-Welcome to `npcpy`, the python library for the NPC Toolkit that supercharges natural language processing pipelines and agent tooling. `npcpy` is a python framework for building systems with LLMs that can generate text, images, and videos while allowing users to easily integrate data sources in their response handling.
+Welcome to `npcpy`, the core library of the NPC Toolkit that supercharges natural language processing pipelines and agent tooling. `npcpy` is a flexible framework for building state-of-the-art applications and conducting novel research with LLMs.
 
 
 <p align="center">
