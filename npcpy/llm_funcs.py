@@ -397,8 +397,7 @@ def handle_jinx_call(
         #print(npc, team)
         #print(team.jinxs_dict, npc.jinxs_dict)
         if jinx_name not in npc.jinxs_dict and jinx_name not in team.jinxs_dict:
-            print("not available")
-            print(jinx_name, npc.jinxs_dict, team.jinxs_dict)
+            print(f"Jinx {jinx_name} not available")
             if attempt < n_attempts:
                 print(f"attempt {attempt+1} to generate jinx name failed, trying again")                
                 return check_llm_command(
