@@ -640,11 +640,10 @@ def print_and_process_stream(response, model, provider):
                 chunk_content += "".join(
                     c.delta.content for c in chunk.choices if c.delta.content
                 )
-                if show:
-                    if reasoning_content is not None:
-                        print(reasoning_content, end="", flush=True)
-                    if chunk_content != "":
-                        print(chunk_content, end="", flush=True)
+                if reasoning_content is not None:
+                    print(reasoning_content, end="", flush=True)
+                if chunk_content != "":
+                    print(chunk_content, end="", flush=True)
                 else:
                     print('.', end="", flush=True)
                     dot_count += 1
