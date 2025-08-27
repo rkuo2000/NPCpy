@@ -579,28 +579,103 @@ def print_and_process_stream_with_markdown(response, model, provider, show=False
 
 
 def print_and_process_stream(response, model, provider):
-    conversation_result = ""
     
-    for chunk in response:
-        if provider == "ollama" and 'hf.co' in model:
-            chunk_content = chunk["message"]["content"]
-            if chunk_content:
-                conversation_result += chunk_content
-                print(chunk_content, end="")
+    str_output = ""
+    dot_count = 0  
+    tool_call_data = {"id": None, "function_name": None, "arguments": ""}
+    interrupted = False
+    
+    if isinstance(response, str):
+        render_markdown(response)  
+        print('\n') 
+        return response 
+    try:
+        for chunk in response:
 
-        else:
-            chunk_content = "".join(
-                choice.delta.content
-                for choice in chunk.choices
-                if choice.delta.content is not None
-            )
-            if chunk_content:
-                conversation_result += chunk_content
-                print(chunk_content, end="")
+            if provider == "ollama" and 'gpt-oss' not in model:
 
-    print("\n")
+                if "message" in chunk and "tool_calls" in chunk["message"]:
+                    for tool_call in chunk["message"]["tool_calls"]:
+                        if "id" in tool_call:
+                            tool_call_data["id"] = tool_call["id"]
+                        if "function" in tool_call:
+                            if "name" in tool_call["function"]:
+                                tool_call_data["function_name"] = tool_call["function"]["name"]
+                            if "arguments" in tool_call["function"]:
+                                if isinstance(tool_call["function"]["arguments"], dict):
+                                    tool_call_data["arguments"] += json.dumps(tool_call["function"]["arguments"])
+                                else:
+                                    tool_call_data["arguments"] += tool_call["function"]["arguments"]                
+                chunk_content = chunk["message"]["content"] if "message" in chunk and "content" in chunk["message"] else ""
+                reasoning_content = chunk['message'].get('thinking', '') if "message" in chunk and "thinking" in chunk['message'] else ""
+                if len(reasoning_content) > 0:
+                    print(reasoning_content, end="", flush=True)
+                if chunk_content != "":
+                    print(chunk_content, end="", flush=True)
+                else:
+                    print('.', end="", flush=True)
+                    dot_count += 1
+                    
+            else:
+                for c in chunk.choices:
+                    if hasattr(c.delta, "tool_calls") and c.delta.tool_calls:
+                        for tool_call in c.delta.tool_calls:
+                            if tool_call.id:
+                                tool_call_data["id"] = tool_call.id
+                            if tool_call.function:
+                                if hasattr(tool_call.function, "name") and tool_call.function.name:
+                                    tool_call_data["function_name"] = tool_call.function.name
+                                if hasattr(tool_call.function, "arguments") and tool_call.function.arguments:
+                                    tool_call_data["arguments"] += tool_call.function.arguments
                 
-    return conversation_result   
+                chunk_content = ''
+                reasoning_content = ''
+                for c in chunk.choices:
+                    if hasattr(c.delta, "reasoning_content"):        
+                        reasoning_content += c.delta.reasoning_content
+                
+                if len(reasoning_content) > 0:
+                    chunk_content = reasoning_content
+                        
+                chunk_content += "".join(
+                    c.delta.content for c in chunk.choices if c.delta.content
+                )
+                if show:
+                    if reasoning_content is not None:
+                        print(reasoning_content, end="", flush=True)
+                    if chunk_content != "":
+                        print(chunk_content, end="", flush=True)
+                else:
+                    print('.', end="", flush=True)
+                    dot_count += 1
+
+            if not chunk_content:
+                continue
+            str_output += chunk_content
+    
+    except KeyboardInterrupt:
+        interrupted = True
+        print('\n⚠️ Stream interrupted by user')
+    
+    if tool_call_data["id"] or tool_call_data["function_name"] or tool_call_data["arguments"]:
+        str_output += "\n\n### Tool Call Data\n"
+        if tool_call_data["id"]:
+            str_output += f"**ID:** {tool_call_data['id']}\n\n"
+        if tool_call_data["function_name"]:
+            str_output += f"**Function:** {tool_call_data['function_name']}\n\n"
+        if tool_call_data["arguments"]:
+            try:
+                args_parsed = json.loads(tool_call_data["arguments"])
+                str_output += f"**Arguments:**\n```json\n{json.dumps(args_parsed, indent=2)}\n```"
+            except:
+                str_output += f"**Arguments:** `{tool_call_data['arguments']}`"
+
+    if interrupted:
+        str_output += "\n\n[⚠️ Response interrupted by user]"
+    
+
+                
+    return str_output   
 def get_system_message(npc, team=None) -> str:
     import os
     from datetime import datetime

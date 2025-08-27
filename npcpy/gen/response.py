@@ -242,7 +242,11 @@ def get_ollama_response(
         }
         
         # Process tool calls and get the updated result
-        processed_result = process_tool_calls(response_for_processing, tool_map, model, 'ollama', messages, stream=False)
+        processed_result = process_tool_calls(response_for_processing, 
+                                              tool_map, model, 
+                                              'ollama', 
+                                              messages, 
+                                              stream=False)
         
         # Now if streaming was requested, make a final call with the complete conversation
         if stream:

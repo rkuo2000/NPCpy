@@ -1230,8 +1230,8 @@ def identify_groups(
 def get_related_concepts_multi(node_name: str, 
                                node_type: str, 
                                all_concept_names, 
-                               model: str, 
-                               provider: str, 
+                               model: str = None,
+                               provider: str = None,
                                npc=None,
                                context : str = None, 
                                **kwargs):
@@ -1260,8 +1260,8 @@ def get_related_concepts_multi(node_name: str,
 def assign_groups_to_fact(
     fact: str,
     groups: List[str],
-    model,
-    provider,
+    model = None,
+    provider = None,
     npc = None, 
     context: str = None,
     **kwargs
@@ -1299,8 +1299,8 @@ def assign_groups_to_fact(
 def generate_group_candidates(
     items: List[str],
     item_type: str,
-    model: str,
-    provider: str,
+    model: str = None,
+    provider: str =None,
     npc = None,
     context: str = None,
     n_passes: int = 3,
@@ -1363,8 +1363,8 @@ def generate_group_candidates(
 
 def remove_idempotent_groups(
     group_candidates: List[str],
-    model: str,
-    provider: str,
+    model: str = None,
+    provider: str =None,
     npc = None, 
     context : str = None,
     **kwargs: Any
@@ -1746,7 +1746,12 @@ def get_facts(content_text,
 
         
 
-def zoom_in(facts, model, provider, npc=None, context: str = None, **kwargs):
+def zoom_in(facts, 
+            model= None,
+            provider=None, 
+            npc=None,
+            context: str = None, 
+            **kwargs):
     """Infer new implied facts from existing facts"""
     valid_facts = []
     for fact in facts:
@@ -1787,8 +1792,8 @@ def zoom_in(facts, model, provider, npc=None, context: str = None, **kwargs):
                                 **kwargs)
     return response["response"].get("implied_facts", [])
 def generate_groups(facts, 
-                    model, 
-                    provider, 
+                    model=None,
+                    provider=None,
                     npc=None,
                     context: str =None, 
                     **kwargs):
@@ -1828,8 +1833,8 @@ def generate_groups(facts,
     return response["response"].get("groups", [])
 
 def remove_redundant_groups(groups, 
-                            model, 
-                            provider, 
+                            model=None,
+                            provider=None,
                             npc=None,
                             context: str = None,
                             **kwargs):
@@ -1876,8 +1881,8 @@ def remove_redundant_groups(groups,
 
 def prune_fact_subset_llm(fact_subset, 
                           concept_name, 
-                          model, 
-                          provider, 
+                          model=None,
+                          provider=None,
                           npc=None,
                           context : str = None,
                           **kwargs):
@@ -2010,8 +2015,11 @@ def find_best_link_concept_llm(candidate_concept_name,
 
 def asymptotic_freedom(parent_concept, 
                        supporting_facts, 
-                       model, provider, npc = None,
-                       context: str = None, **kwargs):
+                       model=None, 
+                       provider=None, 
+                       npc = None,
+                       context: str = None, 
+                       **kwargs):
     """Given a concept and its facts, proposes an intermediate layer of sub-concepts."""
     print(f"  Step Sleep-B: Attempting to deepen concept '{parent_concept['name']}'...")
     fact_statements = []

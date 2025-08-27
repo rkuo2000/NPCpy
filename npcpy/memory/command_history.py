@@ -29,6 +29,9 @@ except NameError as e:
     print('name error importing chromadb:', e)
     chromadb = None
 
+
+import logging 
+
 def flush_messages(n: int, messages: list) -> dict:
     if n <= 0:
         return {
@@ -893,7 +896,7 @@ class CommandHistory:
         if self.engine:
             try:
                 self.engine.dispose()
-                print("Disposed SQLAlchemy engine.")
+                logging.info("Disposed SQLAlchemy engine.")
             except Exception as e:
                 print(f"Error disposing SQLAlchemy engine: {e}")
         self.engine = None

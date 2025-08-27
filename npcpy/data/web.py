@@ -68,7 +68,7 @@ def search_web(
     provider: str=None,
     api_key=None,
     perplexity_kwargs: Optional[Dict[str, Any]] = None,
-) -> List[Dict[str, str]]:
+) -> List:
     """
     Function Description:
         This function searches the web for information based on a query.
@@ -76,7 +76,7 @@ def search_web(
         query: The search query.
     Keyword Args:
         num_results: The number of search results to retrieve.
-        provider: The search engine provider to use ('google' or 'duckduckgo').
+        provider: The search engine provider to use ('perplexity' or 'duckduckgo').
     Returns:
         A list of dictionaries with 'title', 'link', and 'content' keys.
     """
