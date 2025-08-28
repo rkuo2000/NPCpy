@@ -585,6 +585,8 @@ def print_and_process_stream(response, model, provider):
     tool_call_data = {"id": None, "function_name": None, "arguments": ""}
     interrupted = False
     
+    thinking_part=True
+    thinking_str=''
     if isinstance(response, str):
         render_markdown(response)  
         print('\n') 
@@ -608,13 +610,12 @@ def print_and_process_stream(response, model, provider):
                                     tool_call_data["arguments"] += tool_call["function"]["arguments"]                
                 chunk_content = chunk["message"]["content"] if "message" in chunk and "content" in chunk["message"] else ""
                 reasoning_content = chunk['message'].get('thinking', '') if "message" in chunk and "thinking" in chunk['message'] else ""
+
                 if len(reasoning_content) > 0:
                     print(reasoning_content, end="", flush=True)
+                    thinking_part = True
                 if chunk_content != "":
                     print(chunk_content, end="", flush=True)
-                else:
-                    print('.', end="", flush=True)
-                    dot_count += 1
                     
             else:
                 for c in chunk.choices:
@@ -634,22 +635,31 @@ def print_and_process_stream(response, model, provider):
                     if hasattr(c.delta, "reasoning_content"):        
                         reasoning_content += c.delta.reasoning_content
                 
-                if len(reasoning_content) > 0:
-                    chunk_content = reasoning_content
                         
                 chunk_content += "".join(
                     c.delta.content for c in chunk.choices if c.delta.content
                 )
                 if reasoning_content is not None:
+                    if thinking_part:
+                        thinking_str +='<think>'
+                        thinking_part=False
+                        print('<think>')
                     print(reasoning_content, end="", flush=True)
+                    thinking_str+=reasoning_content
+                # chunk content wont be nonzero length until thinking part is done.
+                
                 if chunk_content != "":
+                    if len(thinking_str) >0 and not thinking_part and '</think>' not in thinking_str:
+
+                        thinking_str+='</think>'
+                        print('</think>')
                     print(chunk_content, end="", flush=True)
-                else:
-                    print('.', end="", flush=True)
-                    dot_count += 1
+
 
             if not chunk_content:
                 continue
+            if thinking_part:
+                think_str
             str_output += chunk_content
     
     except KeyboardInterrupt:
@@ -674,7 +684,7 @@ def print_and_process_stream(response, model, provider):
     
 
                 
-    return str_output   
+    return thinking_str+str_output   
 def get_system_message(npc, team=None) -> str:
     import os
     from datetime import datetime
