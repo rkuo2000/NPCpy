@@ -658,8 +658,6 @@ def print_and_process_stream(response, model, provider):
 
             if not chunk_content:
                 continue
-            if thinking_part:
-                think_str
             str_output += chunk_content
     
     except KeyboardInterrupt:
