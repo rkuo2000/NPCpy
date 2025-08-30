@@ -148,7 +148,6 @@ def get_locally_available_models(project_directory, airplane_mode=False):
                     logging.info(f"OpenAI models not indexed or timed out: {e}")
 
             if "GEMINI_API_KEY" in env_vars or os.environ.get("GEMINI_API_KEY"):
-                print('gem')
                 try:
                     from google import genai
                 
