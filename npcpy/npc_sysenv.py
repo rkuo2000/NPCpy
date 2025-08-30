@@ -148,21 +148,32 @@ def get_locally_available_models(project_directory, airplane_mode=False):
                     logging.info(f"OpenAI models not indexed or timed out: {e}")
 
             if "GEMINI_API_KEY" in env_vars or os.environ.get("GEMINI_API_KEY"):
+                print('gem')
                 try:
-                    from google import generativeai as genai
+                    from google import genai
                 
                     def fetch_gemini_models():
-                        client = genai.Client(api_key = env_vars.get("GEMINI_API_KEY") or os.environ.get("GEMINI_API_KEY"))
+                        client = genai.Client(api_key=env_vars.get("GEMINI_API_KEY") or os.environ.get("GEMINI_API_KEY"))
                         found_models = []
-                        # client.models.list() returns an iterator, consume it fully within the callable
+                        # Define the model names you want to filter for
+                        target_models = [
+                            'gemini-2.5-pro', 
+                            'gemini-2.5-flash', 
+                            'gemini-2.0-flash', 
+                            'gemini-2.0-pro', 
+                            'gemini-1.5-pro', 
+                            'gemini-1.5-flash'
+                        ]
+                        
                         for m in client.models.list():
                             for action in m.supported_actions:
                                 if action == "generateContent":
                                     if 'models/' in m.name:
-                                        if m.name.split('/')[1] in ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-2.0-pro', 'gemini-1.5-pro', 'gemini-1.5-flash']:
-                                            found_models.append(m.name.split('/')[1])
+                                        model_name_part = m.name.split('/')[1]  # Extract the part after 'models/'
+                                        # Check if any of the target models are contained within the model name
+                                        if any(model in model_name_part for model in target_models):
+                                            found_models.append(model_name_part)
                         return set(found_models)
-                    
                     future = executor.submit(fetch_gemini_models)
                     models = future.result(timeout=timeout_seconds) # Apply timeout
 
