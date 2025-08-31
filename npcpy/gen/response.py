@@ -76,12 +76,10 @@ def get_ollama_response(
                         from npcpy.data.load import load_pdf
                         pdf_data = load_pdf(attachment)
                         if pdf_data is not None:
-                            texts = json.loads(pdf_data['texts'].iloc[0])
-                            pdf_text = "\n\n".join([item.get('content', '') for item in texts])
                             if prompt:
-                                prompt += f"\n\nContent from PDF: {os.path.basename(attachment)}\n{pdf_text[:5000]}..."
+                                prompt += f"\n\nContent from PDF: {os.path.basename(attachment)}\n{pdf_data[:5000]}..."
                             else:
-                                prompt = f"Content from PDF: {os.path.basename(attachment)}\n{pdf_text[:5000]}..."
+                                prompt = f"Content from PDF: {os.path.basename(attachment)}\n{pdf_data[:5000]}..."
                     except Exception:
                         pass
                 elif ext == '.csv':
