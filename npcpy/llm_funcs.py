@@ -1008,6 +1008,9 @@ def execute_multi_step_plan(
     for i, action_data in enumerate(planned_actions):
         render_markdown(f"--- Executing Step {i + 1} of {len(planned_actions)} ---")
         action_name = action_data["action"]
+        #if any(action_name in actions.keys()):
+            # get the closest named action
+
         handler = actions[action_name]["handler"]
         
         # re-implement the yielding

@@ -1207,6 +1207,12 @@ def generate_images():
         print(f"Image generation error: {str(e)}")                                                                                                                                                         
         return jsonify({"error": str(e)}), 500      
 
+
+
+### add a kwarg here for mode: cmd, chat, agent
+### for agent they will have 3 options: prompt, code, toolcalling
+
+
 @app.route("/api/stream", methods=["POST"])
 def stream():
     data = request.json
