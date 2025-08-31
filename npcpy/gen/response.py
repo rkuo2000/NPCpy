@@ -76,12 +76,10 @@ def get_ollama_response(
                         from npcpy.data.load import load_pdf
                         pdf_data = load_pdf(attachment)
                         if pdf_data is not None:
-                            texts = json.loads(pdf_data['texts'].iloc[0])
-                            pdf_text = "\n\n".join([item.get('content', '') for item in texts])
                             if prompt:
-                                prompt += f"\n\nContent from PDF: {os.path.basename(attachment)}\n{pdf_text[:5000]}..."
+                                prompt += f"\n\nContent from PDF: {os.path.basename(attachment)}\n{pdf_data[:5000]}..."
                             else:
-                                prompt = f"Content from PDF: {os.path.basename(attachment)}\n{pdf_text[:5000]}..."
+                                prompt = f"Content from PDF: {os.path.basename(attachment)}\n{pdf_data[:5000]}..."
                     except Exception:
                         pass
                 elif ext == '.csv':
@@ -363,12 +361,11 @@ def get_litellm_response(
                         from npcpy.data.load import load_pdf
                         pdf_data = load_pdf(attachment)
                         if pdf_data is not None:
-                            texts = json.loads(pdf_data['texts'].iloc[0])
-                            pdf_text = "\n\n".join([item.get('content', '') for item in texts])
                             if prompt:
-                                prompt += f"\n\nContent from PDF: {os.path.basename(attachment)}\n{pdf_text[:5000]}..."
+                                prompt += f"\n\nContent from PDF: {os.path.basename(attachment)}\n{pdf_data[:5000]}..."
                             else:
-                                prompt = f"Content from PDF: {os.path.basename(attachment)}\n{pdf_text[:5000]}..."
+                                prompt = f"Content from PDF: {os.path.basename(attachment)}\n{pdf_data[:5000]}..."
+
                     except Exception:
                         pass
                 elif ext == '.csv':
@@ -590,12 +587,12 @@ def process_tool_calls(response_dict, tool_map, model, provider, messages, strea
     
     if not tool_calls:
         return result
-    print('tm', tool_map)
+    #print('tm', tool_map)
     for tool_call in tool_calls:
         tool_id = str(uuid.uuid4())
         tool_name = None
         arguments = {}
-        print('tc', tool_call)
+        #print('tc', tool_call)
 
         if isinstance(tool_call, dict):
             tool_id = tool_call.get("id", str(uuid.uuid4()))
@@ -614,8 +611,8 @@ def process_tool_calls(response_dict, tool_map, model, provider, messages, strea
             arguments = json.loads(arguments_str) if isinstance(arguments_str, str) else arguments_str
         except json.JSONDecodeError:
             arguments = {"raw_arguments": arguments_str}
-        print('arg', arguments)
-        print('tool name in tool map ', tool_name in tool_map)
+        #print('arg', arguments)
+        #print('tool name in tool map ', tool_name in tool_map)
         if tool_name in tool_map:
             tool_result = None
             tool_result_str = ""

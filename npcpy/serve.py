@@ -28,6 +28,10 @@ try:
 except:
     pass
 
+import base64
+import shutil
+import uuid
+
 from npcpy.llm_funcs import gen_image                                                                                                                                                                      
 
 from sqlalchemy import create_engine, text
@@ -1185,27 +1189,234 @@ def get_attachment_response():
     })
 
                                                                                                                                                                                                            
-@app.route('/api/generate_images', methods=['POST'])                                                                                                                                                       
-def generate_images():                                                                                                                                                                                     
-    data = request.get_json()                                                                                                                                                                              
-    prompt = data.get('prompt')                                                                                                                                                                            
-    n = data.get('n', 4)  # Default to 4 images                                                                                                                                                            
-                                                                                                                                                                                                           
-    if not prompt:                                                                                                                                                                                         
-        return jsonify({"error": "Prompt is required."}), 400                                                                                                                                              
-                                                                                                                                                                                                           
-    generated_images = []                                                                                                                                                                                  
-    try:                                                                                                                                                                                                   
-        for _ in range(n):                                                                                                                                                                                 
-            image = gen_image(prompt, 
-                              model='runwayml/stable-diffusion-v1-5', 
-                              provider='diffusers')  # Use the desired model and provider                                                                  
-            generated_images.append(image)                                                                                                                                                                 
-                                                                                                                                                                                                           
-        return jsonify(generated_images)                                                                                                                                                                   
-    except Exception as e:                                                                                                                                                                                 
-        print(f"Image generation error: {str(e)}")                                                                                                                                                         
-        return jsonify({"error": str(e)}), 500      
+IMAGE_MODELS = {
+    "openai": [
+        {"value": "dall-e-3", "display_name": "DALL-E 3"},
+        {"value": "dall-e-2", "display_name": "DALL-E 2"},
+        {"value": "gpt-image-1", "display_name": "GPT-Image-1"},
+    ],
+    "gemini": [
+        {"value": "gemini-2.5-flash-image-preview", "display_name": "Gemini 2.5 Flash Image"},
+        {"value": "imagen-3.0-generate-002", "display_name": "Imagen 3.0 Generate (Preview)"}, # ADDED MODEL
+    ],
+    "diffusers": [
+        {"value": "runwayml/stable-diffusion-v1-5", "display_name": "Stable Diffusion v1.5"},
+    ],
+}
+
+def get_available_image_models(current_path=None):
+    """
+    Retrieves available image generation models based on environment variables
+    and predefined configurations.
+    """
+    # Load project-specific environment variables (or rely on load_dotenv in server start)
+    if current_path:
+        load_project_env(current_path) # Reloads into os.environ
+    
+    all_image_models = []
+
+    # --- Prioritize models from NPCSH_IMAGE_MODEL/PROVIDER environment variables ---
+    env_image_model = os.getenv("NPCSH_IMAGE_MODEL")
+    env_image_provider = os.getenv("NPCSH_IMAGE_PROVIDER")
+
+    if env_image_model and env_image_provider:
+        all_image_models.append({
+            "value": env_image_model,
+            "provider": env_image_provider,
+            "display_name": f"{env_image_model} | {env_image_provider} (Configured)"
+        })
+
+    # Add models from predefined IMAGE_MODELS
+    for provider_key, models_list in IMAGE_MODELS.items():
+        # Check if API keys/configs are available for cloud providers
+        if provider_key == "openai":
+            if os.environ.get("OPENAI_API_KEY"):
+                all_image_models.extend([
+                    {**model, "provider": provider_key, "display_name": f"{model['display_name']} | {provider_key}"}
+                    for model in models_list
+                ])
+        elif provider_key == "gemini":
+            if os.environ.get("GEMINI_API_KEY"): # Assuming GEMINI_API_KEY is used
+                all_image_models.extend([
+                    {**model, "provider": provider_key, "display_name": f"{model['display_name']} | {provider_key}"}
+                    for model in models_list
+                ])
+        elif provider_key == "diffusers":
+            # For diffusers, we'll assume they are always potentially available
+            # as `gen_image` is expected to handle the download/local inference.
+            all_image_models.extend([
+                {**model, "provider": provider_key, "display_name": f"{model['display_name']} | {provider_key}"}
+                for model in models_list
+            ])
+        # Add other providers here with their respective checks
+
+    # Ensure uniqueness based on (value, provider) tuple
+    seen_models = set()
+    unique_models = []
+    for model_entry in all_image_models:
+        key = (model_entry["value"], model_entry["provider"])
+        if key not in seen_models:
+            seen_models.add(key)
+            unique_models.append(model_entry)
+
+    return unique_models
+
+
+@app.route('/api/generate_images', methods=['POST'])
+def generate_images():
+    data = request.get_json()
+    prompt = data.get('prompt')
+    n = data.get('n', 1)
+    model_name = data.get('model')
+    provider_name = data.get('provider')
+    attachments = data.get('attachments', [])
+    base_filename = data.get('base_filename', 'vixynt_gen')  
+    save_dir = data.get('currentPath', '~/.npcsh/images')     
+
+    if not prompt:
+        return jsonify({"error": "Prompt is required."}), 400
+
+    if not model_name or not provider_name:
+        return jsonify({"error": "Image model and provider are required."}), 400
+
+    # Expand save directory path
+    save_dir = os.path.expanduser(save_dir)
+    os.makedirs(save_dir, exist_ok=True)
+
+    # Add datetime to base filename
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    base_filename_with_time = f"{base_filename}_{timestamp}"
+
+    generated_images_base64 = []
+    generated_filenames = []
+    command_history = CommandHistory(app.config.get('DB_PATH'))
+    
+    try:
+        # Process attachments if any
+        input_images = []
+        attachments_loaded = []
+        
+        if attachments:
+            for attachment in attachments:
+                print(attachment)
+                if isinstance(attachment, dict) and 'path' in attachment:
+                    image_path = attachment['path']
+                    if os.path.exists(image_path):
+                        try:
+                            pil_img = Image.open(image_path)
+                            input_images.append(pil_img)
+                            
+                            # Load attachment for database storage
+                            with open(image_path, 'rb') as f:
+                                img_data = f.read()
+                            attachments_loaded.append({
+                                "name": os.path.basename(image_path),
+                                "type": "images",
+                                "data": img_data,
+                                "size": len(img_data)
+                            })
+                        except Exception as e:
+                            print(f"Warning: Could not load attachment image {image_path}: {e}")
+
+        # Call gen_image with input_images parameter
+        images_list = gen_image(
+            prompt, 
+            model=model_name, 
+            provider=provider_name, 
+            n_images=n,
+            input_images=input_images if input_images else None
+        )
+        print(images_list)
+        if not isinstance(images_list, list):
+            images_list = [images_list] if images_list is not None else []
+
+        generated_attachments = []
+        for i, pil_image in enumerate(images_list):
+            if isinstance(pil_image, Image.Image):
+                # Generate filename with datetime and index
+                filename = f"{base_filename_with_time}_{i+1:03d}.png" if n > 1 else f"{base_filename_with_time}.png"
+                filepath = os.path.join(save_dir, filename)
+                print(f'saved file to {filepath}')
+                
+                # Save the image to disk
+                pil_image.save(filepath, format="PNG")
+                generated_filenames.append(filepath)
+                
+                # Prepare attachment data for database
+                buffered = BytesIO()
+                pil_image.save(buffered, format="PNG")
+                img_data = buffered.getvalue()
+                
+                generated_attachments.append({
+                    "name": filename,
+                    "type": "images", 
+                    "data": img_data,
+                    "size": len(img_data)
+                })
+                
+                # Also return base64 for preview
+                img_str = base64.b64encode(img_data).decode("utf-8")
+                generated_images_base64.append(f"data:image/png;base64,{img_str}")
+            else:
+                print(f"Warning: gen_image returned non-PIL object ({type(pil_image)}). Skipping image conversion.")
+
+        # Save generation record to database
+        generation_id = command_history.generate_message_id()
+        
+        # Save input prompt as user message
+        save_conversation_message(
+            command_history,
+            generation_id,  # Use as conversation ID
+            "user",
+            f"Generate {n} image(s): {prompt}",
+            wd=save_dir,
+            model=model_name,
+            provider=provider_name,
+            npc="vixynt",
+            attachments=attachments_loaded,
+            message_id=generation_id
+        )
+        
+        # Save generated images as assistant response
+        response_message = f"Generated {len(generated_images_base64)} image(s) saved to {save_dir}"
+        save_conversation_message(
+            command_history,
+            generation_id,  # Same conversation ID
+            "assistant", 
+            response_message,
+            wd=save_dir,
+            model=model_name,
+            provider=provider_name,
+            npc="vixynt",
+            attachments=generated_attachments,
+            message_id=command_history.generate_message_id()
+        )
+        
+        return jsonify({
+            "images": generated_images_base64, 
+            "filenames": generated_filenames,
+            "generation_id": generation_id,  # Return for potential future reference
+            "error": None
+        })
+    except Exception as e:
+        print(f"Image generation error: {str(e)}")
+        traceback.print_exc()
+        return jsonify({"images": [], "filenames": [], "error": str(e)}), 500
+    
+
+@app.route("/api/image_models", methods=["GET"]) 
+def get_image_models_api():
+    """
+    API endpoint to retrieve available image generation models.
+    """
+    current_path = request.args.get("currentPath")
+    try:
+        image_models = get_available_image_models(current_path)
+        return jsonify({"models": image_models, "error": None})
+    except Exception as e:
+        print(f"Error getting available image models: {str(e)}")
+        traceback.print_exc()
+        return jsonify({"models": [], "error": str(e)}), 500
 
 
 
@@ -1340,34 +1551,58 @@ def stream():
 
     attachments = data.get("attachments", [])
     command_history = CommandHistory(app.config.get('DB_PATH'))
-    images = []
-    attachments_loaded = []
-    if attachments:
-        attachment_paths = []
-        for attachment in attachments:
-            extension = attachment["name"].split(".")[-1]
-            extension_mapped = extension_map.get(extension.upper(), "others")
-            file_path = os.path.expanduser("~/.npcsh/" + extension_mapped + "/" + attachment["name"])
-            print(attachment)
+    images = []     
+    attachments_for_db = []
+    attachment_paths_for_llm = []
 
-            attachment_paths.append(attachment["path"])  # Use original path for processing
-            
-            if extension_mapped == "images":
-                ImageFile.LOAD_TRUNCATED_IMAGES = True
-                img = Image.open(attachment["path"])
-                img_byte_arr = BytesIO()
-                img.save(img_byte_arr, format="PNG")
-                img_byte_arr.seek(0)
-                img.save(file_path, optimize=True, quality=50)
-                images.append(file_path)  # Just append file path string
-                attachments_loaded.append({
-                    "name": attachment["name"], 
+    message_id = command_history.generate_message_id()
+    if attachments:
+        # Create a unique directory for this message's attachments for auditing
+        attachment_dir = os.path.expanduser(f"~/.npcsh/attachments/{conversation_id}/{message_id}")
+        os.makedirs(attachment_dir, exist_ok=True)
+
+        for attachment in attachments:
+            try:
+                file_name = attachment["name"]
+                
+                extension = file_name.split(".")[-1].upper() if "." in file_name else ""
+                extension_mapped = extension_map.get(extension, "others")
+                
+                save_path = os.path.join(attachment_dir, file_name)
+
+                if "data" in attachment and attachment["data"]:
+                    decoded_data = base64.b64decode(attachment["data"])
+                    with open(save_path, "wb") as f:
+                        f.write(decoded_data)
+                
+                elif "path" in attachment and attachment["path"]:
+                    shutil.copy(attachment["path"], save_path)
+                
+                else:
+                    continue
+
+                attachment_paths_for_llm.append(save_path)
+
+                if extension_mapped == "images":
+                    images.append(save_path)
+
+                with open(save_path, "rb") as f:
+                    file_content_bytes = f.read()
+
+                attachments_for_db.append({
+                    "name": file_name,
+                    "path": save_path,
                     "type": extension_mapped,
-                    "data": img_byte_arr.read(), 
-                    "size": os.path.getsize(file_path)
+                    "data": file_content_bytes,
+                    "size": os.path.getsize(save_path)
                 })
-    else:
-        attachment_paths = []
+
+            except Exception as e:
+                print(f"Error processing attachment {attachment.get('name', 'N/A')}: {e}")
+                traceback.print_exc()
+
+
+
 
     messages = fetch_messages_for_conversation(conversation_id)
     if len(messages) == 0 and npc_object is not None:
@@ -1380,20 +1615,6 @@ def stream():
         messages[0]['content'] = npc_object.get_system_prompt()
     if npc_object is not None and messages and messages[0]['role'] == 'system':
         messages[0]['content'] = npc_object.get_system_prompt()
-
-    message_id = command_history.generate_message_id()
-    save_conversation_message(
-        command_history, 
-        conversation_id, 
-        "user", commandstr,
-        wd=current_path, 
-        model=model, 
-        provider=provider, 
-        npc=npc_name,
-        team=team, 
-        attachments=attachments_loaded, 
-        message_id=message_id,
-    )
     tool_args = {}
     if npc_object is not None:
         if hasattr(npc_object, 'tools') and npc_object.tools:
@@ -1424,12 +1645,28 @@ def stream():
         npc=npc_object, 
         team=team_object,
         stream=True, 
-        attachments=attachment_paths,
+        attachments=attachment_paths_for_llm,
         auto_process_tool_calls=True,
         **tool_args
     )
+    messages = stream_response.get('messages')
+    
+    user_message_filled = messages[-1].get('content')
+    save_conversation_message(
+        command_history, 
+        conversation_id, 
+        "user", 
+        user_message_filled if user_message_filled is not None else commandstr, 
+        wd=current_path, 
+        model=model, 
+        provider=provider, 
+        npc=npc_name,
+        team=team, 
+        attachments=attachments_for_db, 
+        message_id=message_id,
+    )
 
-    print(messages[0])
+
     message_id = command_history.generate_message_id()
 
     def event_stream(current_stream_id):
