@@ -7,7 +7,8 @@ import PIL
 from PIL import Image
 
 from litellm import image_generation
-
+import requests
+from urllib.request import urlopen
 
 
 def generate_image_diffusers(
@@ -22,13 +23,11 @@ def generate_image_diffusers(
     import gc
     
     try:
-        # Memory optimization for CPU/low-memory systems
         torch_dtype = torch.float16 if device != "cpu" and torch.cuda.is_available() else torch.float32
         
         if 'Qwen' in model:
             from diffusers import DiffusionPipeline
             
-            # Load with memory optimizations
             pipe = DiffusionPipeline.from_pretrained(
                 model,
                 torch_dtype=torch_dtype,
@@ -38,7 +37,6 @@ def generate_image_diffusers(
         else:        
             from diffusers import StableDiffusionPipeline
             
-            # Load with memory optimizations
             pipe = StableDiffusionPipeline.from_pretrained(
                 model,
                 torch_dtype=torch_dtype,
@@ -46,29 +44,24 @@ def generate_image_diffusers(
                 variant="fp16" if torch_dtype == torch.float16 else None,
             )
         
-        # Apply memory-efficient attention if available
         if hasattr(pipe, 'enable_attention_slicing'):
             pipe.enable_attention_slicing()
         
-        # Enable model CPU offloading for better memory management
         if hasattr(pipe, 'enable_model_cpu_offload') and device != "cpu":
             pipe.enable_model_cpu_offload()
         else:
             pipe = pipe.to(device)
         
-        # Enable memory efficient attention
         if hasattr(pipe, 'enable_xformers_memory_efficient_attention'):
             try:
                 pipe.enable_xformers_memory_efficient_attention()
             except Exception:
-                pass  # xformers not available, continue without it
+                pass
         
-        # Generate the image
         with torch.inference_mode():
             result = pipe(prompt, height=height, width=width, num_inference_steps=20)
             image = result.images[0]
         
-        # Cleanup memory
         del pipe
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
@@ -77,14 +70,12 @@ def generate_image_diffusers(
         return image
         
     except Exception as e:
-        # Cleanup on error
         if 'pipe' in locals():
             del pipe
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
         gc.collect()
         
-        # Suggest fallback options
         if "out of memory" in str(e).lower() or "killed" in str(e).lower():
             print(f"Memory error during image generation: {e}")
             print("Suggestions:")
@@ -113,14 +104,13 @@ def openai_image_gen(
         height = 1024
     if width is None:
         width = 1024  
-    # Prepare image for editing if provided
-    if attachments is not None:
-        # Process the attachments into the format OpenAI expects
-        processed_images = []
     
+    size_str = f"{width}x{height}" 
+
+    if attachments is not None:
+        processed_images = []
         for attachment in attachments:
             if isinstance(attachment, str):
-                # Assume it's a file path
                 processed_images.append(open(attachment, "rb"))
             elif isinstance(attachment, bytes):
                 processed_images.append(io.BytesIO(attachment))
@@ -129,40 +119,43 @@ def openai_image_gen(
                 attachment.save(img_byte_arr, format='PNG')
                 img_byte_arr.seek(0)
                 processed_images.append(img_byte_arr)
-        # Use images.edit for image editing
+        
         result = client.images.edit(
             model=model,
-            image=processed_images[0],  # Edit only supports a single image
+            image=processed_images[0],
             prompt=prompt,
             n=n_images,
-            size=f"{width}x{height}",
+            size=size_str,
         )
     else:
-        # Use images.generate for new image generation
         result = client.images.generate(
             model=model,
             prompt=prompt,
             n=n_images,
-            size=f"{width}x{height}",
+            size=size_str,
         )
-    if model =='gpt-image-1':
-        image_base64 = result.data[0].b64_json
-        image_bytes = base64.b64decode(image_base64)
-        image = Image.open(io.BytesIO(image_bytes))
-        image.save('generated_image.png') 
-    elif model == 'dall-e-2' or model == 'dall-e-3':
-        image_base64 = result.data[0].url
-        import requests
-        response = requests.get(image_base64)
-        image = Image.open(io.BytesIO(response.content))
-        image.save('generated_image.png')
+    
+    collected_images = []
+    for item_data in result.data:
+        if model == 'gpt-image-1':
+            image_base64 = item_data.b64_json
+            image_bytes = base64.b64decode(image_base64)
+            image = Image.open(io.BytesIO(image_bytes))
+        elif model == 'dall-e-2' or model == 'dall-e-3':
+            image_url = item_data.url
+            response = requests.get(image_url)
+            response.raise_for_status()
+            image = Image.open(io.BytesIO(response.content))
+        else:
+            image = item_data
+        collected_images.append(image)
         
-    return image
+    return collected_images
 
 
 def gemini_image_gen(
     prompt: str,
-    model: str = "imagen-3.0-generate-002",
+    model: str = "gemini-2.5-flash",
     attachments: Union[List[Union[str, bytes, Image.Image]], None] = None,
     n_images: int = 1,
     api_key: Optional[str] = None,
@@ -171,61 +164,114 @@ def gemini_image_gen(
     from google import genai
     from google.genai import types
     from io import BytesIO
+    import requests
 
-    # Use environment variable if api_key not provided
     if api_key is None:
         api_key = os.environ.get('GEMINI_API_KEY')
     
     client = genai.Client(api_key=api_key)
-    
+    collected_images = []
+
     if attachments is not None:
-        # Process the attachments
-        processed_images = []
+        processed_contents = [prompt]
+        
         for attachment in attachments:
             if isinstance(attachment, str):
-                # Assume it's a file path
-                processed_images.append(Image.open(attachment))
+                if attachment.startswith(('http://', 'https://')):
+                    image_bytes = requests.get(attachment).content
+                    mime_type = 'image/jpeg'
+                    processed_contents.append(
+                        types.Part.from_bytes(
+                            data=image_bytes,
+                            mime_type=mime_type
+                        )
+                    )
+                else:
+                    with open(attachment, 'rb') as f:
+                        image_bytes = f.read()
+                    
+                    if attachment.lower().endswith('.png'):
+                        mime_type = 'image/png'
+                    elif attachment.lower().endswith('.jpg') or attachment.lower().endswith('.jpeg'):
+                        mime_type = 'image/jpeg'
+                    elif attachment.lower().endswith('.webp'):
+                        mime_type = 'image/webp'
+                    else:
+                        mime_type = 'image/jpeg'
+                    
+                    processed_contents.append(
+                        types.Part.from_bytes(
+                            data=image_bytes,
+                            mime_type=mime_type
+                        )
+                    )
             elif isinstance(attachment, bytes):
-                processed_images.append(Image.open(BytesIO(attachment)))
+                processed_contents.append(
+                    types.Part.from_bytes(
+                        data=attachment,
+                        mime_type='image/jpeg'
+                    )
+                )
             elif isinstance(attachment, Image.Image):
-                processed_images.append(attachment)
+                img_byte_arr = BytesIO()
+                attachment.save(img_byte_arr, format='PNG')
+                img_byte_arr.seek(0)
+                processed_contents.append(
+                    types.Part.from_bytes(
+                        data=img_byte_arr.getvalue(),
+                        mime_type='image/png'
+                    )
+                )
         
-        # Use generate_content for image editing with gemini-2.0-flash-exp-image-generation
         response = client.models.generate_content(
-            model="gemini-2.0-flash-exp-image-generation",
-            contents=[prompt, processed_images],
-            config=types.GenerateContentConfig(
-                response_modalities=['TEXT', 'IMAGE']
-            )
-        )
-        
-        # Process the response
-        images = []
-        for part in response.candidates[0].content.parts:
-            if part.inline_data is not None:
-                image = Image.open(BytesIO(part.inline_data.data))
-                images.append(image)
-        
-        return images[0] if images else None
-    else:
-        # Use generate_images for new image generation with imagen model
-        response = client.models.generate_images(
             model=model,
-            prompt=prompt,
-            config=types.GenerateImagesConfig(
-                number_of_images=n_images,
-            )
+            contents=processed_contents,
         )
         
-        # Process the response
-        images = []
-        for generated_image in response.generated_images:
-            image = Image.open(BytesIO(generated_image.image.image_bytes))
-            images.append(image)
+        if hasattr(response, 'candidates') and response.candidates:
+            for candidate in response.candidates:
+                for part in candidate.content.parts:
+                    if hasattr(part, 'inline_data') and part.inline_data:
+                        image_data = part.inline_data.data
+                        collected_images.append(Image.open(BytesIO(image_data)))
         
-        return images[0] if images else None
-
-
+        if not collected_images and hasattr(response, 'text'):
+            print(f"Gemini response text: {response.text}")
+        
+        return collected_images
+    else:
+        if 'imagen' in model:
+            response = client.models.generate_images(
+                model=model,
+                prompt=prompt,
+                config=types.GenerateImagesConfig(
+                    number_of_images=n_images,
+                )
+            )
+            for generated_image in response.generated_images:
+                collected_images.append(Image.open(BytesIO(generated_image.image.image_bytes)))
+            return collected_images
+            
+        elif 'flash-image' in model or 'image-preview' in model or '2.5-flash' in model:
+            response = client.models.generate_content(
+                model=model,
+                contents=[prompt],
+            )
+            
+            if hasattr(response, 'candidates') and response.candidates:
+                for candidate in response.candidates:
+                    for part in candidate.content.parts:
+                        if hasattr(part, 'inline_data') and part.inline_data:
+                            image_data = part.inline_data.data
+                            collected_images.append(Image.open(BytesIO(image_data)))
+            
+            if not collected_images and hasattr(response, 'text'):
+                print(f"Gemini response text: {response.text}")
+            
+            return collected_images
+        
+        else:
+            raise ValueError(f"Unsupported Gemini image model or API usage for new generation: '{model}'")
 def generate_image(
     prompt: str,
     model: str ,
@@ -254,46 +300,37 @@ def generate_image(
         save_path (str): Path to save the generated image.
         
     Returns:
-        PIL.Image: The generated image.
+        List[PIL.Image.Image]: A list of generated PIL Image objects.
     """
+    from urllib.request import urlopen
+
     if model is None:
         if provider == "openai":
             model = "dall-e-2"
         elif provider == "diffusers":
             model = "runwayml/stable-diffusion-v1-5"
         elif provider == "gemini":
-            model = "imagen-3.0-generate-002"
+            model = "gemini-2.5-flash-image-preview"
     
+    all_generated_pil_images = []
+
     if provider == "diffusers":
-        try:
-            image = generate_image_diffusers(
-                prompt=prompt, 
-                model=model, 
-                height=height, 
-                width=width
-            )
-        except MemoryError as e:
-            print(f"Memory error with model {model}: {e}")
-            fallback_model = "CompVis/stable-diffusion-v1-4"
-            if model != fallback_model:
-                print(f"Trying fallback model: {fallback_model}")
-                try:
-                    image = generate_image_diffusers(
-                        prompt=prompt, 
-                        model=fallback_model, 
-                        height=min(256, height), 
-                        width=min(256, width)
-                    )
-                except Exception as fallback_error:
-                    print(f"Fallback also failed: {fallback_error}")
-                    raise MemoryError("Unable to generate image due to memory constraints. Please try using OpenAI or Gemini providers instead.")
-            else:
+        for _ in range(n_images):
+            try:
+                image = generate_image_diffusers(
+                    prompt=prompt, 
+                    model=model, 
+                    height=height, 
+                    width=width
+                )
+                all_generated_pil_images.append(image)
+            except MemoryError as e:
                 raise e
-        except Exception as e:
-            print(f"Error generating image with diffusers: {e}")
-            raise e
+            except Exception as e:
+                raise e
+
     elif provider == "openai":
-        image = openai_image_gen(
+        images = openai_image_gen(
             prompt=prompt,
             model=model,
             attachments=attachments,
@@ -301,29 +338,26 @@ def generate_image(
             width=width,
             n_images=n_images
         )
+        all_generated_pil_images.extend(images)
+
     elif provider == "gemini":
-        image = gemini_image_gen(
+        images = gemini_image_gen(
             prompt=prompt,
             model=model,
             attachments=attachments,
             n_images=n_images,
             api_key=api_key
         )
+        all_generated_pil_images.extend(images)
+
     else:
-        # Validate image size for litellm
         valid_sizes = ["256x256", "512x512", "1024x1024", "1024x1792", "1792x1024"]
-        size = f"{height}x{width}"
-        if size not in valid_sizes:
-            raise ValueError(
-                f"Invalid image size: {size}. Please use one of the following: {', '.join(valid_sizes)}"
-            )
+        size = f"{width}x{height}"
         
-        # litellm doesn't support editing yet, so raise an error if attachments provided
         if attachments is not None:
             raise ValueError("Image editing not supported with litellm provider")
         
-        # Generate image using litellm
-        result = image_generation(
+        image_response = image_generation(
             prompt=prompt,
             model=f"{provider}/{model}",
             n=n_images,
@@ -331,17 +365,25 @@ def generate_image(
             api_key=api_key,
             api_base=api_url,
         )
-        # Convert the URL result to a PIL image
-        # This assumes image_generation returns a URL
-        from urllib.request import urlopen
-        with urlopen(result) as response:
-            image = Image.open(response)
-    
-    # Save the image if a save path is provided
-    if save_path and image:
-        image.save(save_path)
-    
-    return image
+        for item_data in image_response.data:
+            if hasattr(item_data, 'url') and item_data.url:
+                with urlopen(item_data.url) as response:
+                    all_generated_pil_images.append(Image.open(response))
+            elif hasattr(item_data, 'b64_json') and item_data.b64_json:
+                image_bytes = base64.b64decode(item_data.b64_json)
+                all_generated_pil_images.append(Image.open(io.BytesIO(image_bytes)))
+            else:
+                print(f"Warning: litellm ImageResponse item has no URL or b64_json: {item_data}")
+
+    if save_path:
+        for i, img_item in enumerate(all_generated_pil_images):
+            temp_save_path = f"{os.path.splitext(save_path)[0]}_{i}{os.path.splitext(save_path)[1]}"
+            if isinstance(img_item, Image.Image):
+                img_item.save(temp_save_path)
+            else:
+                print(f"Warning: Attempting to save non-PIL image item: {type(img_item)}. Skipping save for this item.")
+
+    return all_generated_pil_images
 
 
 def edit_image(
@@ -370,14 +412,12 @@ def edit_image(
     Returns:
         PIL.Image: The edited image.
     """
-    # Set default model based on provider
     if model is None:
         if provider == "openai":
             model = "gpt-image-1"
         elif provider == "gemini":
-            model = "gemini-2.0-flash-exp-image-generation"
+            model = "gemini-2.5-flash-image-preview"
     
-    # Use the generate_image function with attachments
     image = generate_image(
         prompt=prompt,
         provider=provider,
@@ -390,5 +430,3 @@ def edit_image(
     )
     
     return image
-
-

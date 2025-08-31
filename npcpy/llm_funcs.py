@@ -22,6 +22,7 @@ def gen_image(
     npc: Any = None,
     height: int = 1024,
     width: int = 1024,
+    n_images: int=1, 
     input_images: List[Union[str, bytes, PIL.Image.Image]] = None,
 ):
     """This function generates an image using the specified provider and model.
@@ -54,6 +55,7 @@ def gen_image(
         height=height,
         width=width, 
         attachments=input_images,
+        n_images=n_images, 
         
     )
     return image
