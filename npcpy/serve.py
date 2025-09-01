@@ -1170,15 +1170,30 @@ def get_attachment_response():
 
     # Save new messages
     save_conversation_message(
-        command_history, conversation_id, "user", message_to_send, 
-        wd=current_path, team=team, model=model, provider=provider, 
-        npc=npc_name, attachments=attachments_loaded
+        command_history, 
+        conversation_id, 
+        "user", 
+        message_to_send, 
+        wd=current_path, 
+        team=team, 
+        model=model, 
+        provider=provider, 
+        npc=npc_name, 
+        attachments=attachments_loaded
     )
 
     save_conversation_message(
-        command_history, conversation_id, "assistant", response,
-        wd=current_path, team=team, model=model, provider=provider,
-        npc=npc_name, attachments=attachments_loaded, message_id=message_id
+        command_history, 
+        conversation_id, 
+        "assistant", 
+        response,
+        wd=current_path, 
+        team=team, 
+        model=model, 
+        provider=provider,
+        npc=npc_name, 
+        attachments=attachments_loaded, 
+        message_id=message_id
     )
     
     return jsonify({
