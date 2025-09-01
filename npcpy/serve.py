@@ -1430,7 +1430,6 @@ def stream():
         import uuid
         stream_id = str(uuid.uuid4())
 
-
     with cancellation_lock:
         cancellation_flags[stream_id] = False
     print(f"Starting stream with ID: {stream_id}")
@@ -1628,45 +1627,83 @@ def stream():
         if 'tools' in tool_args and tool_args['tools']:
             tool_args['tool_choice'] = {"type": "auto"}
     
-    stream_response = get_llm_response(
-        commandstr, 
-        messages=messages, 
-        images=images, 
-        model=model,
-        provider=provider, 
-        npc=npc_object, 
-        team=team_object,
-        stream=True, 
-        attachments=attachment_paths_for_llm,
-        auto_process_tool_calls=True,
-        **tool_args
-    )
-    messages = stream_response.get('messages', messages)
     
-    user_message_filled = ''
+    exe_mode = data.get('executionMode','chat')
+    print(exe_mode)
+    print(data)
+    if exe_mode == 'chat':
+        stream_response = get_llm_response(
+            commandstr, 
+            messages=messages, 
+            images=images, 
+            model=model,
+            provider=provider, 
+            npc=npc_object, 
+            team=team_object,
+            stream=True, 
+            attachments=attachment_paths_for_llm,
+            auto_process_tool_calls=True,
+            **tool_args
+        )
+        messages = stream_response.get('messages', messages)
+        user_message_filled = ''
+        if isinstance(messages[-1].get('content'), list):
+            for cont in messages[-1].get('content'):
+                txt = cont.get('text')
+                if txt is not None:
+                    user_message_filled +=txt       
+        save_conversation_message(
+            command_history, 
+            conversation_id, 
+            "user", 
+            user_message_filled if len(user_message_filled)>0 else commandstr, 
+            wd=current_path, 
+            model=model, 
+            provider=provider, 
+            npc=npc_name,
+            team=team, 
+            attachments=attachments_for_db, 
+            message_id=message_id,
+        )
+    elif exe_mode == 'npcsh':
+        from npcsh._state import execute_command, initial_state
+        from npcsh.routes import router
+        initial_state.model = model
+        initial_state.provider = provider
+        initial_state.npc = npc_object
+        initial_state.team = team_object
+        initial_state.messages = messages
+        #attachments=attachment_paths_for_llm,
+        #images=images, 
+        state, stream_response = execute_command(
+            commandstr, 
+            initial_state, router=router)
+        #messages = stream_response.get('messages', messages)
+        
+        # user_message_filled = ''
+        #if isinstance(messages[-1].get('content'), list):
+        #    for cont in messages[-1].get('content'):
+        #        txt = cont.get('text')
+        #        if txt is not None:
+        #            user_message_filled +=txt       
+        #save_conversation_message(
+        #    command_history, 
+        #    conversation_id, 
+        #    "user", 
+        #    user_message_filled if len(user_message_filled)>0 else commandstr, 
+        ##    wd=current_path, 
+        #    model=model, 
+        #    provider=provider, 
+        #    npc=npc_name,
+        #    team=team, 
+        #    attachments=attachments_for_db, 
+        #    message_id=message_id,
+    elif exe_mode == 'guac':
+        print('not enabled yet')
+        
+    elif exe_mode == 'corca':
+        print('not enabled yet')
     
-    if isinstance(messages[-1].get('content'), list):
-        for cont in messages[-1].get('content'):
-            txt = cont.get('text')
-            if txt is not None:
-                user_message_filled +=txt       
-    print(user_message_filled)
-    print(type(user_message_filled))         
-    save_conversation_message(
-        command_history, 
-        conversation_id, 
-        "user", 
-        user_message_filled if len(user_message_filled)>0 else commandstr, 
-        wd=current_path, 
-        model=model, 
-        provider=provider, 
-        npc=npc_name,
-        team=team, 
-        attachments=attachments_for_db, 
-        message_id=message_id,
-    )
-
-
     message_id = command_history.generate_message_id()
 
     def event_stream(current_stream_id):
@@ -1676,8 +1713,27 @@ def stream():
         tool_call_data = {"id": None, "function_name": None, "arguments": ""}
 
         try:
-            for response_chunk in stream_response['response']:
-                # --- NEW: Check the cancellation flag on every iteration ---
+            if isinstance(stream_response, str) or isinstance(stream_response.get('output'), str):
+                chunk_data = {
+                        "id": None, 
+                        "object": None, 
+                        "created": datetime.datetime.now().strftime('YYYY-DD-MM-HHMMSS'), 
+                        "model": model,
+                        "choices": [
+                            {
+                                "index": 0, 
+                                "delta": 
+                                    {
+                                        "content": stream_response.get('output') or stream_response,
+                                        "role": "assistant"
+                                  }, 
+                                "finish_reason": 'done'
+                            }
+                        ]
+                    }
+                yield f"data: {json.dumps(chunk_data)}"
+                return
+            for response_chunk in stream_response.get('response', stream_response.get('output')):
                 with cancellation_lock:
                     if cancellation_flags.get(current_stream_id, False):
                         print(f"Cancellation flag triggered for {current_stream_id}. Breaking loop.")
@@ -1686,11 +1742,6 @@ def stream():
 
                 print('.', end="", flush=True)
                 dot_count += 1
-
-                # --- DEBUG LOGGING: Print the raw response_chunk from LLM ---
-                print("\n[DEBUG] Raw response_chunk from LLM:")
-                print(json.dumps(response_chunk, indent=2, default=str))
-
                 if "hf.co" in model or provider == 'ollama':
                     chunk_content = response_chunk["message"]["content"] if "message" in response_chunk and "content" in response_chunk["message"] else ""
                     if "message" in response_chunk and "tool_calls" in response_chunk["message"]:
@@ -1933,7 +1984,17 @@ def execute():
                     # Stream decision immediately in standard format
                     chunk_data = {
                         "id": None, "object": None, "created": None, "model": model,
-                        "choices": [{"index": 0, "delta": {"content": response_chunk.get('content', ''), "role": "assistant"}, "finish_reason": None}]
+                        "choices": [
+                                {
+                                    "index": 0, 
+                                    "delta": 
+                                        {
+                                            "content": response_chunk.get('content', ''), 
+                                            "role": "assistant"
+                                            }, 
+                                    "finish_reason": None
+                                }
+                                     ]
                     }
                     complete_response.append(response_chunk.get('content', ''))
                     yield f"data: {json.dumps(chunk_data)}\n\n"
