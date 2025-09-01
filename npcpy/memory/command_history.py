@@ -453,7 +453,8 @@ class CommandHistory:
             Column('attachment_type', String(100)),
             Column('attachment_data', LargeBinary),
             Column('attachment_size', Integer),
-            Column('upload_timestamp', String(50))
+            Column('upload_timestamp', String(50)),
+            Column('file_path', Text) 
         )
         
         # Jinx execution log table
@@ -537,6 +538,8 @@ class CommandHistory:
 
     def add_conversation(
         self, 
+        message_id,
+        timestamp,
         role, 
         content, 
         conversation_id, 
@@ -545,79 +548,53 @@ class CommandHistory:
         provider=None, 
         npc=None, 
         team=None,
-        attachments=None, 
-        message_id=None,
+        attachments=None,
     ):
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        if message_id is None:
-            message_id = self.generate_message_id()
-        if isinstance(content, dict):
+        if isinstance(content, (dict, list)):
             content = json.dumps(content, cls=CustomJSONEncoder)
 
-        # Check if message exists
-        existing = self._fetch_one(
-            "SELECT content FROM conversation_history WHERE message_id = :message_id",
-            {"message_id": message_id}
-        )
-
-        if existing:
-            # Update existing message
-            stmt = """
-                UPDATE conversation_history 
-                SET content = :content, timestamp = :timestamp 
-                WHERE message_id = :message_id
-            """
-            params = {"content": content, "timestamp": timestamp, "message_id": message_id}
-        else:
-            # Insert new message
-            stmt = """
-                INSERT INTO conversation_history
-                (message_id, timestamp, role, content, conversation_id, directory_path, model, provider, npc, team)
-                VALUES (:message_id, :timestamp, :role, :content, :conversation_id, :directory_path, :model, :provider, :npc, :team)
-            """
-            params = {
-                "message_id": message_id, 
-                "timestamp": timestamp, 
-                "role": role, 
-                "content": content,
-                "conversation_id": conversation_id,
-                "directory_path": directory_path,
-                "model": model,
-                "provider": provider,
-                "npc": npc,
-                "team": team
-            }
-
+        stmt = """
+            INSERT INTO conversation_history
+            (message_id, timestamp, role, content, conversation_id, directory_path, model, provider, npc, team)
+            VALUES (:message_id, :timestamp, :role, :content, :conversation_id, :directory_path, :model, :provider, :npc, :team)
+        """
+        params = {
+            "message_id": message_id, "timestamp": timestamp, "role": role, "content": content,
+            "conversation_id": conversation_id, "directory_path": directory_path, "model": model,
+            "provider": provider, "npc": npc, "team": team
+        }
         with self.engine.begin() as conn:
             conn.execute(text(stmt), params)
 
         if attachments:
             for attachment in attachments:
                 self.add_attachment(
-                    message_id, attachment["name"], attachment["type"],
-                    attachment["data"], attachment_size=attachment.get("size"),
+                    message_id=message_id,
+                    name=attachment.get("name"),
+                    attachment_type=attachment.get("type"),
+                    data=attachment.get("data"),
+                    size=attachment.get("size"),
+                    file_path=attachment.get("path") # PASS THE PATH
                 )
+
         return message_id
 
-    def add_attachment(self, message_id, attachment_name, attachment_type, attachment_data, attachment_size=None):
+    def add_attachment(self, message_id, name, attachment_type, data, size, file_path=None):
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        if attachment_size is None and attachment_data is not None:
-            attachment_size = len(attachment_data)
-        
         stmt = """
-            INSERT INTO message_attachments
-            (message_id, attachment_name, attachment_type, attachment_data, attachment_size, upload_timestamp)
-            VALUES (:message_id, :attachment_name, :attachment_type, :attachment_data, :attachment_size, :upload_timestamp)
+            INSERT INTO message_attachments 
+            (message_id, attachment_name, attachment_type, attachment_data, attachment_size, upload_timestamp, file_path)
+            VALUES (:message_id, :name, :type, :data, :size, :timestamp, :file_path)
         """
         params = {
             "message_id": message_id,
-            "attachment_name": attachment_name,
-            "attachment_type": attachment_type,
-            "attachment_data": attachment_data,
-            "attachment_size": attachment_size,
-            "upload_timestamp": timestamp
+            "name": name,
+            "type": attachment_type,
+            "data": data,
+            "size": size,
+            "timestamp": timestamp,
+            "file_path": file_path
         }
-        
         with self.engine.begin() as conn:
             conn.execute(text(stmt), params)
 
@@ -955,9 +932,12 @@ def save_conversation_message(
     """
     if wd is None:
         wd = os.getcwd()
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
 
     return command_history.add_conversation(
         role=role,
+        timestamp=timestamp, 
         content=content,
         conversation_id=conversation_id,
         directory_path=wd,

@@ -261,79 +261,36 @@ def get_conversation_history(conversation_id):
     except Exception as e:
         print(f"Error fetching conversation history: {e}")
         return []
-def fetch_messages_for_conversation(conversation_id):
-    if not conversation_id:
-        return []
 
+
+def fetch_messages_for_conversation(conversation_id):
+    """Fetch all messages for a conversation in chronological order."""
     engine = get_db_connection()
     try:
         with engine.connect() as conn:
             query = text("""
-                SELECT
-                    ch.id,
-                    ch.message_id,
-                    ch.timestamp,
-                    ch.role,
-                    ch.content,
-                    ch.conversation_id,
-                    ch.directory_path,
-                    ch.model,
-                    ch.provider,
-                    ch.npc,
-                    ch.team,
-                    json_group_array(
-                        json_object(
-                            'id', ma.id,
-                            'name', ma.attachment_name,
-                            'path', ma.attachment_name,
-                            'type', ma.attachment_type,
-                            'size', ma.attachment_size,
-                            'timestamp', ma.upload_timestamp
-                        )
-                    ) FILTER (WHERE ma.id IS NOT NULL) AS attachments_json
-                FROM
-                    conversation_history ch
-                LEFT JOIN
-                    message_attachments ma ON ch.message_id = ma.message_id
-                WHERE
-                    ch.conversation_id = :conversation_id
-                GROUP BY
-                    ch.id
-                ORDER BY
-                    ch.timestamp ASC, ch.id ASC;
+                SELECT role, content, timestamp
+                FROM conversation_history
+                WHERE conversation_id = :conversation_id
+                ORDER BY timestamp ASC
             """)
-            
             result = conn.execute(query, {"conversation_id": conversation_id})
-            messages = []
-            for row in result:
-                msg_dict = row._asdict()
+            messages = result.fetchall()
 
-                attachments = []
-                if msg_dict.get('attachments_json'):
-                    try:
-                        parsed_attachments = json.loads(msg_dict['attachments_json'])
-                        attachments = [att for att in parsed_attachments if att and att.get('id') is not None]
-                    except (json.JSONDecodeError, TypeError):
-                        pass
-                
-                content = msg_dict['content']
-                if isinstance(content, str) and (content.startswith('[') and content.endswith(']')):
-                    try:
-                        content = json.loads(content)
-                    except json.JSONDecodeError:
-                        pass
-
-                msg_dict['attachments'] = attachments
-                msg_dict['content'] = content
-                del msg_dict['attachments_json']
-                messages.append(msg_dict)
-                
-            return messages
+            return [
+                {
+                    "role": message[0],  # role
+                    "content": message[1],  # content
+                    "timestamp": message[2],  # timestamp
+                }
+                for message in messages
+            ]
     except Exception as e:
         print(f"Error fetching messages for conversation: {e}")
-        traceback.print_exc()
         return []
     
+    
+        
             
 @app.route('/api/kg/generations')
 def list_generations():
@@ -1494,7 +1451,6 @@ def stream():
         import uuid
         stream_id = str(uuid.uuid4())
 
-
     with cancellation_lock:
         cancellation_flags[stream_id] = False
     print(f"Starting stream with ID: {stream_id}")
@@ -1691,51 +1647,84 @@ def stream():
             tool_args['tool_map'] = npc_object.tool_map
         if 'tools' in tool_args and tool_args['tools']:
             tool_args['tool_choice'] = {"type": "auto"}
-
-    print("\n[DEBUG] Passing tools to get_llm_response:")
-    print("tools schema:", json.dumps(tool_args.get('tools', None), indent=2))
-    print("tool_map keys:", list(tool_args.get('tool_map', {}).keys()) if 'tool_map' in tool_args else None)
-    print("tool_choice:", tool_args.get('tool_choice', None))
-
-    stream_response = get_llm_response(
-        commandstr, 
-        messages=messages, 
-        images=images, 
-        model=model,
-        provider=provider, 
-        npc=npc_object, 
-        team=team_object,
-        stream=True, 
-        attachments=attachment_paths_for_llm,
-        auto_process_tool_calls=True,
-        **tool_args
-    )
-    messages = stream_response.get('messages', messages)
     
-    user_message_filled = ''
     
-    if isinstance(messages[-1].get('content'), list):
-        for cont in messages[-1].get('content'):
-            txt = cont.get('text')
-            if txt is not None:
-                user_message_filled +=txt       
-    print(user_message_filled)
-    print(type(user_message_filled))         
-    save_conversation_message(
-        command_history, 
-        conversation_id, 
-        "user", 
-        user_message_filled if user_message_filled is not None else commandstr, 
-        wd=current_path, 
-        model=model, 
-        provider=provider, 
-        npc=npc_name,
-        team=team, 
-        attachments=attachments_for_db, 
-        message_id=message_id,
-    )
-
-
+    exe_mode = data.get('executionMode','chat')
+    print(exe_mode)
+    print(data)
+    if exe_mode == 'chat':
+        stream_response = get_llm_response(
+            commandstr, 
+            messages=messages, 
+            images=images, 
+            model=model,
+            provider=provider, 
+            npc=npc_object, 
+            team=team_object,
+            stream=True, 
+            attachments=attachment_paths_for_llm,
+            auto_process_tool_calls=True,
+            **tool_args
+        )
+        messages = stream_response.get('messages', messages)
+        user_message_filled = ''
+        if isinstance(messages[-1].get('content'), list):
+            for cont in messages[-1].get('content'):
+                txt = cont.get('text')
+                if txt is not None:
+                    user_message_filled +=txt       
+        save_conversation_message(
+            command_history, 
+            conversation_id, 
+            "user", 
+            user_message_filled if len(user_message_filled)>0 else commandstr, 
+            wd=current_path, 
+            model=model, 
+            provider=provider, 
+            npc=npc_name,
+            team=team, 
+            attachments=attachments_for_db, 
+            message_id=message_id,
+        )
+    elif exe_mode == 'npcsh':
+        from npcsh._state import execute_command, initial_state
+        from npcsh.routes import router
+        initial_state.model = model
+        initial_state.provider = provider
+        initial_state.npc = npc_object
+        initial_state.team = team_object
+        initial_state.messages = messages
+        #attachments=attachment_paths_for_llm,
+        #images=images, 
+        state, stream_response = execute_command(
+            commandstr, 
+            initial_state, router=router)
+        #messages = stream_response.get('messages', messages)
+        
+        # user_message_filled = ''
+        #if isinstance(messages[-1].get('content'), list):
+        #    for cont in messages[-1].get('content'):
+        #        txt = cont.get('text')
+        #        if txt is not None:
+        #            user_message_filled +=txt       
+        #save_conversation_message(
+        #    command_history, 
+        #    conversation_id, 
+        #    "user", 
+        #    user_message_filled if len(user_message_filled)>0 else commandstr, 
+        ##    wd=current_path, 
+        #    model=model, 
+        #    provider=provider, 
+        #    npc=npc_name,
+        #    team=team, 
+        #    attachments=attachments_for_db, 
+        #    message_id=message_id,
+    elif exe_mode == 'guac':
+        print('not enabled yet')
+        
+    elif exe_mode == 'corca':
+        print('not enabled yet')
+    
     message_id = command_history.generate_message_id()
 
     def event_stream(current_stream_id):
@@ -1745,8 +1734,47 @@ def stream():
         tool_call_data = {"id": None, "function_name": None, "arguments": ""}
 
         try:
-            for response_chunk in stream_response['response']:
-                # --- NEW: Check the cancellation flag on every iteration ---
+            if isinstance(stream_response, str) :
+                chunk_data = {
+                        "id": None, 
+                        "object": None, 
+                        "created": datetime.datetime.now().strftime('YYYY-DD-MM-HHMMSS'), 
+                        "model": model,
+                        "choices": [
+                            {
+                                "index": 0, 
+                                "delta": 
+                                    {
+                                        "content": stream_response,
+                                        "role": "assistant"
+                                  }, 
+                                "finish_reason": 'done'
+                            }
+                        ]
+                    }
+                yield f"data: {json.dumps(chunk_data)}"
+                return
+            elif isinstance(stream_response, dict):
+                chunk_data = {
+                        "id": None, 
+                        "object": None, 
+                        "created": datetime.datetime.now().strftime('YYYY-DD-MM-HHMMSS'), 
+                        "model": model,
+                        "choices": [
+                            {
+                                "index": 0, 
+                                "delta": 
+                                    {
+                                        "content": stream_response.get('output') ,
+                                        "role": "assistant"
+                                  }, 
+                                "finish_reason": 'done'
+                            }
+                        ]
+                    }
+                yield f"data: {json.dumps(chunk_data)}"
+                return
+            for response_chunk in stream_response.get('response', stream_response.get('output')):
                 with cancellation_lock:
                     if cancellation_flags.get(current_stream_id, False):
                         print(f"Cancellation flag triggered for {current_stream_id}. Breaking loop.")
@@ -1755,11 +1783,6 @@ def stream():
 
                 print('.', end="", flush=True)
                 dot_count += 1
-
-                # --- DEBUG LOGGING: Print the raw response_chunk from LLM ---
-                print("\n[DEBUG] Raw response_chunk from LLM:")
-                print(json.dumps(response_chunk, indent=2, default=str))
-
                 if "hf.co" in model or provider == 'ollama':
                     chunk_content = response_chunk["message"]["content"] if "message" in response_chunk and "content" in response_chunk["message"] else ""
                     if "message" in response_chunk and "tool_calls" in response_chunk["message"]:
@@ -1820,9 +1843,16 @@ def stream():
             
             npc_name_to_save = npc_object.name if npc_object else ''
             save_conversation_message(
-                command_history, conversation_id, "assistant", final_response_text,
-                wd=current_path, model=model, provider=provider,
-                npc=npc_name_to_save, team=team, message_id=message_id,
+                command_history, 
+                conversation_id, 
+                "assistant", 
+                final_response_text,
+                wd=current_path, 
+                model=model, 
+                provider=provider,
+                npc=npc_name_to_save, 
+                team=team, 
+                message_id=message_id,
             )
 
             with cancellation_lock:
@@ -1995,7 +2025,17 @@ def execute():
                     # Stream decision immediately in standard format
                     chunk_data = {
                         "id": None, "object": None, "created": None, "model": model,
-                        "choices": [{"index": 0, "delta": {"content": response_chunk.get('content', ''), "role": "assistant"}, "finish_reason": None}]
+                        "choices": [
+                                {
+                                    "index": 0, 
+                                    "delta": 
+                                        {
+                                            "content": response_chunk.get('content', ''), 
+                                            "role": "assistant"
+                                            }, 
+                                    "finish_reason": None
+                                }
+                                     ]
                     }
                     complete_response.append(response_chunk.get('content', ''))
                     yield f"data: {json.dumps(chunk_data)}\n\n"
@@ -2094,6 +2134,7 @@ def interrupt_stream():
     return jsonify({"success": True, "message": f"Interruption for stream {stream_id_to_cancel} registered."})
 
 
+
 @app.route("/api/conversations", methods=["GET"])
 def get_conversations():
     try:
@@ -2108,11 +2149,12 @@ def get_conversations():
                 query = text("""
                 SELECT DISTINCT conversation_id,
                        MIN(timestamp) as start_time,
+                       MAX(timestamp) as last_message_timestamp,
                        GROUP_CONCAT(content) as preview
                 FROM conversation_history
                 WHERE directory_path = :path_without_slash OR directory_path = :path_with_slash
                 GROUP BY conversation_id
-                ORDER BY start_time DESC
+                ORDER BY MAX(timestamp) DESC
                 """)
 
                 # Check both with and without trailing slash
@@ -2131,10 +2173,11 @@ def get_conversations():
                             {
                                 "id": conv[0],  # conversation_id
                                 "timestamp": conv[1],  # start_time
+                                "last_message_timestamp": conv[2],  # last_message_timestamp
                                 "preview": (
-                                    conv[2][:100] + "..."  # preview
-                                    if conv[2] and len(conv[2]) > 100
-                                    else conv[2]
+                                    conv[3][:100] + "..."  # preview (now index 3)
+                                    if conv[3] and len(conv[3]) > 100
+                                    else conv[3]
                                 ),
                             }
                             for conv in conversations
@@ -2148,6 +2191,8 @@ def get_conversations():
     except Exception as e:
         print(f"Error getting conversations: {str(e)}")
         return jsonify({"error": str(e), "conversations": []}), 500
+
+
 
 @app.route("/api/conversation/<conversation_id>/messages", methods=["GET"])
 def get_conversation_messages(conversation_id):
