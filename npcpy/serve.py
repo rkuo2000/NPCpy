@@ -1713,7 +1713,7 @@ def stream():
         tool_call_data = {"id": None, "function_name": None, "arguments": ""}
 
         try:
-            if isinstance(stream_response, str) or isinstance(stream_response.get('output'), str):
+            if isinstance(stream_response, str) :
                 chunk_data = {
                         "id": None, 
                         "object": None, 
@@ -1724,7 +1724,27 @@ def stream():
                                 "index": 0, 
                                 "delta": 
                                     {
-                                        "content": stream_response.get('output') or stream_response,
+                                        "content": stream_response,
+                                        "role": "assistant"
+                                  }, 
+                                "finish_reason": 'done'
+                            }
+                        ]
+                    }
+                yield f"data: {json.dumps(chunk_data)}"
+                return
+            elif isinstance(stream_response, dict):
+                chunk_data = {
+                        "id": None, 
+                        "object": None, 
+                        "created": datetime.datetime.now().strftime('YYYY-DD-MM-HHMMSS'), 
+                        "model": model,
+                        "choices": [
+                            {
+                                "index": 0, 
+                                "delta": 
+                                    {
+                                        "content": stream_response.get('output') ,
                                         "role": "assistant"
                                   }, 
                                 "finish_reason": 'done'
