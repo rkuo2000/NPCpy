@@ -124,8 +124,6 @@ def get_locally_available_models(project_directory, airplane_mode=False):
                     import openai
 
                     def fetch_openai_models():
-                        # For older OpenAI client versions (<1.0.0), global api_key is common.
-                        # For openai>=1.0.0, it's client = openai.OpenAI(api_key=..., timeout=timeout_seconds)
                         openai.api_key = env_vars.get("OPENAI_API_KEY", None) or os.environ.get("OPENAI_API_KEY", None)
                         return openai.models.list()
 
@@ -150,7 +148,6 @@ def get_locally_available_models(project_directory, airplane_mode=False):
             if "GEMINI_API_KEY" in env_vars or os.environ.get("GEMINI_API_KEY"):
                 try:
                     from google import genai
-                
                     def fetch_gemini_models():
                         client = genai.Client(api_key=env_vars.get("GEMINI_API_KEY") or os.environ.get("GEMINI_API_KEY"))
                         found_models = []
@@ -183,13 +180,8 @@ def get_locally_available_models(project_directory, airplane_mode=False):
                     logging.info(f"Gemini models not indexed or timed out: {e}")
             
             if "DEEPSEEK_API_KEY" in env_vars or os.environ.get("DEEPSEEK_API_KEY"):
-                # Assuming Deepseek models are just added if the key exists, without an API call
-                # If an API call is needed here, apply similar timeout logic.
                 available_models['deepseek-chat'] = 'deepseek'
                 available_models['deepseek-reasoner'] = 'deepseek'        
-    
-    # Ollama is typically local, but its `list()` call might still involve a network request
-    # to the local Ollama server, so applying a timeout is still good practice.
     try:
         import ollama
         timeout_seconds = 0.5 # Re-using the same timeout

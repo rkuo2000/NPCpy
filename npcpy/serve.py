@@ -1656,7 +1656,7 @@ def stream():
         command_history, 
         conversation_id, 
         "user", 
-        user_message_filled if user_message_filled is not None else commandstr, 
+        user_message_filled if len(user_message_filled)>0 else commandstr, 
         wd=current_path, 
         model=model, 
         provider=provider, 
@@ -2032,6 +2032,7 @@ def interrupt_stream():
     return jsonify({"success": True, "message": f"Interruption for stream {stream_id_to_cancel} registered."})
 
 
+
 @app.route("/api/conversations", methods=["GET"])
 def get_conversations():
     try:
@@ -2046,11 +2047,12 @@ def get_conversations():
                 query = text("""
                 SELECT DISTINCT conversation_id,
                        MIN(timestamp) as start_time,
+                       MAX(timestamp) as last_message_timestamp,
                        GROUP_CONCAT(content) as preview
                 FROM conversation_history
                 WHERE directory_path = :path_without_slash OR directory_path = :path_with_slash
                 GROUP BY conversation_id
-                ORDER BY start_time DESC
+                ORDER BY MAX(timestamp) DESC
                 """)
 
                 # Check both with and without trailing slash
@@ -2069,10 +2071,11 @@ def get_conversations():
                             {
                                 "id": conv[0],  # conversation_id
                                 "timestamp": conv[1],  # start_time
+                                "last_message_timestamp": conv[2],  # last_message_timestamp
                                 "preview": (
-                                    conv[2][:100] + "..."  # preview
-                                    if conv[2] and len(conv[2]) > 100
-                                    else conv[2]
+                                    conv[3][:100] + "..."  # preview (now index 3)
+                                    if conv[3] and len(conv[3]) > 100
+                                    else conv[3]
                                 ),
                             }
                             for conv in conversations
@@ -2086,6 +2089,8 @@ def get_conversations():
     except Exception as e:
         print(f"Error getting conversations: {str(e)}")
         return jsonify({"error": str(e), "conversations": []}), 500
+
+
 
 @app.route("/api/conversation/<conversation_id>/messages", methods=["GET"])
 def get_conversation_messages(conversation_id):
