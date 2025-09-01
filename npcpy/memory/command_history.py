@@ -536,9 +536,17 @@ class CommandHistory:
         return str(uuid.uuid4())
 
     def add_conversation(
-        self, role, content, conversation_id, directory_path,
-        model=None, provider=None, npc=None, team=None,
-        attachments=None, message_id=None,
+        self, 
+        role, 
+        content, 
+        conversation_id, 
+        directory_path,
+        model=None, 
+        provider=None, 
+        npc=None, 
+        team=None,
+        attachments=None, 
+        message_id=None,
     ):
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         if message_id is None:
@@ -568,9 +576,16 @@ class CommandHistory:
                 VALUES (:message_id, :timestamp, :role, :content, :conversation_id, :directory_path, :model, :provider, :npc, :team)
             """
             params = {
-                "message_id": message_id, "timestamp": timestamp, "role": role, "content": content,
-                "conversation_id": conversation_id, "directory_path": directory_path,
-                "model": model, "provider": provider, "npc": npc, "team": team
+                "message_id": message_id, 
+                "timestamp": timestamp, 
+                "role": role, 
+                "content": content,
+                "conversation_id": conversation_id,
+                "directory_path": directory_path,
+                "model": model,
+                "provider": provider,
+                "npc": npc,
+                "team": team
             }
 
         with self.engine.begin() as conn:
@@ -607,10 +622,17 @@ class CommandHistory:
             conn.execute(text(stmt), params)
 
     def save_jinx_execution(
-        self, triggering_message_id: str, conversation_id: str, npc_name: Optional[str],
-        jinx_name: str, jinx_inputs: Dict, jinx_output: Any, status: str,
-        team_name: Optional[str] = None, error_message: Optional[str] = None,
-        response_message_id: Optional[str] = None, duration_ms: Optional[int] = None
+        self, 
+        triggering_message_id: str, 
+        conversation_id: str, 
+        npc_name: Optional[str],
+        jinx_name: str, 
+        jinx_inputs: Dict, 
+        jinx_output: Any, status: str,
+        team_name: Optional[str] = None, 
+        error_message: Optional[str] = None,
+        response_message_id: Optional[str] = None, 
+        duration_ms: Optional[int] = None
     ):
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
@@ -663,7 +685,13 @@ class CommandHistory:
 
     def get_message_attachments(self, message_id) -> List[Dict]:
         stmt = """
-            SELECT id, message_id, attachment_name, attachment_type, attachment_size, upload_timestamp
+            SELECT 
+                id, 
+                message_id, 
+                attachment_name, 
+                attachment_type, 
+                attachment_size, 
+                upload_timestamp
             FROM message_attachments WHERE message_id = :message_id
         """
         return self._fetch_all(stmt, {"message_id": message_id})

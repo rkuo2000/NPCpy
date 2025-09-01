@@ -261,31 +261,77 @@ def get_conversation_history(conversation_id):
     except Exception as e:
         print(f"Error fetching conversation history: {e}")
         return []
-    
 def fetch_messages_for_conversation(conversation_id):
-    """Fetch all messages for a conversation in chronological order."""
+    if not conversation_id:
+        return []
+
     engine = get_db_connection()
     try:
         with engine.connect() as conn:
             query = text("""
-                SELECT role, content, timestamp
-                FROM conversation_history
-                WHERE conversation_id = :conversation_id
-                ORDER BY timestamp ASC
+                SELECT
+                    ch.id,
+                    ch.message_id,
+                    ch.timestamp,
+                    ch.role,
+                    ch.content,
+                    ch.conversation_id,
+                    ch.directory_path,
+                    ch.model,
+                    ch.provider,
+                    ch.npc,
+                    ch.team,
+                    json_group_array(
+                        json_object(
+                            'id', ma.id,
+                            'name', ma.attachment_name,
+                            'path', ma.attachment_name,
+                            'type', ma.attachment_type,
+                            'size', ma.attachment_size,
+                            'timestamp', ma.upload_timestamp
+                        )
+                    ) FILTER (WHERE ma.id IS NOT NULL) AS attachments_json
+                FROM
+                    conversation_history ch
+                LEFT JOIN
+                    message_attachments ma ON ch.message_id = ma.message_id
+                WHERE
+                    ch.conversation_id = :conversation_id
+                GROUP BY
+                    ch.id
+                ORDER BY
+                    ch.timestamp ASC, ch.id ASC;
             """)
+            
             result = conn.execute(query, {"conversation_id": conversation_id})
-            messages = result.fetchall()
+            messages = []
+            for row in result:
+                msg_dict = row._asdict()
 
-            return [
-                {
-                    "role": message[0],  # role
-                    "content": message[1],  # content
-                    "timestamp": message[2],  # timestamp
-                }
-                for message in messages
-            ]
+                attachments = []
+                if msg_dict.get('attachments_json'):
+                    try:
+                        parsed_attachments = json.loads(msg_dict['attachments_json'])
+                        attachments = [att for att in parsed_attachments if att and att.get('id') is not None]
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+                
+                content = msg_dict['content']
+                if isinstance(content, str) and (content.startswith('[') and content.endswith(']')):
+                    try:
+                        content = json.loads(content)
+                    except json.JSONDecodeError:
+                        pass
+
+                msg_dict['attachments'] = attachments
+                msg_dict['content'] = content
+                del msg_dict['attachments_json']
+                messages.append(msg_dict)
+                
+            return messages
     except Exception as e:
         print(f"Error fetching messages for conversation: {e}")
+        traceback.print_exc()
         return []
     
             
@@ -1643,9 +1689,17 @@ def stream():
         auto_process_tool_calls=True,
         **tool_args
     )
-    messages = stream_response.get('messages')
+    messages = stream_response.get('messages', messages)
     
-    user_message_filled = messages[-1].get('content')
+    user_message_filled = ''
+    
+    if isinstance(messages[-1].get('content'), list):
+        for cont in messages[-1].get('content'):
+            txt = cont.get('text')
+            if txt is not None:
+                user_message_filled +=txt       
+    print(user_message_filled)
+    print(type(user_message_filled))         
     save_conversation_message(
         command_history, 
         conversation_id, 
