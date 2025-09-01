@@ -96,7 +96,7 @@ def get_locally_available_models(project_directory, airplane_mode=False):
     # --- End internet check ---
 
     if not airplane_mode:
-        timeout_seconds = 0.5
+        timeout_seconds = 3.5
         # Use a single ThreadPoolExecutor for all network-dependent API calls
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
 

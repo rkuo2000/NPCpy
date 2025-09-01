@@ -261,79 +261,36 @@ def get_conversation_history(conversation_id):
     except Exception as e:
         print(f"Error fetching conversation history: {e}")
         return []
-def fetch_messages_for_conversation(conversation_id):
-    if not conversation_id:
-        return []
 
+
+def fetch_messages_for_conversation(conversation_id):
+    """Fetch all messages for a conversation in chronological order."""
     engine = get_db_connection()
     try:
         with engine.connect() as conn:
             query = text("""
-                SELECT
-                    ch.id,
-                    ch.message_id,
-                    ch.timestamp,
-                    ch.role,
-                    ch.content,
-                    ch.conversation_id,
-                    ch.directory_path,
-                    ch.model,
-                    ch.provider,
-                    ch.npc,
-                    ch.team,
-                    json_group_array(
-                        json_object(
-                            'id', ma.id,
-                            'name', ma.attachment_name,
-                            'path', ma.attachment_name,
-                            'type', ma.attachment_type,
-                            'size', ma.attachment_size,
-                            'timestamp', ma.upload_timestamp
-                        )
-                    ) FILTER (WHERE ma.id IS NOT NULL) AS attachments_json
-                FROM
-                    conversation_history ch
-                LEFT JOIN
-                    message_attachments ma ON ch.message_id = ma.message_id
-                WHERE
-                    ch.conversation_id = :conversation_id
-                GROUP BY
-                    ch.id
-                ORDER BY
-                    ch.timestamp ASC, ch.id ASC;
+                SELECT role, content, timestamp
+                FROM conversation_history
+                WHERE conversation_id = :conversation_id
+                ORDER BY timestamp ASC
             """)
-            
             result = conn.execute(query, {"conversation_id": conversation_id})
-            messages = []
-            for row in result:
-                msg_dict = row._asdict()
+            messages = result.fetchall()
 
-                attachments = []
-                if msg_dict.get('attachments_json'):
-                    try:
-                        parsed_attachments = json.loads(msg_dict['attachments_json'])
-                        attachments = [att for att in parsed_attachments if att and att.get('id') is not None]
-                    except (json.JSONDecodeError, TypeError):
-                        pass
-                
-                content = msg_dict['content']
-                if isinstance(content, str) and (content.startswith('[') and content.endswith(']')):
-                    try:
-                        content = json.loads(content)
-                    except json.JSONDecodeError:
-                        pass
-
-                msg_dict['attachments'] = attachments
-                msg_dict['content'] = content
-                del msg_dict['attachments_json']
-                messages.append(msg_dict)
-                
-            return messages
+            return [
+                {
+                    "role": message[0],  # role
+                    "content": message[1],  # content
+                    "timestamp": message[2],  # timestamp
+                }
+                for message in messages
+            ]
     except Exception as e:
         print(f"Error fetching messages for conversation: {e}")
-        traceback.print_exc()
         return []
     
+    
+        
             
 @app.route('/api/kg/generations')
 def list_generations():
@@ -1670,12 +1627,7 @@ def stream():
             tool_args['tool_map'] = npc_object.tool_map
         if 'tools' in tool_args and tool_args['tools']:
             tool_args['tool_choice'] = {"type": "auto"}
-
-    print("\n[DEBUG] Passing tools to get_llm_response:")
-    print("tools schema:", json.dumps(tool_args.get('tools', None), indent=2))
-    print("tool_map keys:", list(tool_args.get('tool_map', {}).keys()) if 'tool_map' in tool_args else None)
-    print("tool_choice:", tool_args.get('tool_choice', None))
-
+    
     stream_response = get_llm_response(
         commandstr, 
         messages=messages, 
@@ -1799,9 +1751,16 @@ def stream():
             
             npc_name_to_save = npc_object.name if npc_object else ''
             save_conversation_message(
-                command_history, conversation_id, "assistant", final_response_text,
-                wd=current_path, model=model, provider=provider,
-                npc=npc_name_to_save, team=team, message_id=message_id,
+                command_history, 
+                conversation_id, 
+                "assistant", 
+                final_response_text,
+                wd=current_path, 
+                model=model, 
+                provider=provider,
+                npc=npc_name_to_save, 
+                team=team, 
+                message_id=message_id,
             )
 
             with cancellation_lock:
