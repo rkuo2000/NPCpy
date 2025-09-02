@@ -528,10 +528,7 @@ def print_and_process_stream_with_markdown(response, model, provider, show=False
                 for c in chunk.choices:
                     if hasattr(c.delta, "reasoning_content"):        
                         reasoning_content += c.delta.reasoning_content
-                
-                if len(reasoning_content) > 0:
-                    chunk_content = reasoning_content
-                        
+                                        
                 chunk_content += "".join(
                     c.delta.content for c in chunk.choices if c.delta.content
                 )
