@@ -933,6 +933,8 @@ def save_conversation_message(
     if wd is None:
         wd = os.getcwd()
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    if message_id is None:
+        message_id = generate_message_id()
 
 
     return command_history.add_conversation(
