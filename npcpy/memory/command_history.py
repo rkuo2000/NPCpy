@@ -936,19 +936,17 @@ def save_conversation_message(
 
 
     return command_history.add_conversation(
-        role=role,
-        timestamp=timestamp, 
-        content=content,
-        conversation_id=conversation_id,
-        directory_path=wd,
-        model=model,
-        provider=provider,
-        npc=npc,
-        team=team,
-        attachments=attachments,
-        message_id=message_id,
-    )
-
+        message_id, 
+        timestamp, 
+        role, 
+        content, 
+        conversation_id, 
+        wd, 
+        model=model, 
+        provider=provider, 
+        npc=npc, 
+        team=team, 
+        attachments=attachments)
 def retrieve_last_conversation(
     command_history: CommandHistory, conversation_id: str
     ) -> str:
