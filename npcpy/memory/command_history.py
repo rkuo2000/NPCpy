@@ -402,6 +402,9 @@ def save_kg_to_db(engine: Engine, kg_data: Dict[str, Any], team_name: str, npc_n
     except Exception as e:
         print(f"Failed to save KG for scope '({team_name}, {npc_name}, {directory_path})': {e}")
 
+def generate_message_id() -> str:
+    return str(uuid.uuid4())
+
 class CommandHistory:
     def __init__(self, db: Union[str, Engine] = "~/npcsh_history.db"):
         
@@ -533,8 +536,6 @@ class CommandHistory:
         with self.engine.begin() as conn:
             conn.execute(text(stmt), params)
 
-    def generate_message_id(self) -> str:
-        return str(uuid.uuid4())
 
     def add_conversation(
         self, 

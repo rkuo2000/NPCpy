@@ -41,6 +41,7 @@ from npcpy.npc_sysenv import get_locally_available_models
 from npcpy.memory.command_history import (
     CommandHistory,
     save_conversation_message,
+    generate_message_id,
 )
 from npcpy.npc_compiler import  Jinx, NPC, Team 
 
@@ -1379,7 +1380,7 @@ def generate_images():
                 print(f"Warning: gen_image returned non-PIL object ({type(pil_image)}). Skipping image conversion.")
 
         # Save generation record to database
-        generation_id = command_history.generate_message_id()
+        generation_id = generate_message_id()
         
         # Save input prompt as user message
         save_conversation_message(
@@ -1407,7 +1408,7 @@ def generate_images():
             provider=provider_name,
             npc="vixynt",
             attachments=generated_attachments,
-            message_id=command_history.generate_message_id()
+            message_id=generate_message_id()
         )
         
         return jsonify({
@@ -1572,7 +1573,7 @@ def stream():
     attachments_for_db = []
     attachment_paths_for_llm = []
 
-    message_id = command_history.generate_message_id()
+    message_id = generate_message_id()
     if attachments:
         # Create a unique directory for this message's attachments for auditing
         attachment_dir = os.path.expanduser(f"~/.npcsh/attachments/{conversation_id+message_id}/")
@@ -1727,7 +1728,7 @@ def stream():
     )
 
 
-    message_id = command_history.generate_message_id()
+    message_id = generate_message_id()
 
     def event_stream(current_stream_id):
         complete_response = []
@@ -1992,7 +1993,7 @@ def execute():
     if npc_object is not None and messages and messages[0]['role'] == 'system':
         messages[0]['content'] = npc_object.get_system_prompt()
 
-    message_id = command_history.generate_message_id()
+    message_id = generate_message_id()
     save_conversation_message(
         command_history, conversation_id, "user", commandstr,
         wd=current_path, model=model, provider=provider, npc=npc_name,
@@ -2004,7 +2005,7 @@ def execute():
     )
     print(response_gen)
     #print(npc_object, provider, model)
-    message_id = command_history.generate_message_id()
+    message_id = generate_message_id()
 
     def event_stream(current_stream_id):
         complete_response = []
