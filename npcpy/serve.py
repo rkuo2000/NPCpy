@@ -1575,7 +1575,7 @@ def stream():
     message_id = command_history.generate_message_id()
     if attachments:
         # Create a unique directory for this message's attachments for auditing
-        attachment_dir = os.path.expanduser(f"~/.npcsh/attachments/{conversation_id}/{message_id}")
+        attachment_dir = os.path.expanduser(f"~/.npcsh/attachments/{conversation_id+message_id}/")
         os.makedirs(attachment_dir, exist_ok=True)
 
         for attachment in attachments:
@@ -1650,8 +1650,6 @@ def stream():
     
     
     exe_mode = data.get('executionMode','chat')
-    print(exe_mode)
-    print(data)
     if exe_mode == 'chat':
         stream_response = get_llm_response(
             commandstr, 
@@ -1665,26 +1663,6 @@ def stream():
             attachments=attachment_paths_for_llm,
             auto_process_tool_calls=True,
             **tool_args
-        )
-        messages = stream_response.get('messages', messages)
-        user_message_filled = ''
-        if isinstance(messages[-1].get('content'), list):
-            for cont in messages[-1].get('content'):
-                txt = cont.get('text')
-                if txt is not None:
-                    user_message_filled +=txt       
-        save_conversation_message(
-            command_history, 
-            conversation_id, 
-            "user", 
-            user_message_filled if len(user_message_filled)>0 else commandstr, 
-            wd=current_path, 
-            model=model, 
-            provider=provider, 
-            npc=npc_name,
-            team=team, 
-            attachments=attachments_for_db, 
-            message_id=message_id,
         )
     elif exe_mode == 'npcsh':
         from npcsh._state import execute_command, initial_state
@@ -1724,7 +1702,31 @@ def stream():
         
     elif exe_mode == 'corca':
         print('not enabled yet')
-    
+
+
+    messages = stream_response.get('messages', messages)
+    user_message_filled = ''
+
+    if isinstance(messages[-1].get('content'), list):
+        for cont in messages[-1].get('content'):
+            txt = cont.get('text')
+            if txt is not None:
+                user_message_filled +=txt       
+    save_conversation_message(
+        command_history, 
+        conversation_id, 
+        "user", 
+        user_message_filled if len(user_message_filled)>0 else commandstr, 
+        wd=current_path, 
+        model=model, 
+        provider=provider, 
+        npc=npc_name,
+        team=team, 
+        attachments=attachments_for_db, 
+        message_id=message_id,
+    )
+
+
     message_id = command_history.generate_message_id()
 
     def event_stream(current_stream_id):
@@ -1735,6 +1737,7 @@ def stream():
 
         try:
             if isinstance(stream_response, str) :
+                print('stream a str and not a gen')
                 chunk_data = {
                         "id": None, 
                         "object": None, 
@@ -1754,7 +1757,8 @@ def stream():
                     }
                 yield f"data: {json.dumps(chunk_data)}"
                 return
-            elif isinstance(stream_response, dict):
+            elif isinstance(stream_response, dict) and 'output' in stream_response and isinstance(stream_response.get('output'), str):
+                print('stream a str and not a gen')                
                 chunk_data = {
                         "id": None, 
                         "object": None, 
