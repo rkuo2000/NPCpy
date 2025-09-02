@@ -817,7 +817,7 @@ DEFAULT_ACTION_SPACE = {
             }
         }
     },
-    "answer_question": {
+    "answer": {
         "description": "Provide a direct informative answer",
         "handler": answer_handler,
         "context": """For general questions, use existing knowledge. For most queries a single action to answer a question will be sufficient.
@@ -826,7 +826,7 @@ e.g.
 {
     "actions": [
         {
-            "action": "answer_question",
+            "action": "answer",
             "explanation": "Provide a direct answer to the user's question based on existing knowledge."
             
     
@@ -839,7 +839,7 @@ Starting dialogue is usually more useful than using tools willynilly. Think care
 the user's intent and use this action as an opportunity to clear up potential ambiguities before
 proceeding to more complex actions.
 For example, if a user requests to write a story, 
-it is better to respond with 'answer_question'  and to write them a story rather than to invoke some tool.
+it is better to respond with 'answer'  and to write them a story rather than to invoke some tool.
 Indeed, it might be even better to respond and to request clarification about what other elements they would liek to specify with the story.
 Natural language is highly ambiguous and it is important to establish common ground and priorities before proceeding to more complex actions.
 
@@ -873,7 +873,8 @@ Your task is to create a complete, sequential JSON plan to fulfill the entire re
 Use the following context about available actions and tools to construct the plan.
 
 """
-
+    if messages == None:
+        messages = list()
     for action_name, action_info in actions.items():
         ctx = action_info.get("context")
         if callable(ctx):
@@ -1012,31 +1013,48 @@ def execute_multi_step_plan(
         action_name = action_data["action"]
         #if any(action_name in actions.keys()):
             # get the closest named action
+        try:
+            handler = actions[action_name]["handler"]
 
-        handler = actions[action_name]["handler"]
-        
-        # re-implement the yielding
-        step_context = f"Context from previous steps: {json.dumps(step_outputs)}" if step_outputs else ""
-        render_markdown(
-            f"- Executing Action: {action_name} \n- Explanation: {action_data.get('explanation')}\n "
-        )
-        
-        result = handler(
-           command=command, 
-           extracted_data=action_data,
-           model=model,
-           provider=provider, 
-           api_url=api_url,
-           api_key=api_key, 
-           messages=current_messages, 
-           npc=npc,
-           team=team,
-           stream=stream, 
 
-           context=context+step_context, 
-           images=images
-        )
+            # re-implement the yielding
+            step_context = f"Context from previous steps: {json.dumps(step_outputs)}" if step_outputs else ""
+            render_markdown(
+                f"- Executing Action: {action_name} \n- Explanation: {action_data.get('explanation')}\n "
+            )
+                
+            result = handler(
+                command=command, 
+                extracted_data=action_data,
+                model=model,
+                provider=provider, 
+                api_url=api_url,
+                api_key=api_key, 
+                messages=current_messages, 
+                npc=npc,
+                team=team,
+                stream=stream, 
 
+                context=context+step_context, 
+                images=images
+                )
+        except KeyError as e:
+            # the key is not found
+            return execute_multi_step_plan(
+                                            command=command + 'This error occurred: '+str(e)+'\n Do not make the same mistake again. If you are intending to use a jinx, you must `invoke_jinx`. If you just need to answer, choose `answer`.',
+                                            model= model,
+                                            provider = provider,
+                                            api_url = api_url,
+                                            api_key = api_key,
+                                            npc = npc,
+                                            team = team,
+                                            messages = messages,
+                                            images = images,
+                                            stream=stream,
+                                            context=context,
+                                            actions=actions,
+                                            **kwargs, 
+            )
 
         action_output = result.get('output') or result.get('response')
         

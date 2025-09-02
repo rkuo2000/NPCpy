@@ -1473,22 +1473,16 @@ def stream():
     
     npc_object = None
     team_object = None
-    team = None  # Initialize team as None, will be inferred
-    
+    team = None  
     if npc_name:
-        # First check registered teams and capture team name if found
-        print('checking')
         if hasattr(app, 'registered_teams'):
-            print('has registered teams')
             for team_name, team_object in app.registered_teams.items():
-                print('team', team_object)
-
                 if hasattr(team_object, 'npcs'):
                     team_npcs = team_object.npcs
                     if isinstance(team_npcs, dict):
                         if npc_name in team_npcs:
                             npc_object = team_npcs[npc_name]
-                            team = team_name  # Capture the team name
+                            team = team_name 
                             npc_object.team = team_object
                             print(f"Found NPC {npc_name} in registered team {team_name}")
                             break
@@ -1496,7 +1490,7 @@ def stream():
                         for npc in team_npcs:
                             if hasattr(npc, 'name') and npc.name == npc_name:
                                 npc_object = npc
-                                team = team_name  # Capture the team name
+                                team = team_name  
                                 npc_object.team = team_object
                                 print(f"Found NPC {npc_name} in registered team {team_name}")
                                 break
@@ -1506,7 +1500,7 @@ def stream():
                         npc_object = team_object.forenpc
                         npc_object.team = team_object
 
-                        team = team_name  # Capture the team name
+                        team = team_name
                         print(f"Found NPC {npc_name} as forenpc in team {team_name}")
                         break
                 
@@ -1537,7 +1531,6 @@ def stream():
                     print('team', team_object)
 
                 else:
-                    # Create team with just this NPC
                     team_object = Team(npcs=[npc_object], db_conn=db_conn)
                     team_object.name = os.path.basename(team_directory) if team_directory else f"{npc_name}_team"
                     npc_object.team = team_object
@@ -1548,7 +1541,6 @@ def stream():
                     app.registered_teams = {}
                 app.registered_teams[team_name] = team_object
                 
-                # Set the team variable for this request
                 team = team_name
                 
                 print(f"Created and registered team '{team_name}' with NPC {npc_name}")
@@ -1575,7 +1567,6 @@ def stream():
 
     message_id = generate_message_id()
     if attachments:
-        # Create a unique directory for this message's attachments for auditing
         attachment_dir = os.path.expanduser(f"~/.npcsh/attachments/{conversation_id+message_id}/")
         os.makedirs(attachment_dir, exist_ok=True)
 
@@ -1618,10 +1609,6 @@ def stream():
             except Exception as e:
                 print(f"Error processing attachment {attachment.get('name', 'N/A')}: {e}")
                 traceback.print_exc()
-
-
-
-
     messages = fetch_messages_for_conversation(conversation_id)
     if len(messages) == 0 and npc_object is not None:
         messages = [{'role': 'system', 
@@ -1651,6 +1638,7 @@ def stream():
     
     
     exe_mode = data.get('executionMode','chat')
+    # print('EXE MODE', exe_mode)
     if exe_mode == 'chat':
         stream_response = get_llm_response(
             commandstr, 
@@ -1665,6 +1653,8 @@ def stream():
             auto_process_tool_calls=True,
             **tool_args
         )
+        messages = stream_response.get('messages', messages)
+
     elif exe_mode == 'npcsh':
         from npcsh._state import execute_command, initial_state
         from npcsh.routes import router
@@ -1678,6 +1668,7 @@ def stream():
         state, stream_response = execute_command(
             commandstr, 
             initial_state, router=router)
+        messages = state.messages
         #messages = stream_response.get('messages', messages)
         
         # user_message_filled = ''
@@ -1705,7 +1696,6 @@ def stream():
         print('not enabled yet')
 
 
-    messages = stream_response.get('messages', messages)
     user_message_filled = ''
 
     if isinstance(messages[-1].get('content'), list):
