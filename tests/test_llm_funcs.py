@@ -82,6 +82,24 @@ def test_check_llm_command():
         print(f"Command check failed: {e}")
 
 
+def test_get_llm_response_transformers():
+    result = get_llm_response(
+        prompt="hello",
+        model="Qwen/Qwen3-1.7b", 
+        provider="transformers"
+    )
+
+    result = get_llm_response(
+        prompt="what is 2+2",
+        model="qwen3/qwen3-1.7b",
+        provider="transformers",
+        messages=[{"role": "user", "content": "hi"}]
+    )
+
+    result = get_llm_response(
+        prompt="test",
+        provider="transformers"
+    )
 def test_gen_image():
     """Test image generation"""
     try:

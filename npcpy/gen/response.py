@@ -37,6 +37,97 @@ def handle_streaming_json(api_params):
             except json.JSONDecodeError:
                 pass
 
+def get_transformers_response(
+   prompt: str = None,
+   model=None,
+   tokenizer=None, 
+   tools: list = None,
+   tool_map: Dict = None,
+   format: str = None,
+   messages: List[Dict[str, str]] = None,
+   auto_process_tool_calls: bool = False,
+   **kwargs,
+) -> Dict[str, Any]:
+   import torch
+   import json
+   import uuid
+   from transformers import AutoTokenizer, AutoModelForCausalLM
+   
+   result = {
+       "response": None,
+       "messages": messages.copy() if messages else [],
+       "raw_response": None,
+       "tool_calls": [], 
+       "tool_results": []
+   }
+   
+   if model is None or tokenizer is None:
+       model_name = model if isinstance(model, str) else "Qwen/Qwen3-1.7b"
+       tokenizer = AutoTokenizer.from_pretrained(model_name)
+       model = AutoModelForCausalLM.from_pretrained(model_name)
+       
+       if tokenizer.pad_token is None:
+           tokenizer.pad_token = tokenizer.eos_token
+   
+   if prompt:
+       if result['messages'] and result['messages'][-1]["role"] == "user":
+           result['messages'][-1]["content"] = prompt
+       else:
+           result['messages'].append({"role": "user", "content": prompt})
+   
+   if format == "json":
+       json_instruction = """If you are returning a json object, begin directly with the opening {.
+Do not include any additional markdown formatting or leading ```json tags in your response."""
+       if result["messages"] and result["messages"][-1]["role"] == "user":
+           result["messages"][-1]["content"] += "\n" + json_instruction
+
+   chat_text = tokenizer.apply_chat_template(result["messages"], tokenize=False, add_generation_prompt=True)
+   device = next(model.parameters()).device
+   inputs = tokenizer(chat_text, return_tensors="pt", padding=True, truncation=True)
+   inputs = {k: v.to(device) for k, v in inputs.items()}
+   # remove kwargs stream
+       
+   with torch.no_grad():
+       outputs = model.generate(
+           **inputs,
+           max_new_tokens=256,
+           temperature=0.7,
+           do_sample=True,
+           pad_token_id=tokenizer.eos_token_id,
+       )
+   
+   response_content = tokenizer.decode(outputs[0][inputs['input_ids'].shape[1]:], skip_special_tokens=True).strip()
+   result["response"] = response_content
+   result["raw_response"] = response_content
+   result["messages"].append({"role": "assistant", "content": response_content})
+
+   if auto_process_tool_calls and tools and tool_map:
+       detected_tools = []
+       for tool in tools:
+           tool_name = tool.get("function", {}).get("name", "")
+           if tool_name in response_content:
+               detected_tools.append({
+                   "id": str(uuid.uuid4()),
+                   "function": {
+                       "name": tool_name,
+                       "arguments": "{}"
+                   }
+               })
+       
+       if detected_tools:
+           result["tool_calls"] = detected_tools
+           result = process_tool_calls(result, tool_map, "local", "transformers", result["messages"])
+   
+   if format == "json":
+       try:
+           if response_content.startswith("```json"):
+               response_content = response_content.replace("```json", "").replace("```", "").strip()
+           parsed_response = json.loads(response_content)
+           result["response"] = parsed_response
+       except json.JSONDecodeError:
+           result["error"] = f"Invalid JSON response: {response_content}"
+   
+   return result
 
         
 def get_ollama_response(
@@ -343,6 +434,23 @@ def get_litellm_response(
             attachments=attachments, 
             auto_process_tool_calls=auto_process_tool_calls, 
             **kwargs
+        )
+    elif provider=='transformers':
+        return get_transformers_response(
+            prompt, 
+            model, 
+            images=images, 
+            tools=tools, 
+            tool_choice=tool_choice, 
+            tool_map=tool_map,
+            think=think,
+            format=format, 
+            messages=messages, 
+            stream=stream, 
+            attachments=attachments, 
+            auto_process_tool_calls=auto_process_tool_calls, 
+            **kwargs
+
         )
     
 

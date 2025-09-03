@@ -128,7 +128,7 @@ def test_add_attachment():
         
         # First create a conversation message
         conversation_id = "test_conv_123"
-        message_id = history.generate_message_id()
+        message_id = generate_message_id()
         
         history.add_conversation(
             role="user",
@@ -245,7 +245,7 @@ def test_jinx_execution_logging():
     try:
         history = CommandHistory(temp_db)
         
-        message_id = history.generate_message_id()
+        message_id = generate_message_id()
         
         history.save_jinx_execution(
             triggering_message_id=message_id,
