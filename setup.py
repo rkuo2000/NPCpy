@@ -21,6 +21,8 @@ base_requirements = [
     "numpy",
     "requests",
     "docx", 
+    "exa-py", 
+    "elevenlabs", 
     "matplotlib",
     "markdown",
     "networkx", 
@@ -80,7 +82,7 @@ extra_files = package_files("npcpy/npc_team/")
 
 setup(
     name="npcpy",
-    version="1.1.31",
+    version="1.1.32",
     packages=find_packages(exclude=["tests*"]),
     install_requires=base_requirements,  # Only install base requirements by default
     extras_require={

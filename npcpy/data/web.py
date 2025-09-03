@@ -21,6 +21,25 @@ except:
     pass
 
 
+# add exa search
+# figure out if there is litellm equivalent for search
+
+def search_exa(query:str, 
+               api_key:str = None, 
+               top_k = 5,
+               **kwargs):
+    from exa_py import Exa
+    if api_key is None:
+        api_key = os.environ.get('EXA_API_KEY') 
+    exa = Exa(api_key)
+
+    results = exa.search_and_contents(
+        query, 
+        text=True   
+    )
+    return results.results[0:top_k]
+
+
 def search_perplexity(
     query: str,
     api_key: str = None,
@@ -108,6 +127,8 @@ def search_web(
             print("DuckDuckGo search failed: ", e)
             urls = []
             results = []
+    elif provider =='exa':
+        return search_exa(query, api_key=api_key, )
 
     elif provider =='google':  # google
         urls = list(search(query, num_results=num_results))
