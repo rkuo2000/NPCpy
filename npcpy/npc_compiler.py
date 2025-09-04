@@ -89,15 +89,33 @@ def agent_pass_handler(command, extracted_data, **kwargs):
     
     return result
 
-def log_entry(entity_id, entry_type, content, metadata=None, db_path="~/npcsh_history.db"):
-    """Log an entry for an NPC or team"""
-    db_path = os.path.expanduser(db_path)
-    with sqlite3.connect(db_path) as conn:
-        conn.execute(
-            "INSERT INTO npc_log (entity_id, entry_type, content, metadata) VALUES (?, ?, ?, ?)",
-            (entity_id, entry_type, json.dumps(content), json.dumps(metadata) if metadata else None)
-        )
-        conn.commit()
+
+def create_or_replace_table(db_path, table_name, data):
+    """Creates or replaces a table in the SQLite database"""
+    conn = sqlite3.connect(os.path.expanduser(db_path))
+    try:
+        data.to_sql(table_name, conn, if_exists="replace", index=False)
+        print(f"Table '{table_name}' created/replaced successfully.")
+        return True
+    except Exception as e:
+        print(f"Error creating/replacing table '{table_name}': {e}")
+        return False
+    finally:
+        conn.close()
+
+def find_file_path(filename, search_dirs, suffix=None):
+    """Find a file in multiple directories"""
+    if suffix and not filename.endswith(suffix):
+        filename += suffix
+        
+    for dir_path in search_dirs:
+        file_path = os.path.join(os.path.expanduser(dir_path), filename)
+        if os.path.exists(file_path):
+            return file_path
+            
+    return None
+
+
 
 def get_log_entries(entity_id, entry_type=None, limit=10, db_path="~/npcsh_history.db"):
     """Get log entries for an NPC or team"""
@@ -135,40 +153,15 @@ def load_yaml_file(file_path):
         print(f"Error loading YAML file {file_path}: {e}")
         return None
 
-def write_yaml_file(file_path, data):
-    """Write data to a YAML file"""
-    try:
-        with open(os.path.expanduser(file_path), 'w') as f:
-            yaml.dump(data, f)
-        return True
-    except Exception as e:
-        print(f"Error writing YAML file {file_path}: {e}")
-        return False
-
-def create_or_replace_table(db_path, table_name, data):
-    """Creates or replaces a table in the SQLite database"""
-    conn = sqlite3.connect(os.path.expanduser(db_path))
-    try:
-        data.to_sql(table_name, conn, if_exists="replace", index=False)
-        print(f"Table '{table_name}' created/replaced successfully.")
-        return True
-    except Exception as e:
-        print(f"Error creating/replacing table '{table_name}': {e}")
-        return False
-    finally:
-        conn.close()
-
-def find_file_path(filename, search_dirs, suffix=None):
-    """Find a file in multiple directories"""
-    if suffix and not filename.endswith(suffix):
-        filename += suffix
-        
-    for dir_path in search_dirs:
-        file_path = os.path.join(os.path.expanduser(dir_path), filename)
-        if os.path.exists(file_path):
-            return file_path
-            
-    return None
+def log_entry(entity_id, entry_type, content, metadata=None, db_path="~/npcsh_history.db"):
+    """Log an entry for an NPC or team"""
+    db_path = os.path.expanduser(db_path)
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            "INSERT INTO npc_log (entity_id, entry_type, content, metadata) VALUES (?, ?, ?, ?)",
+            (entity_id, entry_type, json.dumps(content), json.dumps(metadata) if metadata else None)
+        )
+        conn.commit()
 
 
 
@@ -224,6 +217,16 @@ def initialize_npc_project(
 
 
 
+
+def write_yaml_file(file_path, data):
+    """Write data to a YAML file"""
+    try:
+        with open(os.path.expanduser(file_path), 'w') as f:
+            yaml.dump(data, f)
+        return True
+    except Exception as e:
+        print(f"Error writing YAML file {file_path}: {e}")
+        return False
 
 
 class Jinx:
