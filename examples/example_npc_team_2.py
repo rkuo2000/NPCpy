@@ -15,7 +15,7 @@ def setup_specialized_team():
     os.makedirs(team_dir, exist_ok=True)
     os.makedirs(os.path.join(team_dir, "jinxs"), exist_ok=True)
     
-    # Security Analyst NPC
+    
     security_config = {
         "name": "security_analyst",
         "primary_directive": """You are a cybersecurity analyst specializing in threat assessment, 
@@ -25,7 +25,7 @@ def setup_specialized_team():
         "provider": "ollama"
     }
     
-    # DevOps Engineer NPC
+    
     devops_config = {
         "name": "devops_engineer", 
         "primary_directive": """You are a DevOps engineer expert in infrastructure automation, 
@@ -35,7 +35,7 @@ def setup_specialized_team():
         "provider": "ollama"
     }
     
-    # UX Designer NPC
+    
     ux_config = {
         "name": "ux_designer",
         "primary_directive": """You are a UX designer focused on user experience research, 
@@ -45,7 +45,7 @@ def setup_specialized_team():
         "provider": "ollama"
     }
     
-    # Product Manager NPC
+    
     pm_config = {
         "name": "product_manager",
         "primary_directive": """You are a product manager who coordinates cross-functional teams, 
@@ -61,7 +61,7 @@ def setup_specialized_team():
         with open(npc_path, 'w') as f:
             yaml.dump(config, f)
     
-    # Team context
+    
     team_context = {
         "forenpc": "product_manager",
         "specialization": "technical_product_development"
@@ -71,7 +71,7 @@ def setup_specialized_team():
     with open(ctx_path, 'w') as f:
         yaml.dump(team_context, f)
     
-    # Create advanced jinx for log analysis
+    
     log_analysis_jinx = {
         "jinx_name": "analyze_system_logs",
         "description": "Analyze system logs for security and performance issues",
@@ -90,7 +90,7 @@ from collections import Counter
 log_content = context.get('log_content', '')
 focus_area = context.get('focus_area', 'general')
 
-# Simulate log parsing
+
 lines = log_content.split('\\n') if log_content else [
     "2024-01-15 10:23:45 ERROR Failed login attempt for user 'admin' from 192.168.1.100",
     "2024-01-15 10:24:12 WARNING Multiple failed login attempts detected", 
@@ -99,7 +99,7 @@ lines = log_content.split('\\n') if log_content else [
     "2024-01-15 10:27:12 CRITICAL System memory usage at 95%"
 ]
 
-# Extract log levels and patterns
+
 log_levels = Counter()
 error_patterns = []
 security_events = []
@@ -243,7 +243,7 @@ def test_specialized_npc_direct_consultation():
     team_dir = setup_specialized_team()
     team = Team(team_path=team_dir)
     
-    # Test direct DevOps consultation
+    
     devops = team.get_npc("devops_engineer")
     devops_request = """
     We're seeing intermittent failures in our Kubernetes cluster:
@@ -258,7 +258,7 @@ def test_specialized_npc_direct_consultation():
     devops_result = devops.check_llm_command(devops_request, team=team)
     print("DevOps Consultation:", devops_result)
     
-    # Test direct Security consultation  
+    
     security = team.get_npc("security_analyst")
     security_request = """
     We're implementing OAuth 2.0 with PKCE for our mobile app. The security considerations are:

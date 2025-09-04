@@ -11,7 +11,7 @@ def test_duckduckgo_search():
             provider="duckduckgo"
         )
         
-        assert len(results) == 2  # Returns [content_str, link_str]
+        assert len(results) == 2  
         content_str, link_str = results
         
         assert len(content_str) > 0
@@ -34,7 +34,7 @@ def test_google_search():
             provider="google"
         )
         
-        assert len(results) == 2  # Returns [content_str, link_str]
+        assert len(results) == 2  
         content_str, link_str = results
         
         print(f"Google search returned {len(content_str)} chars of content")
@@ -47,14 +47,14 @@ def test_google_search():
 def test_perplexity_search():
     """Test Perplexity AI search"""
     try:
-        # This will fail without API key, but tests the function
+        
         results = search_perplexity(
             query="What is artificial intelligence?",
-            api_key="fake_key"  # Will fail but tests the flow
+            api_key="fake_key"  
         )
         
         if results:
-            assert len(results) == 2  # Returns [content, citations]
+            assert len(results) == 2  
             print("Perplexity search successful")
         
     except Exception as e:
@@ -84,13 +84,13 @@ def test_search_web_default_provider():
 def test_search_web_rate_limiting():
     """Test search with small delay to respect rate limits"""
     try:
-        # First search
+        
         results1 = search_web("test query 1", num_results=1, provider="duckduckgo")
         
-        # Small delay
+        
         time.sleep(1)
         
-        # Second search  
+        
         results2 = search_web("test query 2", num_results=1, provider="duckduckgo")
         
         assert len(results1) == 2
@@ -111,7 +111,7 @@ def test_search_web_empty_results():
             provider="duckduckgo"
         )
         
-        assert len(results) == 2  # Always returns 2 items even if empty
+        assert len(results) == 2  
         content_str, link_str = results
         
         print(f"Specific query search: content={len(content_str)}, links={len(link_str)}")
@@ -153,7 +153,7 @@ def test_search_web_large_num_results():
         assert len(results) == 2
         content_str, link_str = results
         
-        # Should have more content with more results
+        
         assert len(content_str) > 100
         
         print(f"Large results search: {len(content_str)} chars of content")
@@ -173,10 +173,10 @@ def test_search_web_content_parsing():
         
         content_str, link_str = results
         
-        # Check for citation format in content
+        
         assert "Citation:" in content_str
         
-        # Check that links are separated by newlines
+        
         links = link_str.strip().split('\n')
         assert len(links) >= 1
         

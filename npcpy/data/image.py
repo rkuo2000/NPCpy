@@ -11,25 +11,25 @@ from PIL import Image
 def _windows_snip_to_file(file_path: str) -> bool:
     """Helper function to trigger Windows snipping and save to file."""
     try:
-        # Import Windows-specific modules only when needed
+        
         import win32clipboard
         from PIL import ImageGrab
         from ctypes import windll
 
-        # Simulate Windows + Shift + S
-        windll.user32.keybd_event(0x5B, 0, 0, 0)  # WIN down
-        windll.user32.keybd_event(0x10, 0, 0, 0)  # SHIFT down
-        windll.user32.keybd_event(0x53, 0, 0, 0)  # S down
-        windll.user32.keybd_event(0x53, 0, 0x0002, 0)  # S up
-        windll.user32.keybd_event(0x10, 0, 0x0002, 0)  # SHIFT up
-        windll.user32.keybd_event(0x5B, 0, 0x0002, 0)  # WIN up
+        
+        windll.user32.keybd_event(0x5B, 0, 0, 0)  
+        windll.user32.keybd_event(0x10, 0, 0, 0)  
+        windll.user32.keybd_event(0x53, 0, 0, 0)  
+        windll.user32.keybd_event(0x53, 0, 0x0002, 0)  
+        windll.user32.keybd_event(0x10, 0, 0x0002, 0)  
+        windll.user32.keybd_event(0x5B, 0, 0x0002, 0)  
 
-        # Wait for user to complete the snip
+        
         print("Please select an area to capture...")
-        time.sleep(1)  # Give a moment for snipping jinx to start
+        time.sleep(1)  
 
-        # Keep checking clipboard for new image
-        max_wait = 30  # Maximum seconds to wait
+        
+        max_wait = 30  
         start_time = time.time()
 
         while time.time() - start_time < max_wait:
@@ -60,7 +60,7 @@ def capture_screenshot( full=False) -> Dict[str, str]:
     Returns:
         A dictionary containing the filename, file path, and model kwargs.
     """
-    # Ensure the directory exists
+    
 
     directory = os.path.expanduser("~/.npcsh/screenshots")
     timestamp = time.strftime("%Y%m%d_%H%M%S")
@@ -71,7 +71,7 @@ def capture_screenshot( full=False) -> Dict[str, str]:
 
 
 
-    #file_path = os.path.join(directory, filename)
+    
 
     system = platform.system()
 
@@ -79,11 +79,11 @@ def capture_screenshot( full=False) -> Dict[str, str]:
 
 
     if full:
-        #print('full')
+        
         if system.lower() == "darwin":
-            #print('mac os screencap')
+            
             subprocess.run(["screencapture", file_path], capture_output=True)
-            #print(f"Full screenshot saved to: {file_path}")
+            
         elif system == "Linux":
             if (
                 subprocess.run(
@@ -102,33 +102,33 @@ def capture_screenshot( full=False) -> Dict[str, str]:
                     time.sleep(0.5)
 
         elif system == "Windows":
-            # For full screen on Windows, we'll use a different approach
+            
             try:
                 import win32gui
                 import win32ui
                 import win32con
                 from PIL import Image
 
-                # Get screen dimensions
+                
                 width = win32api.GetSystemMetrics(win32con.SM_CXVIRTUALSCREEN)
                 height = win32api.GetSystemMetrics(win32con.SM_CYVIRTUALSCREEN)
 
-                # Create device context
+                
                 hdesktop = win32gui.GetDesktopWindow()
                 desktop_dc = win32gui.GetWindowDC(hdesktop)
                 img_dc = win32ui.CreateDCFromHandle(desktop_dc)
                 mem_dc = img_dc.CreateCompatibleDC()
 
-                # Create bitmap
+                
                 screenshot = win32ui.CreateBitmap()
                 screenshot.CreateCompatibleBitmap(img_dc, width, height)
                 mem_dc.SelectObject(screenshot)
                 mem_dc.BitBlt((0, 0), (width, height), img_dc, (0, 0), win32con.SRCCOPY)
 
-                # Save
+                
                 screenshot.SaveBitmapFile(mem_dc, file_path)
 
-                # Cleanup
+                
                 mem_dc.DeleteDC()
                 win32gui.DeleteObject(screenshot.GetHandle())
 
@@ -173,7 +173,7 @@ def capture_screenshot( full=False) -> Dict[str, str]:
             print(f"Unsupported operating system: {system}")
             return None
 
-    # Check if screenshot was successfully saved
+    
     if os.path.exists(file_path):
         print(f"Screenshot saved to: {file_path}")
         return {
@@ -186,24 +186,24 @@ def capture_screenshot( full=False) -> Dict[str, str]:
         return None
 
 def compress_image(image_bytes, max_size=(800, 600)):
-    # Create a copy of the bytes in memory
+    
     buffer = io.BytesIO(image_bytes)
     img = Image.open(buffer)
 
-    # Force loading of image data
+    
     img.load()
 
-    # Convert RGBA to RGB if necessary
+    
     if img.mode == "RGBA":
         background = Image.new("RGB", img.size, (255, 255, 255))
         background.paste(img, mask=img.split()[3])
         img = background
 
-    # Resize if needed
+    
     if img.size[0] > max_size[0] or img.size[1] > max_size[1]:
         img.thumbnail(max_size)
 
-    # Save with minimal compression
+    
     out_buffer = io.BytesIO()
     img.save(out_buffer, format="JPEG", quality=95, optimize=False)
     return out_buffer.getvalue()

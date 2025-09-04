@@ -35,7 +35,7 @@ class NPCModelRunner:
             )
 
     def _load_sample_data(self):
-        # For testing purposes
+        
         return pd.DataFrame(
             {
                 "customer_id": range(1, 4),
@@ -50,32 +50,32 @@ class NPCModelRunner:
 
     def run_model(self, model_name: str, model_sql: str, sample_data=None):
         try:
-            # Load or use sample data
+            
             if sample_data is None:
                 raw_data = self._load_sample_data()
             else:
                 raw_data = sample_data
 
-            # Register the raw data as a table
+            
             self.model_registry["raw_customer_feedback"] = raw_data
 
-            # Parse SQL and execute with our custom functions
+            
             if "{{ ref(" in model_sql:
-                # Handle model dependencies
+                
                 for dep in self._extract_dependencies(model_sql):
                     if dep not in self.model_registry:
                         raise ValueError(f"Dependent model {dep} not found")
 
-                # Replace ref() calls with actual data
+                
                 model_sql = self._resolve_refs(model_sql)
 
-            # Execute the model
+            
             result_df = self._execute_model(model_sql)
 
-            # Store in registry
+            
             self.model_registry[model_name] = result_df
 
-            # Log to history
+            
             self._log_model_run(model_name, result_df)
 
             return result_df
@@ -85,8 +85,8 @@ class NPCModelRunner:
             raise e
 
     def _execute_model(self, model_sql: str) -> pd.DataFrame:
-        # This is a simplified version - you'd want to properly parse the SQL
-        # For now, let's implement basic synthesize functionality
+        
+        
 
         if "synthesize(" in model_sql:
             raw_data = self.model_registry["raw_customer_feedback"]
@@ -109,7 +109,7 @@ class NPCModelRunner:
                 context=self._load_vars()["business_context"],
             )
 
-        return pd.DataFrame()  # Fallback
+        return pd.DataFrame()  
 
     def _log_model_run(self, model_name: str, result_df, status="success", error=None):
         with sqlite3.connect(self.history_db) as conn:
@@ -139,14 +139,14 @@ class NPCModelRunner:
             return yaml.safe_load(f).get("vars", {})
 
     def _extract_dependencies(self, model_sql: str) -> List[str]:
-        # Simple regex to extract model names from ref() calls
+        
         import re
 
         refs = re.findall(r'{{\s*ref\([\'"](.+?)[\'"]\)\s*}}', model_sql)
         return refs
 
     def _resolve_refs(self, model_sql: str) -> str:
-        # Replace ref() calls with actual table references
+        
         import re
 
         def replace_ref(match):
@@ -158,25 +158,25 @@ class NPCModelRunner:
         return re.sub(r'{{\s*ref\([\'"](.+?)[\'"]\)\s*}}', replace_ref, model_sql)
 
 
-# Usage example:
+
 def main():
-    # Initialize
+    
 
     runner = NPCModelRunner(npc_compiler)
 
-    # Run first model
+    
     with open("models/customer_feedback.sql", "r") as f:
         feedback_model = runner.run_model("customer_feedback", f.read())
         print("First model results:")
         print(feedback_model.head())
 
-    # Run second model that depends on the first
+    
     with open("models/customer_insights.sql", "r") as f:
         insights_model = runner.run_model("customer_insights", f.read())
         print("\nSecond model results:")
         print(insights_model.head())
 
-    # Check history
+    
     with sqlite3.connect(runner.history_db) as conn:
         history = pd.read_sql(
             "SELECT * FROM model_runs ORDER BY run_timestamp DESC", conn

@@ -10,7 +10,7 @@ from npcpy.work.plan import execute_plan_command
 from npcpy.work.trigger import execute_trigger_command
 import pandas as pd
 
-# Create specialized NPCs with comprehensive tool sets
+
 image_generator = NPC(
     name='Image Creator',
     primary_directive='You are a creative image generator who creates stunning visuals based on descriptions and requirements.',
@@ -74,7 +74,7 @@ multimedia_coordinator = NPC(
     provider='gemini'
 )
 
-# Create comprehensive multimedia production team
+
 multimedia_team = Team(
     npcs=[
         image_generator,
@@ -88,17 +88,17 @@ multimedia_team = Team(
     forenpc=multimedia_coordinator
 )
 
-# Start server for multimedia team
+
 if __name__ == "__main__":
-    # Register the team globally so the server can access it
+    
     import npcpy.serve as serve_module
     
-    # Add the team to the server's global state
+    
     if not hasattr(serve_module, 'registered_teams'):
         serve_module.registered_teams = {}
     serve_module.registered_teams['multimedia_team'] = multimedia_team
     
-    # Also register individual NPCs for direct access
+    
     if not hasattr(serve_module, 'registered_npcs'):
         serve_module.registered_npcs = {}
     
@@ -110,8 +110,8 @@ if __name__ == "__main__":
     
     start_flask_server(
         port=5337,
-        cors_origins=["*"],  # Allow all origins for development
+        cors_origins=["*"],  
         debug=True,
-        teams={'multimedia_team': multimedia_team},  # Pass teams to server
-        npcs=serve_module.registered_npcs  # Pass NPCs to server
+        teams={'multimedia_team': multimedia_team},  
+        npcs=serve_module.registered_npcs  
     )

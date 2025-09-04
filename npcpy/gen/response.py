@@ -11,14 +11,14 @@ try:
 except ImportError:
     pass
 except OSError:
-    # Handle case where ollama is not installed or not available
+    
     print("Ollama is not installed or not available. Please install it to use this feature.")
 try:
     from litellm import completion
 except ImportError:
     pass
 except OSError:
-    # Handle case where litellm is not installed or not available
+    
     pass
 
 def handle_streaming_json(api_params):
@@ -85,7 +85,7 @@ Do not include any additional markdown formatting or leading ```json tags in you
    device = next(model.parameters()).device
    inputs = tokenizer(chat_text, return_tensors="pt", padding=True, truncation=True)
    inputs = {k: v.to(device) for k, v in inputs.items()}
-   # remove kwargs stream
+   
        
    with torch.no_grad():
        outputs = model.generate(
@@ -270,18 +270,18 @@ def get_ollama_response(
         "tool_results": []
     }
 
-    #print("API params:", api_params)
+    
 
-    # If we want raw tool calls OR no tools, just stream directly
+    
     if not auto_process_tool_calls or not (tools and tool_map):
         res = ollama.chat(**api_params, options=options)
         result["raw_response"] = res
         
         if stream:
-            result["response"] = res  # This is the stream generator
+            result["response"] = res  
             return result
         else:
-            # Non-streaming regular response
+            
             message = res.get("message", {})
             response_content = message.get("content", "")
             result["response"] = response_content
@@ -290,7 +290,7 @@ def get_ollama_response(
             if message.get('tool_calls'):
                 result["tool_calls"] = message['tool_calls']
             
-            # Handle JSON format if specified
+            
             if format == "json":
                 try:
                     if isinstance(response_content, str):
@@ -307,17 +307,17 @@ def get_ollama_response(
             
             return result
 
-    # Only if auto_process_tool_calls=True AND we have tools
-    # Make initial non-streaming call to check for tool calls
+    
+    
     res = ollama.chat(**api_params, options=options)
     result["raw_response"] = res
     
-    #print("Raw Ollama response:", res)
+    
     
     message = res.get("message", {})
     response_content = message.get("content", "")
     
-    # Check for tool calls and process them
+    
     if message.get('tool_calls'):
         print("Found tool calls, processing automatically:", message['tool_calls'])
         
@@ -330,21 +330,21 @@ def get_ollama_response(
             "tool_calls": message['tool_calls']
         }
         
-        # Process tool calls and get the updated result
+        
         processed_result = process_tool_calls(response_for_processing, 
                                               tool_map, model, 
                                               'ollama', 
                                               messages, 
                                               stream=False)
         
-        # Now if streaming was requested, make a final call with the complete conversation
+        
         if stream:
             print("Making final streaming call with processed tools")
             
-            # Use the updated messages from tool processing
+            
             final_messages = processed_result["messages"]
             
-            # Make the final streaming call
+            
             final_api_params = {
                 "model": model,
                 "messages": final_messages,
@@ -359,13 +359,13 @@ def get_ollama_response(
             
         return processed_result
     
-    # No tool calls found, handle normally
+    
     else:
         result["response"] = response_content
         result["messages"].append({"role": "assistant", "content": response_content})
         
         if stream:
-            # Make streaming call for regular response
+            
             stream_api_params = {
                 "model": model,
                 "messages": messages,
@@ -376,7 +376,7 @@ def get_ollama_response(
             
             result["response"] = ollama.chat(**stream_api_params, options=options)
         else:
-            # Handle JSON format if specified
+            
             if format == "json":
                 try:
                     if isinstance(response_content, str):
@@ -573,27 +573,27 @@ def get_litellm_response(
             ]:
                 api_params[key] = value
 
-    # If we want raw tool calls OR no tools, just call directly with requested streaming
+    
     if not auto_process_tool_calls or not (tools and tool_map):
         api_params["stream"] = stream
         resp = completion(**api_params)
         result["raw_response"] = resp
         
         if stream:
-            result["response"] = resp  # This is the stream generator
+            result["response"] = resp  
             return result
         else:
-            # Non-streaming response
+            
             llm_response = resp.choices[0].message.content
             result["response"] = llm_response
             result["messages"].append({"role": "assistant", 
                                        "content": llm_response})
             
-            # Check for tool calls
+            
             if hasattr(resp.choices[0].message, 'tool_calls') and resp.choices[0].message.tool_calls:
                 result["tool_calls"] = resp.choices[0].message.tool_calls
             
-            # Handle JSON format requests
+            
             if format == "json":
                 try:
                     if isinstance(llm_response, str):
@@ -613,8 +613,8 @@ def get_litellm_response(
             
             return result
 
-    # Only if process_tool_calls=True AND we have tools
-    # Make initial non-streaming call to check for tool calls
+    
+    
     initial_api_params = api_params.copy()
     initial_api_params["stream"] = False
     
@@ -622,7 +622,7 @@ def get_litellm_response(
     resp = completion(**initial_api_params)
     result["raw_response"] = resp
     
-    # Check for tool calls
+    
     has_tool_calls = hasattr(resp.choices[0].message, 'tool_calls') and resp.choices[0].message.tool_calls
     
     if has_tool_calls:
@@ -630,7 +630,7 @@ def get_litellm_response(
         
         result["tool_calls"] = resp.choices[0].message.tool_calls
         
-        # Process tool calls
+        
         processed_result = process_tool_calls(result, 
                                               tool_map, 
                                               model, 
@@ -638,7 +638,7 @@ def get_litellm_response(
                                               result["messages"], 
                                               stream=False)
         
-        # If streaming was requested, make final streaming call with processed conversation
+        
         if stream:
             print("Making final streaming call with processed tools")
             
@@ -651,20 +651,20 @@ def get_litellm_response(
             
         return processed_result
     
-    # No tool calls found, handle normally
+    
     else:
         llm_response = resp.choices[0].message.content
         result["response"] = llm_response
         result["messages"].append({"role": "assistant", "content": llm_response})
         
         if stream:
-            # Make streaming call for regular response
+            
             stream_api_params = api_params.copy()
             stream_api_params["stream"] = True
             final_stream = completion(**stream_api_params)
             result["response"] = final_stream
         else:
-            # Handle JSON format requests for non-streaming
+            
             if format == "json":
                 try:
                     if isinstance(llm_response, str):
@@ -695,12 +695,12 @@ def process_tool_calls(response_dict, tool_map, model, provider, messages, strea
     
     if not tool_calls:
         return result
-    #print('tm', tool_map)
+    
     for tool_call in tool_calls:
         tool_id = str(uuid.uuid4())
         tool_name = None
         arguments = {}
-        #print('tc', tool_call)
+        
 
         if isinstance(tool_call, dict):
             tool_id = tool_call.get("id", str(uuid.uuid4()))
@@ -719,8 +719,8 @@ def process_tool_calls(response_dict, tool_map, model, provider, messages, strea
             arguments = json.loads(arguments_str) if isinstance(arguments_str, str) else arguments_str
         except json.JSONDecodeError:
             arguments = {"raw_arguments": arguments_str}
-        #print('arg', arguments)
-        #print('tool name in tool map ', tool_name in tool_map)
+        
+        
         if tool_name in tool_map:
             tool_result = None
             tool_result_str = ""

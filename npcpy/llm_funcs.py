@@ -107,7 +107,7 @@ def gen_video(
             provider = "diffusers"
     
     if provider == "diffusers" or provider is None:
-        # Use diffusers as default/fallback
+      
         output_path = generate_video_diffusers(
             prompt,
             model,
@@ -190,7 +190,7 @@ def get_llm_response(
         system_message = get_system_message(npc, team) 
     else: 
         system_message = "You are a helpful assistant."
-    #print(system_message)
+   
 
     if context is not None:
         context_str = f'User Provided Context: {context}'
@@ -254,7 +254,7 @@ def execute_llm_command(
     attempt = 0
     subcommands = []
 
-    # Create context from retrieved documents
+   
     context = ""
     while attempt < max_attempts:
         prompt = f"""
@@ -297,7 +297,7 @@ def execute_llm_command(
                 """
 
             messages.append({"role": "user", "content": prompt})
-            # print(messages, stream)
+           
             response = get_llm_response(
                 prompt,
                 model=model,
@@ -396,8 +396,8 @@ def handle_jinx_call(
         return f"No jinxs are available. "
     else:
 
-        #print(npc, team)
-        #print(team.jinxs_dict, npc.jinxs_dict)
+       
+       
         if jinx_name not in npc.jinxs_dict and jinx_name not in team.jinxs_dict:
             print(f"Jinx {jinx_name} not available")
             if attempt < n_attempts:
@@ -502,25 +502,25 @@ def handle_jinx_call(
                     response_text.replace("```json", "").replace("```", "").strip()
                 )
 
-            # Parse the cleaned response
+           
             if isinstance(response_text, dict):
                 input_values = response_text
             else:
                 input_values = json.loads(response_text)
-            # print(f"Extracted inputs: {input_values}")
+           
         except json.JSONDecodeError as e:
             print(f"Error decoding input values: {e}. Raw response: {response}")
             return f"Error extracting inputs for jinx '{jinx_name}'"
-        # Input validation (example):
+       
         required_inputs = jinx.inputs
         missing_inputs = []
         for inp in required_inputs:
             if not isinstance(inp, dict):
-                # dicts contain the keywords so its fine if theyre missing from the inputs.
+               
                 if inp not in input_values or input_values[inp] == "":
                     missing_inputs.append(inp)
         if len(missing_inputs) > 0:
-            # print(f"Missing required inputs for jinx '{jinx_name}': {missing_inputs}")
+           
             if attempt < n_attempts:
                 print(f"attempt {attempt+1} to generate inputs failed, trying again")
                 print("missing inputs", missing_inputs)
@@ -635,8 +635,8 @@ def handle_request_input(
     )
     return user_input
 
-### Following functions primarily support check_llm_command's procedure which was
-### broken up into smaller functions for clarity and modularity.
+
+
 
 
 def jinx_handler(command, extracted_data, **kwargs):
@@ -723,7 +723,7 @@ def check_llm_command(
     )
     return exec
 
-# Define `DEFAULT_ACTION_SPACE`
+
 
 
 def jinx_context_filler(npc, team):
@@ -737,7 +737,7 @@ def jinx_context_filler(npc, team):
     Returns:
         str: Formatted string containing jinx information and usage guidelines
     """
-    # Generate NPC jinxs listing
+  
     npc_jinxs = "\nNPC Jinxs:\n" + (
         "\n".join(
             f"- {name}: {jinx.description}"
@@ -747,7 +747,7 @@ def jinx_context_filler(npc, team):
         else ''
     )
     
-    # Generate team jinxs listing
+  
     team_jinxs = "\n\nTeam Jinxs:\n" + (
         "\n".join(
             f"- {name}: {jinx.description}"
@@ -757,7 +757,7 @@ def jinx_context_filler(npc, team):
         else ''
     )
     
-    # Guidelines for jinx usage
+  
     usage_guidelines = """
 Use jinxs when appropriate. For example:
 
@@ -879,7 +879,7 @@ Use the following context about available actions and tools to construct the pla
         ctx = action_info.get("context")
         if callable(ctx):
             try:
-                #print(ctx)
+              
                 ctx = ctx(npc=npc, team=team)
             except Exception as e:
                 print( actions)
@@ -939,8 +939,8 @@ Respond ONLY with the plan.
         context=context,
     )
     response_content = action_response.get("response", {})
-    #print(action_response)
-    #print(type(action_response))
+  
+  
     return response_content.get("actions", [])
 
 def execute_multi_step_plan(
@@ -964,7 +964,7 @@ def execute_multi_step_plan(
     between steps for adaptive behavior.
     """
     
-    # 1. Get the complete plan upfront with the corrected call.
+  
     planned_actions = plan_multi_step_actions(
         command=command,
         actions=actions,
@@ -1011,13 +1011,13 @@ def execute_multi_step_plan(
     for i, action_data in enumerate(planned_actions):
         render_markdown(f"--- Executing Step {i + 1} of {len(planned_actions)} ---")
         action_name = action_data["action"]
-        #if any(action_name in actions.keys()):
-            # get the closest named action
+      
+          
         try:
             handler = actions[action_name]["handler"]
 
 
-            # re-implement the yielding
+          
             step_context = f"Context from previous steps: {json.dumps(step_outputs)}" if step_outputs else ""
             render_markdown(
                 f"- Executing Action: {action_name} \n- Explanation: {action_data.get('explanation')}\n "
@@ -1039,7 +1039,7 @@ def execute_multi_step_plan(
                 images=images
                 )
         except KeyError as e:
-            # the key is not found
+          
             return execute_multi_step_plan(
                                             command=command + 'This error occurred: '+str(e)+'\n Do not make the same mistake again. If you are intending to use a jinx, you must `invoke_jinx`. If you just need to answer, choose `answer`.',
                                             model= model,
@@ -1059,11 +1059,11 @@ def execute_multi_step_plan(
         action_output = result.get('output') or result.get('response')
         
         if stream and len(planned_actions) > 1:
-            # If streaming, we need to process the output with markdown rendering
+          
             action_output = print_and_process_stream_with_markdown(action_output, model, provider)
         elif len(planned_actions) == 1:
-            # If streaming and only one action, we can directly return the output
-            # can circumvent because compile sequence results just returns single output results.
+          
+          
             return {"messages": result.get('messages', 
                                            current_messages), 
                     "output": action_output}
@@ -1071,8 +1071,8 @@ def execute_multi_step_plan(
         current_messages = result.get('messages', 
                                       current_messages)
 
-    # render_markdown('## Reviewing output...')
-    # need tot replace with a review step actually 
+  
+  
     final_output = compile_sequence_results(
        original_command=command,
        outputs=step_outputs,
@@ -1130,7 +1130,7 @@ Final Synthesized Response that addresses the user in a polite and informative m
     synthesized = response.get("response", "")
     if synthesized:
         return synthesized    
-    return '\n'.join(outputs)  # Fallback to joining outputs if synthesis fails
+    return '\n'.join(outputs)
 
 
 
@@ -1197,8 +1197,8 @@ JSON response:
 
 
 
-### Functions for knowledge extraction using get_llm_response
-### primarily used in memory.knowledge_graph but are general enough
+
+
 
 
 
@@ -1339,7 +1339,7 @@ def generate_group_candidates(
         else:
             item_subset = items
         
-        # --- PROMPT MODIFICATION: Focus on semantic essence, avoid gerunds/adverbs, favor subjects ---
+      
         prompt = f"""From the following {item_type}, identify specific and relevant conceptual groups.
         Think about the core subject or entity being discussed.
         
@@ -1366,7 +1366,7 @@ def generate_group_candidates(
             "groups": ["list of specific, precise, and relevant group names"]
         }}
         """
-        # --- END PROMPT MODIFICATION ---
+      
         
         response = get_llm_response(
             prompt,
@@ -1568,7 +1568,7 @@ def extract_facts(
     context: str = None
 ) -> List[str]:
     """Extract concise facts from text using LLM (as defined earlier)"""
-    # Implementation from your previous code
+  
     prompt = """Extract concise facts from this text.
         A fact is a piece of information that makes a statement about the world.
         A fact is typically a sentence that is true or false.
@@ -2066,3 +2066,239 @@ def asymptotic_freedom(parent_concept,
                                 context=context, npc=npc,
                                 **kwargs)
     return response['response'].get('new_sub_concepts', [])
+
+
+
+def bootstrap(
+    prompt: str,
+    model: str = None,
+    provider: str = None,
+    npc: Any = None,
+    team: Any = None,
+    sample_params: Dict[str, Any] = None,
+    sync_strategy: str = "consensus",
+    context: str = None,
+    n_samples: int = 3,
+    **kwargs
+) -> Dict[str, Any]:
+    """Bootstrap by sampling multiple agents from team or varying parameters"""
+    
+    if team and hasattr(team, 'npcs') and len(team.npcs) >= n_samples:
+      
+        sampled_npcs = list(team.npcs.values())[:n_samples]
+        results = []
+        
+        for i, agent in enumerate(sampled_npcs):
+            response = get_llm_response(
+                f"Sample {i+1}: {prompt}\nContext: {context}",
+                npc=agent,
+                context=context,
+                **kwargs
+            )
+            results.append({
+                'agent': agent.name,
+                'response': response.get("response", "")
+            })
+    else:
+      
+        if sample_params is None:
+            sample_params = {"temperature": [0.3, 0.7, 1.0]}
+        
+        results = []
+        for i in range(n_samples):
+            temp = sample_params.get('temperature', [0.7])[i % len(sample_params.get('temperature', [0.7]))]
+            response = get_llm_response(
+                f"Sample {i+1}: {prompt}\nContext: {context}",
+                model=model,
+                provider=provider,
+                npc=npc,
+                temperature=temp,
+                context=context,
+                **kwargs
+            )
+            results.append({
+                'variation': f'temp_{temp}',
+                'response': response.get("response", "")
+            })
+    
+  
+    response_texts = [r['response'] for r in results]
+    return synthesize(response_texts, sync_strategy, model, provider, npc or (team.forenpc if team else None), context)
+
+def harmonize(
+    prompt: str,
+    items: List[str],
+    model: str = None,
+    provider: str = None,
+    npc: Any = None,
+    team: Any = None,
+    harmony_rules: List[str] = None,
+    context: str = None,
+    agent_roles: List[str] = None,
+    **kwargs
+) -> Dict[str, Any]:
+    """Harmonize using multiple specialized agents"""
+    
+    if team and hasattr(team, 'npcs'):
+      
+        available_agents = list(team.npcs.values())
+        
+        if agent_roles:
+          
+            selected_agents = []
+            for role in agent_roles:
+                matching_agent = next((a for a in available_agents if role.lower() in a.name.lower() or role.lower() in a.primary_directive.lower()), None)
+                if matching_agent:
+                    selected_agents.append(matching_agent)
+            agents_to_use = selected_agents or available_agents[:len(items)]
+        else:
+          
+            agents_to_use = available_agents[:min(len(items), len(available_agents))]
+        
+        harmonized_results = []
+        for i, (item, agent) in enumerate(zip(items, agents_to_use)):
+            harmony_prompt = f"""Harmonize this element: {item}
+Task: {prompt}
+Rules: {', '.join(harmony_rules or ['maintain_consistency'])}
+Context: {context}
+Your role in harmony: {agent.primary_directive}"""
+            
+            response = get_llm_response(
+                harmony_prompt,
+                npc=agent,
+                context=context,
+                **kwargs
+            )
+            harmonized_results.append({
+                'agent': agent.name,
+                'item': item,
+                'harmonized': response.get("response", "")
+            })
+        
+      
+        coordinator = team.get_forenpc() if team else npc
+        synthesis_prompt = f"""Synthesize these harmonized elements:
+{chr(10).join([f"{r['agent']}: {r['harmonized']}" for r in harmonized_results])}
+Create unified harmonious result."""
+        
+        return get_llm_response(synthesis_prompt, npc=coordinator, context=context, **kwargs)
+    
+    else:
+      
+        items_text = chr(10).join([f"{i+1}. {item}" for i, item in enumerate(items)])
+        harmony_prompt = f"""Harmonize these items: {items_text}
+Task: {prompt}
+Rules: {', '.join(harmony_rules or ['maintain_consistency'])}
+Context: {context}"""
+        
+        return get_llm_response(harmony_prompt, model=model, provider=provider, npc=npc, context=context, **kwargs)
+
+def orchestrate(
+    prompt: str,
+    items: List[str],
+    model: str = None,
+    provider: str = None,
+    npc: Any = None,
+    team: Any = None,
+    workflow: str = "sequential_coordination",
+    context: str = None,
+    **kwargs
+) -> Dict[str, Any]:
+    """Orchestrate using team.orchestrate method"""
+    
+    if team and hasattr(team, 'orchestrate'):
+      
+        orchestration_request = f"""Orchestrate workflow: {workflow}
+Task: {prompt}
+Items: {chr(10).join([f'- {item}' for item in items])}
+Context: {context}"""
+        
+        return team.orchestrate(orchestration_request)
+    
+    else:
+      
+        items_text = chr(10).join([f"{i+1}. {item}" for i, item in enumerate(items)])
+        orchestrate_prompt = f"""Orchestrate using {workflow}:
+Task: {prompt}
+Items: {items_text}
+Context: {context}"""
+        
+        return get_llm_response(orchestrate_prompt, model=model, provider=provider, npc=npc, context=context, **kwargs)
+
+def spread_and_sync(
+    prompt: str,
+    variations: List[str],
+    model: str = None,
+    provider: str = None,
+    npc: Any = None,
+    team: Any = None,
+    sync_strategy: str = "consensus",
+    context: str = None,
+    **kwargs
+) -> Dict[str, Any]:
+    """Spread across agents/variations then sync with distribution analysis"""
+    
+    if team and hasattr(team, 'npcs') and len(team.npcs) >= len(variations):
+      
+        agents = list(team.npcs.values())[:len(variations)]
+        results = []
+        
+        for variation, agent in zip(variations, agents):
+            variation_prompt = f"""Analyze from {variation} perspective:
+Task: {prompt}
+Context: {context}
+Apply your expertise with {variation} approach."""
+            
+            response = get_llm_response(variation_prompt, npc=agent, context=context, **kwargs)
+            results.append({
+                'agent': agent.name,
+                'variation': variation,
+                'response': response.get("response", "")
+            })
+    else:
+      
+        results = []
+        agent = npc or (team.get_forenpc() if team else None)
+        
+        for variation in variations:
+            variation_prompt = f"""Analyze from {variation} perspective:
+Task: {prompt}
+Context: {context}"""
+            
+            response = get_llm_response(variation_prompt, model=model, provider=provider, npc=agent, context=context, **kwargs)
+            results.append({
+                'variation': variation,
+                'response': response.get("response", "")
+            })
+    
+  
+    response_texts = [r['response'] for r in results]
+    return synthesize(response_texts, sync_strategy, model, provider, npc or (team.get_forenpc() if team else None), context)
+
+def synthesize(prompt, responses: List[str], sync_strategy: str, model: str, provider: str, npc: Any, team:Any, context: str) -> Dict[str, Any]:
+    """Synthesize multiple responses using specified strategy"""
+    
+    strategies = {
+        "consensus": "Find areas of agreement and build consensus view",
+        "winner_takes_all": "Select the most convincing or comprehensive response",
+        "weighted_average": "Weight responses by quality/confidence and blend",
+        "majority_vote": "Identify majority position across responses",
+        "dialectical": "Synthesize opposing views into higher-order understanding",
+        "distribution_analysis": "Analyze the full distribution of responses and extract insights"
+    }
+    
+    strategy_instruction = strategies.get(sync_strategy, strategies["consensus"])
+    
+    synthesis_prompt = f"""Response Distribution Analysis:
+{chr(10).join([f'Response {i+1}: {r}' for i, r in enumerate(responses)])}
+
+Synthesis Strategy: {strategy_instruction}
+Context: {context}
+
+
+Analyze the distribution of these responses and synthesize according to the strategy.
+
+{prompt}
+"""
+    
+    return get_llm_response(synthesis_prompt, model=model, provider=provider, npc=npc, context=context)

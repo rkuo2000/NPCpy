@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+
 """
 Script to create and populate the market_events table needed by the NPC profile compiler.
 """
@@ -16,7 +16,7 @@ def create_market_events_table(db_path):
     cursor = conn.cursor()
 
     try:
-        # Check if table exists
+        
         cursor.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='market_events'"
         )
@@ -24,7 +24,7 @@ def create_market_events_table(db_path):
             print("Table 'market_events' already exists.")
             return True
 
-        # Create the market_events table
+        
         print("Creating 'market_events' table...")
         cursor.execute(
             """
@@ -42,7 +42,7 @@ def create_market_events_table(db_path):
         """
         )
 
-        # Add some sample data
+        
         print("Adding sample market event data...")
         now = datetime.now()
         sample_events = [
@@ -129,7 +129,7 @@ def create_market_events_table(db_path):
 
 
 if __name__ == "__main__":
-    # Default path or take from command line
+    
     default_db_path = os.path.expanduser("~/npcsh_history.db")
 
     if len(sys.argv) > 1:

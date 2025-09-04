@@ -7,7 +7,7 @@ def test_multi_expertise_task():
     """Test a task that genuinely requires multiple types of expertise"""
     print("=== Multi-Expertise Task Test ===")
     
-    # Create specialized NPCs
+    
     coordinator = NPC(
         name="coordinator",
         primary_directive="""You coordinate projects but are not a technical expert. 
@@ -34,7 +34,7 @@ def test_multi_expertise_task():
     
     team = Team(npcs=[coordinator, writer, analyst], forenpc=coordinator)
     
-    # Task that requires technical analysis (should pass to analyst)
+    
     technical_request = """
     Analyze this sales data and provide insights:
     - Q1: $150K revenue, 1200 customers

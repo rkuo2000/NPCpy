@@ -52,7 +52,7 @@ def create_engine_from_path(db_path: str) -> Engine:
     if db_path.startswith('postgresql://') or db_path.startswith('postgres://'):
         return create_engine(db_path)
     else:
-        # Treat as SQLite file path
+        
         if db_path.startswith('~/'):
             db_path = os.path.expanduser(db_path)
         return create_engine(f'sqlite:///{db_path}')
@@ -152,7 +152,7 @@ def setup_chroma_db(collection, description='', db_path: str = ''):
 def init_kg_schema(engine: Engine):
     """Creates the multi-scoped, path-aware KG tables using SQLAlchemy"""
     
-    # Create tables using SQLAlchemy DDL
+    
     metadata = MetaData()
     
     kg_facts = Table('kg_facts', metadata,
@@ -164,7 +164,7 @@ def init_kg_schema(engine: Engine):
         Column('type', String(100)),
         Column('generation', Integer),
         Column('origin', String(100)),
-        # Composite primary key
+        
         schema=None
     )
     
@@ -197,7 +197,7 @@ def init_kg_schema(engine: Engine):
         schema=None
     )
     
-    # Create all tables
+    
     metadata.create_all(engine, checkfirst=True)
 
 def load_kg_from_db(engine: Engine, team_name: str, npc_name: str, directory_path: str) -> Dict[str, Any]:
@@ -213,7 +213,7 @@ def load_kg_from_db(engine: Engine, team_name: str, npc_name: str, directory_pat
     
     with engine.connect() as conn:
         try:
-            # Get generation
+            
             result = conn.execute(text("""
                 SELECT value FROM kg_metadata 
                 WHERE team_name = :team AND npc_name = :npc AND directory_path = :path AND key = 'generation'
@@ -223,7 +223,7 @@ def load_kg_from_db(engine: Engine, team_name: str, npc_name: str, directory_pat
             if row:
                 kg['generation'] = int(row.value)
 
-            # Get facts
+            
             result = conn.execute(text("""
                 SELECT statement, source_text, type, generation, origin FROM kg_facts 
                 WHERE team_name = :team AND npc_name = :npc AND directory_path = :path
@@ -240,7 +240,7 @@ def load_kg_from_db(engine: Engine, team_name: str, npc_name: str, directory_pat
                 for row in result
             ]
 
-            # Get concepts
+            
             result = conn.execute(text("""
                 SELECT name, generation, origin FROM kg_concepts 
                 WHERE team_name = :team AND npc_name = :npc AND directory_path = :path
@@ -251,7 +251,7 @@ def load_kg_from_db(engine: Engine, team_name: str, npc_name: str, directory_pat
                 for row in result
             ]
 
-            # Get links
+            
             links = {}
             result = conn.execute(text("""
                 SELECT source, target, type FROM kg_links 
@@ -271,7 +271,7 @@ def load_kg_from_db(engine: Engine, team_name: str, npc_name: str, directory_pat
             kg['fact_to_concept_links'] = links
             
         except SQLAlchemyError:
-            # Initialize schema if it doesn't exist
+            
             init_kg_schema(engine)
     
     return kg
@@ -280,7 +280,7 @@ def save_kg_to_db(engine: Engine, kg_data: Dict[str, Any], team_name: str, npc_n
     """Saves a knowledge graph dictionary to the database, ignoring duplicates."""
     try:
         with engine.begin() as conn:
-            # Save facts
+            
             facts_to_save = [
                 {
                     "statement": fact['statement'],
@@ -294,7 +294,7 @@ def save_kg_to_db(engine: Engine, kg_data: Dict[str, Any], team_name: str, npc_n
             ]
             
             if facts_to_save:
-                # Use INSERT OR IGNORE for SQLite, ON CONFLICT DO NOTHING for PostgreSQL
+                
                 if 'sqlite' in str(engine.url):
                     stmt = text("""
                         INSERT OR IGNORE INTO kg_facts 
@@ -312,7 +312,7 @@ def save_kg_to_db(engine: Engine, kg_data: Dict[str, Any], team_name: str, npc_n
                 for fact in facts_to_save:
                     conn.execute(stmt, fact)
 
-            # Save concepts
+            
             concepts_to_save = [
                 {
                     "name": concept['name'],
@@ -343,7 +343,7 @@ def save_kg_to_db(engine: Engine, kg_data: Dict[str, Any], team_name: str, npc_n
                 for concept in concepts_to_save:
                     conn.execute(stmt, concept)
 
-            # Update metadata (generation number)
+            
             if 'sqlite' in str(engine.url):
                 stmt = text("""
                     INSERT OR REPLACE INTO kg_metadata (key, value, team_name, npc_name, directory_path)
@@ -364,13 +364,13 @@ def save_kg_to_db(engine: Engine, kg_data: Dict[str, Any], team_name: str, npc_n
                 "directory_path": directory_path
             })
 
-            # Rebuild links from scratch to ensure consistency
+            
             conn.execute(text("""
                 DELETE FROM kg_links 
                 WHERE team_name = :team_name AND npc_name = :npc_name AND directory_path = :directory_path
             """), {"team_name": team_name, "npc_name": npc_name, "directory_path": directory_path})
             
-            # Insert links
+            
             for fact, concepts in kg_data.get("fact_to_concept_links", {}).items():
                 for concept in concepts:
                     conn.execute(text("""
@@ -423,7 +423,7 @@ class CommandHistory:
         """Creates all necessary tables."""
         metadata = MetaData()
         
-        # Command history table
+        
         Table('command_history', metadata,
             Column('id', Integer, primary_key=True, autoincrement=True),
             Column('timestamp', String(50)),
@@ -433,7 +433,7 @@ class CommandHistory:
             Column('location', Text)
         )
         
-        # Conversation history table
+        
         Table('conversation_history', metadata,
             Column('id', Integer, primary_key=True, autoincrement=True),
             Column('message_id', String(50), unique=True, nullable=False),
@@ -448,7 +448,7 @@ class CommandHistory:
             Column('team', String(100))
         )
         
-        # Message attachments table
+        
         Table('message_attachments', metadata,
             Column('id', Integer, primary_key=True, autoincrement=True),
             Column('message_id', String(50), ForeignKey('conversation_history.message_id', ondelete='CASCADE'), nullable=False),
@@ -460,7 +460,7 @@ class CommandHistory:
             Column('file_path', Text) 
         )
         
-        # Jinx execution log table
+        
         Table('jinx_execution_log', metadata,
             Column('execution_id', Integer, primary_key=True, autoincrement=True),
             Column('triggering_message_id', String(50), ForeignKey('conversation_history.message_id', ondelete='CASCADE'), nullable=False),
@@ -477,12 +477,12 @@ class CommandHistory:
             Column('duration_ms', Integer)
         )
         
-        # Create all tables
+        
         metadata.create_all(self.engine, checkfirst=True)
         
-        # Create indexes for jinx table
+        
         with self.engine.begin() as conn:
-            # Check if indexes exist before creating (database-agnostic approach)
+            
             index_queries = [
                 "CREATE INDEX IF NOT EXISTS idx_jinx_log_trigger_msg ON jinx_execution_log (triggering_message_id)",
                 "CREATE INDEX IF NOT EXISTS idx_jinx_log_convo_id ON jinx_execution_log (conversation_id)",
@@ -494,10 +494,10 @@ class CommandHistory:
                 try:
                     conn.execute(text(idx_query))
                 except SQLAlchemyError:
-                    # Index might already exist or syntax might be different for PostgreSQL
+                    
                     pass
         
-        # Initialize KG schema
+        
         init_kg_schema(self.engine)
 
     def _execute_returning_id(self, stmt: str, params: Dict = None) -> Optional[int]:
@@ -575,7 +575,7 @@ class CommandHistory:
                     attachment_type=attachment.get("type"),
                     data=attachment.get("data"),
                     size=attachment.get("size"),
-                    file_path=attachment.get("path") # PASS THE PATH
+                    file_path=attachment.get("path") 
                 )
 
         return message_id
@@ -768,12 +768,12 @@ class CommandHistory:
             date_filter = "WHERE timestamp <= :end_date"
             params = {"end_date": end_date}
 
-        # Use different GROUP_CONCAT for different databases
+        
         if 'sqlite' in str(self.engine.url):
             group_concat_models = "GROUP_CONCAT(DISTINCT model)"
             group_concat_providers = "GROUP_CONCAT(DISTINCT provider)"
         else:
-            # PostgreSQL uses STRING_AGG
+            
             group_concat_models = "STRING_AGG(DISTINCT model, ',')"
             group_concat_providers = "STRING_AGG(DISTINCT provider, ',')"
 
@@ -807,7 +807,7 @@ class CommandHistory:
             ])
 
     def get_command_patterns(self, timeframe='day') -> pd.DataFrame:
-        # Use different date formatting for different databases
+        
         if 'sqlite' in str(self.engine.url):
             time_group_formats = {
                 'hour': "strftime('%Y-%m-%d %H', timestamp)",
@@ -816,7 +816,7 @@ class CommandHistory:
                 'month': "strftime('%Y-%m', timestamp)"
             }
         else:
-            # PostgreSQL date formatting
+            
             time_group_formats = {
                 'hour': "TO_CHAR(timestamp::timestamp, 'YYYY-MM-DD HH24')",
                 'day': "TO_CHAR(timestamp::timestamp, 'YYYY-MM-DD')",
@@ -826,7 +826,7 @@ class CommandHistory:
         
         time_group = time_group_formats.get(timeframe, time_group_formats['day'])
 
-        # Use different SUBSTR functions
+        
         if 'sqlite' in str(self.engine.url):
             substr_func = "SUBSTR"
             instr_func = "INSTR"
@@ -958,7 +958,7 @@ def retrieve_last_conversation(
     """
     last_message = command_history.get_last_conversation(conversation_id)
     if last_message:
-        return last_message['content']  # Use dict key access
+        return last_message['content']  
     return "No previous conversation messages found."
 
 def save_attachment_to_message(
@@ -1011,7 +1011,7 @@ def get_available_tables(db_path_or_engine: Union[str, Engine]) -> List[Tuple[st
                     "SELECT name FROM sqlite_master WHERE type='table' AND name != 'command_history'"
                 ))
             else:
-                # PostgreSQL
+                
                 result = conn.execute(text("""
                     SELECT table_name FROM information_schema.tables 
                     WHERE table_schema = 'public' AND table_name != 'command_history'

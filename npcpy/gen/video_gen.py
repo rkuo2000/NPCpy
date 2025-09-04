@@ -16,7 +16,7 @@ def generate_video_diffusers(
     import os 
     import cv2
 
-    # Load pipeline
+    
     pipe = DiffusionPipeline.from_pretrained(
         "damo-vilab/text-to-video-ms-1.7b", torch_dtype=torch.float32
     ).to(device)
@@ -32,7 +32,7 @@ def generate_video_diffusers(
 
     def save_frames_to_video(frames, output_path, fps=8):
         """Handle the specific 5D array format (1, num_frames, H, W, 3) with proper type conversion"""
-        # Verify input format
+        
         if not (
             isinstance(frames, np.ndarray)
             and frames.ndim == 5
@@ -42,20 +42,20 @@ def generate_video_diffusers(
                 f"Unexpected frame format. Expected 5D RGB array, got {frames.shape}"
             )
 
-        # Remove batch dimension and convert to 0-255 uint8
-        frames = (frames[0] * 255).astype(np.uint8)  # Shape: (num_frames, H, W, 3)
+        
+        frames = (frames[0] * 255).astype(np.uint8)  
 
-        # Get video dimensions
+        
         height, width = frames.shape[1:3]
 
-        # Create video writer
+        
         fourcc = cv2.VideoWriter_fourcc(*"mp4v")
         video_writer = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
 
         if not video_writer.isOpened():
             raise IOError(f"Could not open video writer for {output_path}")
 
-        # Write frames (convert RGB to BGR for OpenCV)
+        
         for frame in frames:
             video_writer.write(cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
 
@@ -71,7 +71,7 @@ def generate_video_diffusers(
 
 
 
-# In video_gen.py
+
 def generate_video_veo3(
     prompt: str,
     negative_prompt: str = "",

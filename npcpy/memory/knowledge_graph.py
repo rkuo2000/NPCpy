@@ -42,7 +42,7 @@ def create_group(conn, name: str, metadata: str = ""):
         return False
 
     try:
-        # Properly escape quotes in strings
+        
         escaped_name = name.replace('"', '\\"')
         escaped_metadata = metadata.replace('"', '\\"')
 
@@ -77,13 +77,13 @@ def init_db(db_path: str, drop=False):
         print("Database connection established successfully")
         
         if drop:
-            # Drop tables in reverse order of dependency
+            
             safe_kuzu_execute(conn, "DROP TABLE IF EXISTS Contains")
-            safe_kuzu_execute(conn, "DROP TABLE IF EXISTS EvolvedFrom") # New
+            safe_kuzu_execute(conn, "DROP TABLE IF EXISTS EvolvedFrom") 
             safe_kuzu_execute(conn, "DROP TABLE IF EXISTS Fact")
             safe_kuzu_execute(conn, "DROP TABLE IF EXISTS Groups")
 
-        # Fact table remains the same
+        
         safe_kuzu_execute(
             conn,
             """
@@ -97,7 +97,7 @@ def init_db(db_path: str, drop=False):
             "Failed to create Fact table",
         )
 
-        # UPDATED Groups table with generational properties
+        
         safe_kuzu_execute(
             conn,
             """
@@ -113,14 +113,14 @@ def init_db(db_path: str, drop=False):
         )
         print("Groups table (with generation tracking) created or already exists.")
         
-        # Contains relationship remains the same
+        
         safe_kuzu_execute(
             conn,
             "CREATE REL TABLE IF NOT EXISTS Contains(FROM Groups TO Fact);",
             "Failed to create Contains relationship table",
         )
         
-        # NEW EvolvedFrom relationship table
+        
         safe_kuzu_execute(
             conn,
             """
@@ -153,12 +153,12 @@ def find_similar_groups(
     **kwargs: Any
 ) -> List[str]:
     """Find existing groups that might contain this fact"""
-    response = conn.execute(f"MATCH (g:Groups) RETURN g.name;")  # Execute query
-    #print(response)
-    #print(type(response))
-    #print(dir(response))
+    response = conn.execute(f"MATCH (g:Groups) RETURN g.name;")  
+    
+    
+    
     groups = response.fetch_as_df()
-    #print(f"Groups: {groups}")
+    
     if not groups:
         return []
 
@@ -331,7 +331,7 @@ def kg_evolve_incremental(existing_kg,
                                                             context)
                 for related_name in related_concepts:
                     if related_name != cand_name: 
-                        # denying self 
+                        
                         concept_links.append((cand_name, related_name))
             all_concept_names.append(cand_name)
 
@@ -370,20 +370,20 @@ def kg_evolve_incremental(existing_kg,
 
 
 
-# UPGRADED KG_SLEEP_PROCESS - Now correctly uses the kg_initial framework.
+
 def kg_sleep_process(existing_kg, model=None, provider=None, npc=None, context='', operations_config=None):
     current_gen = existing_kg.get('generation', 0)
     next_gen = current_gen + 1
     print(f"\n--- SLEEPING (Evolving Knowledge): Gen {current_gen} -> Gen {next_gen} ---")
 
-    # Load KG components into mutable structures
+    
     facts_map = {f['statement']: f for f in existing_kg.get('facts', [])}
     concepts_map = {c['name']: c for c in existing_kg.get('concepts', [])}
     fact_links = defaultdict(list, {k: list(v) for k, v in existing_kg.get('fact_to_concept_links', {}).items()})
     concept_links = set(tuple(sorted(link)) for link in existing_kg.get('concept_links', []))
     fact_to_fact_links = set(tuple(sorted(link)) for link in existing_kg.get('fact_to_fact_links', []))
 
-    # --- PHASE 1: BOOTSTRAP using kg_initial ---
+    
     print("  - Phase 1: Checking for unstructured facts...")
     facts_with_concepts = set(fact_links.keys())
     orphaned_fact_statements = list(set(facts_map.keys()) - facts_with_concepts)
@@ -392,7 +392,7 @@ def kg_sleep_process(existing_kg, model=None, provider=None, npc=None, context='
         print(f"    - Found {len(orphaned_fact_statements)} orphaned facts. Applying full KG structuring process...")
         orphaned_facts_as_dicts = [facts_map[s] for s in orphaned_fact_statements]
         
-        # USE THE REFACTORED KG_INITIAL AS THE STRUCTURING ENGINE
+        
         new_structure = kg_initial(
             facts=orphaned_facts_as_dicts,
             model=model,
@@ -402,7 +402,7 @@ def kg_sleep_process(existing_kg, model=None, provider=None, npc=None, context='
             generation=next_gen
         )
 
-        # Merge the newly generated structure back into the main KG
+        
         print("    - Merging new structure into main KG...")
         for concept in new_structure.get("concepts", []):
             if concept['name'] not in concepts_map:
@@ -418,7 +418,7 @@ def kg_sleep_process(existing_kg, model=None, provider=None, npc=None, context='
     else:
         print("    - Knowledge graph is sufficiently structured. Proceeding to refinement.")
 
-    # --- PHASE 2: REFINE ---
+    
     if operations_config is None:
         possible_ops = ['prune', 'deepen', 'abstract_link']
         ops_to_run = random.sample(possible_ops, k=random.randint(1, 2))
@@ -428,7 +428,7 @@ def kg_sleep_process(existing_kg, model=None, provider=None, npc=None, context='
     print(f"  - Phase 2: Executing refinement operations: {ops_to_run}")
 
     for op in ops_to_run:
-        # Prune Operation
+        
         if op == 'prune' and (len(facts_map) > 10 or len(concepts_map) > 5):
             print("    - Running 'prune' operation using consolidate_facts_llm...")
             fact_to_check = random.choice(list(facts_map.values()))
@@ -438,7 +438,7 @@ def kg_sleep_process(existing_kg, model=None, provider=None, npc=None, context='
                 print(f"      - Pruning redundant fact: '{fact_to_check['statement'][:80]}...'")
                 del facts_map[fact_to_check['statement']]
 
-        # Deepen Operation
+        
         elif op == 'deepen' and facts_map:
             print("    - Running 'deepen' operation using zoom_in...")
             fact_to_deepen = random.choice(list(facts_map.values()))
@@ -454,7 +454,7 @@ def kg_sleep_process(existing_kg, model=None, provider=None, npc=None, context='
         else:
             print(f"    - SKIPPED: Operation '{op}' did not run (conditions not met).")
         
-    # Reassemble the final KG
+    
     new_kg = {
         "generation": next_gen, 
         "facts": list(facts_map.values()), 
@@ -545,15 +545,15 @@ def store_fact_and_group(conn, fact: str,
         return False
     
     print(f"store_fact_and_group: Storing fact: {fact}, with groups:"
-          f" {groups}") # DEBUG
+          f" {groups}") 
     try:
-        # Insert the fact
-        insert_success = insert_fact(conn, fact, path) # Capture return
+        
+        insert_success = insert_fact(conn, fact, path) 
         if not insert_success:
             print(f"store_fact_and_group: Failed to insert fact: {fact}")
             return False
         
-        # Assign fact to groups
+        
         for group in groups:
             assign_success = assign_fact_to_group_graph(conn, fact, group)
             if not assign_success:
@@ -573,19 +573,19 @@ def insert_fact(conn, fact: str, path: str) -> bool:
               " database connection is None")
         return False
     try:
-        # Properly escape quotes in strings
+        
         escaped_fact = fact.replace('"', '\\"')
         escaped_path = os.path.expanduser(path).replace('"', '\\"')
 
-        # Generate timestamp
+        
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        print(f"insert_fact: Attempting to insert fact: {fact}") #DEBUG
+        print(f"insert_fact: Attempting to insert fact: {fact}") 
 
-        # Begin transaction
+        
         safe_kuzu_execute(conn, "BEGIN TRANSACTION")
 
-        # Check if fact already exists
+        
         check_query = f"""
         MATCH (f:Fact {{content: "{escaped_fact}"}})
         RETURN f
@@ -599,7 +599,7 @@ def insert_fact(conn, fact: str, path: str) -> bool:
             print(f"insert_fact: Error checking if fact exists: {error}")
             return False
 
-        # Insert fact if it doesn't exist
+        
         if not result.has_next():
             insert_query = f"""
             CREATE (f:Fact {{
@@ -617,7 +617,7 @@ def insert_fact(conn, fact: str, path: str) -> bool:
                 print(f"insert_fact: Error inserting fact: {error}")
                 return False
 
-        # Commit transaction
+        
         safe_kuzu_execute(conn, "COMMIT")
         print(f"insert_fact: Successfully inserted/found fact: {fact}")
         return True
@@ -636,14 +636,14 @@ def assign_fact_to_group_graph(conn, fact: str, group: str) -> bool:
         return False
 
     try:
-        # Properly escape quotes in strings
+        
         escaped_fact = fact.replace('"', '\\"')
         escaped_group = group.replace('"', '\\"')
 
         print(f"assign_fact_to_group_graph: Assigning fact: {fact} to group:"
-              f" {group}") #DEBUG
+              f" {group}") 
 
-        # Check if both fact and group exist before creating relationship
+        
         check_query = f"""
         MATCH (f:Fact {{content: "{escaped_fact}"}})
         RETURN f
@@ -670,7 +670,7 @@ def assign_fact_to_group_graph(conn, fact: str, group: str) -> bool:
             print(f"assign_fact_to_group_graph: Group not found: {group}")
             return False
 
-        # Create relationship
+        
         query = f"""
         MATCH (f:Fact), (g:Groups)
         WHERE f.content = "{escaped_fact}" AND g.name = "{escaped_group}"
@@ -695,26 +695,26 @@ def assign_fact_to_group_graph(conn, fact: str, group: str) -> bool:
         traceback.print_exc()
         return False
 
-#--- Kuzu Database integration ---
+
 def store_fact_and_group(conn, fact: str, groups: List[str], path: str) -> bool:
     """Insert a fact into the database along with its groups"""
     if not conn:
         print("store_fact_and_group: Database connection is None")
         return False
     
-    print(f"store_fact_and_group: Storing fact: {fact}, with groups: {groups}") # DEBUG
+    print(f"store_fact_and_group: Storing fact: {fact}, with groups: {groups}") 
     try:
-        # Insert the fact
-        insert_success = insert_fact(conn, fact, path) # Capture return value
+        
+        insert_success = insert_fact(conn, fact, path) 
         if not insert_success:
-            print(f"store_fact_and_group: Failed to insert fact: {fact}") #DEBUG
+            print(f"store_fact_and_group: Failed to insert fact: {fact}") 
             return False
         
-        # Assign fact to groups
+        
         for group in groups:
             assign_success = assign_fact_to_group_graph(conn, fact, group)
             if not assign_success:
-                print(f"store_fact_and_group: Failed to assign fact {fact} to group {group}") #DEBUG
+                print(f"store_fact_and_group: Failed to assign fact {fact} to group {group}") 
                 return False
         
         return True
@@ -724,7 +724,7 @@ def store_fact_and_group(conn, fact: str, groups: List[str], path: str) -> bool:
         return False
     
         
-# ---Database and other helper methods---
+
 def safe_kuzu_execute(conn, query, error_message="Kuzu query failed"):
     """Execute a Kuzu query with proper error handling"""
     try:
@@ -763,7 +763,7 @@ def process_text_with_chroma(
     Returns:
         List of extracted facts
     """
-    # Initialize databases
+    
     kuzu_conn = init_db(kuzu_db_path, drop=False)
     chroma_client, chroma_collection = setup_chroma_db( 
         "knowledge_graph",
@@ -771,15 +771,15 @@ def process_text_with_chroma(
         chroma_db_path
     )
 
-    # Extract facts
+    
     facts = extract_facts(text, model=model, provider=provider, npc=npc)
 
-    # Process extracted facts
+    
     for i in range(0, len(facts), batch_size):
         batch = facts[i : i + batch_size]
         print(f"\nProcessing batch {i//batch_size + 1} ({len(batch)} facts)")
 
-        # Generate embeddings for the batch using npcpy.llm_funcs.get_embeddings
+        
         from npcpy.llm_funcs import get_embeddings
 
         batch_embeddings = get_embeddings(
@@ -790,7 +790,7 @@ def process_text_with_chroma(
             print(f"Processing fact: {fact}")
             embedding = batch_embeddings[j]
 
-            # Check for similar facts in Chroma before inserting
+            
             similar_facts = find_similar_facts_chroma(
                 chroma_collection, fact, query_embedding=embedding, n_results=3
             )
@@ -799,9 +799,9 @@ def process_text_with_chroma(
                 print(f"Similar facts found:")
                 for result in similar_facts:
                     print(f"  - {result['fact']} (distance: {result['distance']})")
-                # Note: Could implement a similarity threshold here to skip highly similar facts
+                
 
-            # Prepare metadata
+            
             metadata = {
                 "path": path,
                 "timestamp": datetime.now().isoformat(),
@@ -809,10 +809,10 @@ def process_text_with_chroma(
                 "source_provider": provider,
             }
 
-            # Insert into Kuzu graph DB
+            
             kuzu_success = insert_fact(kuzu_conn, fact, path)
 
-            # Insert into Chroma vector DB if Kuzu insert was successful
+            
             if kuzu_success:
                 chroma_id = store_fact_with_embedding(
                     chroma_collection, fact, metadata, embedding
@@ -824,7 +824,7 @@ def process_text_with_chroma(
             else:
                 print(f"Failed to save fact to Kuzu graph")
 
-    # Close Kuzu connection
+    
     kuzu_conn.close()
 
     return facts
@@ -853,12 +853,12 @@ def hybrid_search_with_chroma(
     Returns:
         List of dictionaries with combined results
     """
-    # Get embedding for query using npcpy.llm_funcs.get_embeddings
+    
     from npcpy.llm_funcs import get_embeddings
 
     query_embedding = get_embeddings([query])[0]
 
-    # Step 1: Find similar facts using Chroma vector search
+    
     vector_results = find_similar_facts_chroma(
         chroma_collection,
         query,
@@ -867,13 +867,13 @@ def hybrid_search_with_chroma(
         metadata_filter=metadata_filter,
     )
 
-    # Extract just the fact texts from vector results
+    
     vector_facts = [result["fact"] for result in vector_results]
 
-    # Step 2: Expand context using graph relationships
+    
     expanded_results = []
 
-    # Add vector search results
+    
     for result in vector_results:
         expanded_results.append(
             {
@@ -885,13 +885,13 @@ def hybrid_search_with_chroma(
             }
         )
 
-    # For each vector-matched fact, find related facts in the graph
+    
     for fact in vector_facts:
         try:
-            # Safely escape fact text for Kuzu query
+            
             escaped_fact = fact.replace('"', '\\"')
 
-            # Find groups containing this fact
+            
             group_result = kuzu_conn.execute(
                 f"""
                 MATCH (g:Groups)-[:Contains]->(f:Fact)
@@ -900,18 +900,18 @@ def hybrid_search_with_chroma(
                 """
             ).get_as_df()
 
-            # Extract group names
+            
             fact_groups = [row["g.name"] for _, row in group_result.iterrows()]
 
-            # Apply group filter if provided
+            
             if group_filter:
                 fact_groups = [g for g in fact_groups if g in group_filter]
 
-            # For each group, find other related facts
+            
             for group in fact_groups:
                 escaped_group = group.replace('"', '\\"')
 
-                # Find facts in the same group
+                
                 related_facts_result = kuzu_conn.execute(
                     f"""
                     MATCH (g:Groups)-[:Contains]->(f:Fact)
@@ -921,7 +921,7 @@ def hybrid_search_with_chroma(
                     """
                 ).get_as_df()
 
-                # Add these related facts to results
+                
                 for _, row in related_facts_result.iterrows():
                     related_fact = {
                         "fact": row["f.content"],
@@ -931,7 +931,7 @@ def hybrid_search_with_chroma(
                         "recorded_at": row["f.recorded_at"],
                     }
 
-                    # Avoid duplicates
+                    
                     if not any(
                         r.get("fact") == related_fact["fact"] for r in expanded_results
                     ):
@@ -940,7 +940,7 @@ def hybrid_search_with_chroma(
         except Exception as e:
             print(f"Error expanding results via graph: {e}")
 
-    # Return results, limiting to top_k if needed
+    
     return expanded_results[:top_k]
 
 
@@ -964,14 +964,14 @@ def find_similar_facts_chroma(
         List of dictionaries with results
     """
     try:
-        # Perform query with optional metadata filtering
+        
         results = collection.query(
             query_embeddings=[query_embedding],
             n_results=n_results,
             where=metadata_filter,
         )
 
-        # Format results
+        
         formatted_results = []
         for i, doc in enumerate(results["documents"][0]):
             formatted_results.append(
@@ -1007,12 +1007,12 @@ def store_fact_with_embedding(
         ID of the stored fact
     """
     try:
-        # Generate a deterministic ID from the fact content
+        
         import hashlib
 
         fact_id = hashlib.md5(fact.encode()).hexdigest()
 
-        # Store document with pre-generated embedding
+        
         collection.add(
             documents=[fact],
             embeddings=[embedding],
@@ -1033,7 +1033,7 @@ def save_facts_to_graph_db(
         batch = facts[i : i + batch_size]
         print(f"\nProcessing batch {i//batch_size + 1} ({len(batch)} facts)")
 
-        # Process each fact in the batch
+        
         for fact in batch:
             try:
                 print(f"Inserting fact: {fact}")

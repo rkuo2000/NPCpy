@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+
 
 """Test the auto_tools functionality with some real examples."""
 
@@ -35,7 +35,7 @@ def process_data(data: list, operation: str = "sum") -> float:
     else:
         return 0
 
-# Test auto_tools
+
 print("Testing auto_tools with docstring_parser...")
 tools_schema, tool_map = auto_tools([get_weather, calculate_math, process_data])
 
@@ -45,7 +45,7 @@ print(json.dumps(tools_schema, indent=2))
 
 print("\nTool map keys:", list(tool_map.keys()))
 
-# Test the functions
+
 print("\nTesting actual function calls:")
 print("Weather:", get_weather("Tokyo"))
 print("Math:", calculate_math("5 * 7"))
@@ -96,7 +96,7 @@ def process_data(data: list, operation: str = "sum") -> float:
         return min(data)
     else:
         return 0.0
-#!/usr/bin/env python3
+
 
 """
 Practical tool calling examples with npcpy - real-world use cases
@@ -112,7 +112,7 @@ from typing import List, Dict, Optional
 from npcpy.llm_funcs import get_llm_response
 from npcpy.tools import auto_tools
 
-# File system operations
+
 def create_project_structure(project_name: str, project_type: str = "python") -> str:
     """
     Create a complete project directory structure with common files.
@@ -123,10 +123,10 @@ def create_project_structure(project_name: str, project_type: str = "python") ->
     """
     base_path = f"./{project_name}"
     
-    # Common directories
+    
     dirs = ["src", "tests", "docs", "data", "scripts"]
     
-    # Project-specific additions
+    
     if project_type == "python":
         dirs.extend(["requirements", "config"])
     elif project_type == "web":
@@ -136,15 +136,15 @@ def create_project_structure(project_name: str, project_type: str = "python") ->
     elif project_type == "ml":
         dirs.extend(["notebooks", "models", "experiments", "datasets"])
     
-    # Create directories
+    
     for dir_name in dirs:
         os.makedirs(f"{base_path}/{dir_name}", exist_ok=True)
     
-    # Create common files
+    
     files = {
-        "README.md": f"# {project_name}\n\nProject description here.\n",
+        "README.md": f"
         ".gitignore": "*.pyc\n__pycache__/\n.env\n.DS_Store\n",
-        "requirements.txt": "# Project dependencies\n",
+        "requirements.txt": "
     }
     
     if project_type == "python":
@@ -159,7 +159,7 @@ def create_project_structure(project_name: str, project_type: str = "python") ->
     
     return f"Created {project_type} project '{project_name}' with {len(dirs)} directories and {len(files)} files"
 
-# Data analysis tools
+
 def analyze_csv_file(filepath: str, analysis_type: str = "summary") -> Dict:
     """
     Analyze a CSV file and return insights.
@@ -215,7 +215,7 @@ def analyze_csv_file(filepath: str, analysis_type: str = "summary") -> Dict:
     except Exception as e:
         return {"error": str(e)}
 
-# Database operations
+
 def query_database(db_path: str, query: str, params: Optional[List] = None) -> Dict:
     """
     Execute a SQL query on SQLite database and return results.
@@ -249,7 +249,7 @@ def query_database(db_path: str, query: str, params: Optional[List] = None) -> D
     except Exception as e:
         return {"error": str(e)}
 
-# Web scraping and API calls
+
 def fetch_web_content(url: str, content_type: str = "text") -> Dict:
     """
     Fetch content from a web URL.
@@ -276,12 +276,12 @@ def fetch_web_content(url: str, content_type: str = "text") -> Dict:
         elif content_type == "html":
             result["content"] = response.text
             result["length"] = len(response.text)
-        else:  # text
-            # Try to extract main text content
+        else:  
+            
             from bs4 import BeautifulSoup
             soup = BeautifulSoup(response.text, 'html.parser')
             
-            # Remove script and style elements
+            
             for script in soup(["script", "style"]):
                 script.decompose()
             
@@ -298,20 +298,20 @@ def fetch_web_content(url: str, content_type: str = "text") -> Dict:
     except Exception as e:
         return {"error": str(e)}
 
-# System monitoring
+
 def get_system_info() -> Dict:
     """Get system information including disk usage, memory, and processes."""
     import psutil
     
     try:
-        # CPU info
+        
         cpu_info = {
             "cpu_count": psutil.cpu_count(),
             "cpu_percent": psutil.cpu_percent(interval=1),
             "cpu_freq": psutil.cpu_freq()._asdict() if psutil.cpu_freq() else None
         }
         
-        # Memory info
+        
         memory = psutil.virtual_memory()
         memory_info = {
             "total": memory.total,
@@ -320,7 +320,7 @@ def get_system_info() -> Dict:
             "used": memory.used
         }
         
-        # Disk info
+        
         disk = psutil.disk_usage('/')
         disk_info = {
             "total": disk.total,
@@ -329,7 +329,7 @@ def get_system_info() -> Dict:
             "percent": (disk.used / disk.total) * 100
         }
         
-        # Top processes by memory
+        
         processes = []
         for proc in psutil.process_iter(['pid', 'name', 'memory_percent', 'cpu_percent']):
             try:
@@ -350,7 +350,7 @@ def get_system_info() -> Dict:
     except Exception as e:
         return {"error": str(e)}
 
-# Git operations
+
 def git_status_summary(repo_path: str = ".") -> Dict:
     """
     Get a summary of git repository status.
@@ -361,18 +361,18 @@ def git_status_summary(repo_path: str = ".") -> Dict:
     import subprocess
     
     try:
-        # Change to repo directory
+        
         original_cwd = os.getcwd()
         os.chdir(repo_path)
         
         result = {}
         
-        # Get current branch
+        
         branch_result = subprocess.run(['git', 'branch', '--show-current'], 
                                      capture_output=True, text=True)
         result['current_branch'] = branch_result.stdout.strip()
         
-        # Get status
+        
         status_result = subprocess.run(['git', 'status', '--porcelain'], 
                                      capture_output=True, text=True)
         status_lines = status_result.stdout.strip().split('\n') if status_result.stdout.strip() else []
@@ -385,12 +385,12 @@ def git_status_summary(repo_path: str = ".") -> Dict:
             'total_changes': len(status_lines)
         }
         
-        # Get recent commits
+        
         log_result = subprocess.run(['git', 'log', '--oneline', '-5'], 
                                   capture_output=True, text=True)
         result['recent_commits'] = log_result.stdout.strip().split('\n') if log_result.stdout.strip() else []
         
-        # Get remote info
+        
         remote_result = subprocess.run(['git', 'remote', '-v'], 
                                      capture_output=True, text=True)
         result['remotes'] = remote_result.stdout.strip().split('\n') if remote_result.stdout.strip() else []
@@ -402,7 +402,7 @@ def git_status_summary(repo_path: str = ".") -> Dict:
     finally:
         os.chdir(original_cwd)
 
-# Text processing
+
 def analyze_text_document(filepath: str, analysis_type: str = "summary") -> Dict:
     """
     Analyze a text document for various metrics.
@@ -418,7 +418,7 @@ def analyze_text_document(filepath: str, analysis_type: str = "summary") -> Dict
         import re
         from collections import Counter
         
-        # Basic stats
+        
         words = re.findall(r'\b\w+\b', text.lower())
         sentences = re.split(r'[.!?]+', text)
         paragraphs = text.split('\n\n')
@@ -439,7 +439,7 @@ def analyze_text_document(filepath: str, analysis_type: str = "summary") -> Dict
             result["lexical_diversity"] = len(set(words)) / len(words) if words else 0
         
         elif analysis_type == "readability":
-            # Simple readability metrics
+            
             avg_sentence_length = len(words) / max(len(sentences), 1)
             long_words = [w for w in words if len(w) > 6]
             
@@ -447,11 +447,11 @@ def analyze_text_document(filepath: str, analysis_type: str = "summary") -> Dict
             result["long_words_count"] = len(long_words)
             result["long_words_percentage"] = len(long_words) / len(words) * 100 if words else 0
             
-            # Rough Flesch reading ease approximation
+            
             result["estimated_reading_level"] = "easy" if avg_sentence_length < 15 else "moderate" if avg_sentence_length < 25 else "difficult"
         
         elif analysis_type == "keywords":
-            # Extract potential keywords (words longer than 4 chars, not too common)
+            
             stop_words = set(['the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by'])
             keywords = [word for word in words if len(word) > 4 and word not in stop_words]
             keyword_freq = Counter(keywords)
@@ -464,10 +464,10 @@ def analyze_text_document(filepath: str, analysis_type: str = "summary") -> Dict
         return {"error": str(e)}
 
 if __name__ == "__main__":
-    # Test the practical tools
+    
     print("Testing practical tools with auto_tools...")
     
-    # Create tools
+    
     practical_tools = [
         create_project_structure,
         analyze_csv_file,
@@ -484,11 +484,11 @@ if __name__ == "__main__":
     for i, tool in enumerate(tools_schema):
         print(f"{i+1}. {tool['function']['name']}: {tool['function']['description']}")
     
-    # Example usage with LLM
+    
     print("\n" + "="*50)
     print("Example: Using tools with LLM")
     
-    # Create some test data first
+    
     test_csv_path = "./test_data/books.csv"
     
     response = get_llm_response(
@@ -510,7 +510,7 @@ if __name__ == "__main__":
     print("\nTool Results:")
     for result in response.get('tool_results', []):
         print(f"- {result['tool_name']}: {str(result['result'])[:200]}...")
-#!/usr/bin/env python3
+
 
 """
 Advanced practical tool examples - specialized workflows
@@ -525,7 +525,7 @@ import subprocess
 from npcpy.llm_funcs import get_llm_response
 from npcpy.tools import auto_tools
 
-# Development tools
+
 def run_code_analysis(directory: str, language: str = "python") -> Dict:
     """
     Run static code analysis on a directory of code files.
@@ -537,7 +537,7 @@ def run_code_analysis(directory: str, language: str = "python") -> Dict:
     try:
         result = {"directory": directory, "language": language, "files_analyzed": []}
         
-        # Find relevant files
+        
         extensions = {
             "python": [".py"],
             "javascript": [".js"],
@@ -554,13 +554,13 @@ def run_code_analysis(directory: str, language: str = "python") -> Dict:
         
         result["total_files"] = len(code_files)
         
-        # Basic analysis for each file
+        
         total_lines = 0
         total_functions = 0
         total_classes = 0
         issues = []
         
-        for filepath in code_files[:10]:  # Limit to first 10 files
+        for filepath in code_files[:10]:  
             try:
                 with open(filepath, 'r', encoding='utf-8') as f:
                     content = f.read()
@@ -584,7 +584,7 @@ def run_code_analysis(directory: str, language: str = "python") -> Dict:
                         total_functions += functions
                         total_classes += classes
                         
-                        # Simple code quality checks
+                        
                         if lines > 500:
                             issues.append(f"{file_info['file']}: Very long file ({lines} lines)")
                         if functions > 20:
@@ -611,7 +611,7 @@ def run_code_analysis(directory: str, language: str = "python") -> Dict:
     except Exception as e:
         return {"error": str(e)}
 
-# Docker and container tools
+
 def manage_docker_containers(action: str, container_name: Optional[str] = None) -> Dict:
     """
     Manage Docker containers - list, start, stop, or get logs.
@@ -669,7 +669,7 @@ def manage_docker_containers(action: str, container_name: Optional[str] = None) 
     except Exception as e:
         return {"error": str(e)}
 
-# Log analysis
+
 def analyze_log_file(log_path: str, log_type: str = "generic", lines: int = 1000) -> Dict:
     """
     Analyze log files for errors, patterns, and statistics.
@@ -683,12 +683,12 @@ def analyze_log_file(log_path: str, log_type: str = "generic", lines: int = 1000
         if not os.path.exists(log_path):
             return {"error": f"Log file {log_path} not found"}
         
-        # Read last N lines efficiently
+        
         with open(log_path, 'rb') as f:
-            f.seek(0, 2)  # Go to end of file
+            f.seek(0, 2)  
             file_size = f.tell()
             
-            # Read chunks from end
+            
             lines_found = []
             chunk_size = 8192
             position = file_size
@@ -702,28 +702,28 @@ def analyze_log_file(log_path: str, log_type: str = "generic", lines: int = 1000
             
             log_lines = lines_found[-lines:] if len(lines_found) > lines else lines_found
         
-        # Basic analysis
+        
         result = {
             "file_path": log_path,
             "total_lines_analyzed": len(log_lines),
             "file_size": file_size
         }
         
-        # Pattern matching based on log type
+        
         error_patterns = []
         warning_patterns = []
         
         if log_type in ["apache", "nginx"]:
-            error_patterns = [r"\s[45]\d\d\s", r"error", r"fail"]  # 4xx, 5xx HTTP codes
+            error_patterns = [r"\s[45]\d\d\s", r"error", r"fail"]  
             warning_patterns = [r"warn", r"timeout"]
         elif log_type == "syslog":
             error_patterns = [r"error", r"fail", r"critical", r"alert", r"emerg"]
             warning_patterns = [r"warn", r"notice"]
-        else:  # generic/application
+        else:  
             error_patterns = [r"error", r"exception", r"fail", r"critical", r"fatal"]
             warning_patterns = [r"warn", r"warning", r"deprecated"]
         
-        # Count patterns
+        
         import re
         errors = []
         warnings = []
@@ -740,15 +740,15 @@ def analyze_log_file(log_path: str, log_type: str = "generic", lines: int = 1000
                             warnings.append(line.strip())
                             break
         
-        # Time analysis (try to extract timestamps)
+        
         timestamps = []
         timestamp_patterns = [
-            r'\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}',  # YYYY-MM-DD HH:MM:SS
-            r'\d{2}/\w{3}/\d{4}:\d{2}:\d{2}:\d{2}',   # DD/Mon/YYYY:HH:MM:SS
-            r'\w{3}\s+\d{1,2}\s\d{2}:\d{2}:\d{2}'     # Mon DD HH:MM:SS
+            r'\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}',  
+            r'\d{2}/\w{3}/\d{4}:\d{2}:\d{2}:\d{2}',   
+            r'\w{3}\s+\d{1,2}\s\d{2}:\d{2}:\d{2}'     
         ]
         
-        for line in log_lines[-100:]:  # Check last 100 lines for timestamps
+        for line in log_lines[-100:]:  
             for pattern in timestamp_patterns:
                 match = re.search(pattern, line)
                 if match:
@@ -773,7 +773,7 @@ def analyze_log_file(log_path: str, log_type: str = "generic", lines: int = 1000
     except Exception as e:
         return {"error": str(e)}
 
-# Network and security tools
+
 def network_diagnostics(target: str, test_type: str = "ping") -> Dict:
     """
     Run network diagnostic tests.
@@ -788,7 +788,7 @@ def network_diagnostics(target: str, test_type: str = "ping") -> Dict:
                                   capture_output=True, text=True)
             
             if result.returncode == 0:
-                # Parse ping results
+                
                 lines = result.stdout.split('\n')
                 stats_line = [line for line in lines if 'packets transmitted' in line]
                 rtt_line = [line for line in lines if 'min/avg/max' in line]
@@ -816,7 +816,7 @@ def network_diagnostics(target: str, test_type: str = "ping") -> Dict:
             }
         
         elif test_type == "traceroute":
-            # Use traceroute on Unix/Linux/Mac
+            
             cmd = ['traceroute'] if os.name != 'nt' else ['tracert']
             result = subprocess.run(cmd + [target], 
                                   capture_output=True, text=True, timeout=30)
@@ -836,7 +836,7 @@ def network_diagnostics(target: str, test_type: str = "ping") -> Dict:
     except Exception as e:
         return {"error": str(e)}
 
-# Process management
+
 def manage_processes(action: str, process_name: Optional[str] = None, pid: Optional[int] = None) -> Dict:
     """
     Manage system processes - list, kill, or get detailed info.
@@ -862,12 +862,12 @@ def manage_processes(action: str, process_name: Optional[str] = None, pid: Optio
             processes = []
             for proc in psutil.process_iter(['pid', 'name', 'cpu_percent']):
                 try:
-                    proc.cpu_percent()  # First call to initialize
+                    proc.cpu_percent()  
                     processes.append(proc.info)
                 except (psutil.NoSuchProcess, psutil.AccessDenied):
                     pass
             
-            # Sort by CPU usage
+            
             top_processes = sorted(processes, key=lambda x: x['cpu_percent'] or 0, reverse=True)[:10]
             return {"top_cpu_processes": top_processes}
         
@@ -904,7 +904,7 @@ def manage_processes(action: str, process_name: Optional[str] = None, pid: Optio
                 return {"error": f"No processes found matching '{process_name}'"}
             
             results = []
-            for proc in target_procs[:5]:  # Limit to 5 processes
+            for proc in target_procs[:5]:  
                 try:
                     proc_info = proc.as_dict(['pid', 'name', 'status', 'cpu_percent', 'memory_percent', 'create_time'])
                     
@@ -925,7 +925,7 @@ def manage_processes(action: str, process_name: Optional[str] = None, pid: Optio
         return {"error": str(e)}
 
 if __name__ == "__main__":
-    # Test advanced tools
+    
     print("Testing advanced practical tools...")
     
     advanced_tools = [
@@ -942,7 +942,7 @@ if __name__ == "__main__":
     for i, tool in enumerate(tools_schema):
         print(f"{i+1}. {tool['function']['name']}: {tool['function']['description'][:60]}...")
     
-    # Example usage
+    
     print("\n" + "="*60)
     print("Example: DevOps assistant with advanced tools")
     
@@ -969,7 +969,7 @@ if __name__ == "__main__":
         for result in response['tool_results']:
             print(f"- {result['tool_name']}: {str(result['result'])[:100]}...")
 
-# Test auto_tools
+
 if __name__ == "__main__":
     functions = [get_weather, calculate_math, process_data]
     
@@ -981,7 +981,7 @@ if __name__ == "__main__":
     print("\nTool Map:")
     print(tool_map)
     
-    # Test calling the functions through the tool map
+    
     print("\nTesting tool calls:")
     print("Weather:", tool_map["get_weather"]("Paris"))
     print("Math:", tool_map["calculate_math"]("15 * 23"))

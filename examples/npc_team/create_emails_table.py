@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+
 """
 Script to create and populate the emails table needed by the morning_routine pipeline.
 """
@@ -16,7 +16,7 @@ def create_emails_table(db_path):
     cursor = conn.cursor()
 
     try:
-        # Check if table exists
+        
         cursor.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='emails'"
         )
@@ -24,7 +24,7 @@ def create_emails_table(db_path):
             print("Table 'emails' already exists.")
             return True
 
-        # Create the emails table
+        
         print("Creating 'emails' table...")
         cursor.execute(
             """
@@ -41,7 +41,7 @@ def create_emails_table(db_path):
         """
         )
 
-        # Add some sample data
+        
         print("Adding sample email data...")
         now = datetime.now()
         sample_emails = [
@@ -104,7 +104,7 @@ def create_emails_table(db_path):
 
 
 if __name__ == "__main__":
-    # Default path or take from command line
+    
     default_db_path = os.path.expanduser("~/npcsh_history.db")
 
     if len(sys.argv) > 1:

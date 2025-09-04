@@ -9,7 +9,7 @@ from npcpy.data.audio import (
 def test_process_text_for_tts():
     """Test text processing for TTS"""
     try:
-        # Test basic text cleaning
+        
         text = "Hello *world*! This is a [test] with {special} characters."
         processed = process_text_for_tts(text)
         
@@ -48,7 +48,7 @@ def test_create_and_queue_audio():
         
         text = "This is a test message for audio generation."
         
-        # This will likely fail without proper TTS setup, but tests the function flow
+        
         create_and_queue_audio(text, state)
         
         print("Audio creation test completed (may have failed due to TTS dependencies)")
@@ -60,19 +60,19 @@ def test_create_and_queue_audio():
 def test_play_audio():
     """Test audio playback"""
     try:
-        # Create a temporary audio file for testing
+        
         temp_dir = tempfile.mkdtemp()
         temp_audio = f"{temp_dir}/test_audio.wav"
         
-        # Create a minimal WAV file (this is a very basic example)
-        # In practice, you'd need a real audio file
+        
+        
         
         state = {
             "tts_is_speaking": False,
             "running": True
         }
         
-        # This will fail without a real audio file, but tests the function
+        
         try:
             play_audio(temp_audio, state)
         except Exception:
@@ -91,10 +91,10 @@ def test_run_transcription():
     try:
         import numpy as np
         
-        # Create dummy audio data (silence)
-        audio_np = np.zeros(16000, dtype=np.float32)  # 1 second of silence at 16kHz
         
-        # This will fail without proper whisper setup, but tests the function
+        audio_np = np.zeros(16000, dtype=np.float32)  
+        
+        
         result = run_transcription(audio_np)
         
         if result:
@@ -109,10 +109,10 @@ def test_run_transcription():
 def test_transcribe_recording():
     """Test recording transcription"""
     try:
-        # Create fake audio data
+        
         audio_data = [b"fake_audio_chunk_1", b"fake_audio_chunk_2"]
         
-        # This will fail but tests the function flow
+        
         result = transcribe_recording(audio_data)
         
         print(f"Recording transcription test completed: {result}")
@@ -133,13 +133,13 @@ def test_audio_state_management():
             "running": True
         }
         
-        # Test state changes
+        
         original_speaking = state["tts_is_speaking"]
         state["tts_is_speaking"] = True
         
         assert state["tts_is_speaking"] != original_speaking
         
-        # Test recording state
+        
         state["is_recording"] = True
         assert state["is_recording"] == True
         
@@ -192,12 +192,12 @@ def test_text_processing_edge_cases():
     """Test text processing edge cases"""
     try:
         test_cases = [
-            "",  # Empty string
-            "   ",  # Whitespace only
-            "123.456.789",  # Numbers with dots
-            "Hello... world!!!",  # Multiple punctuation
-            "Mr. Dr. Mrs. Jr.",  # Multiple abbreviations
-            "a.b.c.d.e.f.g",  # Lots of dots
+            "",  
+            "   ",  
+            "123.456.789",  
+            "Hello... world!!!",  
+            "Mr. Dr. Mrs. Jr.",  
+            "a.b.c.d.e.f.g",  
         ]
         
         for test_text in test_cases:
@@ -214,7 +214,7 @@ def test_text_processing_edge_cases():
 def test_audio_format_constants():
     """Test audio format constants"""
     try:
-        # These should be defined in the audio module
+        
         from npcpy.data.audio import FORMAT, CHANNELS, RATE, CHUNK
         
         assert isinstance(FORMAT, int)
@@ -239,11 +239,11 @@ def test_cleanup_functions():
     try:
         from npcpy.data.audio import cleanup_temp_files, interrupt_speech
         
-        # Test cleanup function
+        
         cleanup_temp_files()
         print("Cleanup function called successfully")
         
-        # Test interrupt function
+        
         interrupt_speech()
         print("Interrupt function called successfully")
         

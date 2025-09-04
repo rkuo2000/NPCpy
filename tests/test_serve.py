@@ -62,7 +62,7 @@ def test_capture_screenshot_endpoint():
     try:
         with app.test_client() as client:
             response = client.get('/api/capture_screenshot')
-            # This might return None or an error, but shouldn't crash
+            
             print(f"Screenshot endpoint status: {response.status_code}")
     except Exception as e:
         print(f"Screenshot endpoint test failed: {e}")
@@ -120,8 +120,8 @@ def test_save_npc_endpoint():
                     "model": "llama3.2",
                     "provider": "ollama"
                 },
-                "isGlobal": False,  # Changed to False to use project directory
-                "currentPath": temp_dir  # Use temp directory instead of /tmp
+                "isGlobal": False,  
+                "currentPath": temp_dir  
             }
             response = client.post('/api/save_npc', 
                                  json=npc_data,
@@ -136,11 +136,11 @@ def test_project_settings_endpoints():
     """Test project settings get/post"""
     try:
         with app.test_client() as client:
-            # Test GET
+            
             response = client.get('/api/settings/project?path=/tmp')
             assert response.status_code == 200
             
-            # Test POST
+            
             settings_data = {"env_vars": {"TEST_VAR": "test_value"}}
             response = client.post('/api/settings/project?path=/tmp',
                                  json=settings_data,

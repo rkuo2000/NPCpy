@@ -23,22 +23,22 @@ def execute_plan_command(
     request = parts[1]
     platform_system = platform.system()
 
-    # Create standard directories
+    
     jobs_dir = os.path.expanduser("~/.npcsh/jobs")
     logs_dir = os.path.expanduser("~/.npcsh/logs")
     os.makedirs(jobs_dir, exist_ok=True)
     os.makedirs(logs_dir, exist_ok=True)
 
-    # First part - just the request formatting
+    
     linux_request = f"""Convert this scheduling request into a crontab-based script:
     Request: {request}
 
     """
 
-    # Second part - the static prompt with examples and requirements
+    
     linux_prompt_static = """Example for "record CPU usage every 10 minutes":
     {
-        "script": "#!/bin/bash
+        "script": "
 set -euo pipefail
 IFS=$'\\n\\t'
 
@@ -79,7 +79,7 @@ record_cpu",
 
     mac_prompt_static = """Example for "record CPU usage every 10 minutes":
     {
-        "script": "#!/bin/bash
+        "script": "
 set -euo pipefail
 IFS=$'\\n\\t'
 
@@ -176,7 +176,7 @@ Get-CpuUsage",
 
     log_path = os.path.join(logs_dir, f"{job_name}.log")
 
-    # Write the script
+    
     with open(script_path, "w") as f:
         f.write(schedule_info["script"])
     os.chmod(script_path, 0o755)
@@ -244,7 +244,7 @@ Get-CpuUsage",
     elif platform_system == "Windows":
         task_name = f"NPCSH_{job_name}"
 
-        # Parse schedule_info['schedule'] into individual parameters
+        
         schedule_params = schedule_info["schedule"].split()
 
         cmd = (
@@ -258,7 +258,7 @@ Get-CpuUsage",
             ]
             + schedule_params
             + ["/f"]
-        )  # /f forces creation if task exists
+        )  
 
         subprocess.run(cmd, check=True)
 

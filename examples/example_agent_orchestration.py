@@ -10,7 +10,7 @@ def test_full_orchestration():
     """Test complete team orchestration"""
     print("=== Full Team Orchestration Test ===")
     
-    # Create NPCs with better directives to reduce passing
+    
     coordinator = NPC(
         name="coordinator",
         primary_directive="""You are a project coordinator who manages workflows. 
@@ -38,14 +38,14 @@ def test_full_orchestration():
         provider="ollama"
     )
     
-    # Create team
+    
     team = Team(npcs=[coordinator, writer, analyst], forenpc=coordinator)
     
     print(f"Team: {team.name}")
     print(f"NPCs: {list(team.npcs.keys())}")
     print(f"Forenpc: {team.get_forenpc().name}")
     
-    # Test orchestration with a clear task
+    
     request = """
     I need a project status report for our Q4 initiative. The report should include:
     1. Executive summary of progress

@@ -10,7 +10,7 @@ def test_load_csv():
     csv_file = os.path.join(temp_dir, "test.csv")
     
     try:
-        # Create test CSV
+        
         with open(csv_file, "w") as f:
             f.write("name,age,city\n")
             f.write("John,25,NYC\n")
@@ -36,7 +36,7 @@ def test_load_json():
     json_file = os.path.join(temp_dir, "test.json")
     
     try:
-        # Create test JSON
+        
         import json
         data = [
             {"name": "Alice", "score": 95},
@@ -65,7 +65,7 @@ def test_load_txt():
     txt_file = os.path.join(temp_dir, "test.txt")
     
     try:
-        # Create test text file
+        
         test_content = "This is a test document.\nIt has multiple lines.\nAnd some content."
         with open(txt_file, "w") as f:
             f.write(test_content)
@@ -90,15 +90,15 @@ def test_load_file_contents_txt():
     txt_file = os.path.join(temp_dir, "test.txt")
     
     try:
-        # Create large text file for chunking
-        content = "This is a test. " * 100  # Create content longer than chunk_size
+        
+        content = "This is a test. " * 100  
         with open(txt_file, "w") as f:
             f.write(content)
         
         chunks = load_file_contents(txt_file, chunk_size=100)
         
         assert isinstance(chunks, list)
-        assert len(chunks) > 1  # Should be chunked
+        assert len(chunks) > 1  
         assert all(isinstance(chunk, str) for chunk in chunks)
         
         print(f"Text file chunked into {len(chunks)} pieces")
@@ -114,7 +114,7 @@ def test_load_file_contents_csv():
     csv_file = os.path.join(temp_dir, "test.csv")
     
     try:
-        # Create test CSV
+        
         with open(csv_file, "w") as f:
             f.write("id,name,value\n")
             for i in range(50):
@@ -124,7 +124,7 @@ def test_load_file_contents_csv():
         
         assert isinstance(chunks, list)
         assert len(chunks) >= 1
-        assert "Columns:" in chunks[0]  # Metadata chunk
+        assert "Columns:" in chunks[0]  
         
         print(f"CSV file processed into {len(chunks)} chunks")
         
@@ -139,7 +139,7 @@ def test_load_file_contents_json():
     json_file = os.path.join(temp_dir, "test.json")
     
     try:
-        # Create test JSON
+        
         import json
         data = {"items": [{"id": i, "name": f"item_{i}"} for i in range(20)]}
         with open(json_file, "w") as f:
@@ -163,7 +163,7 @@ def test_load_file_contents_unsupported():
     unknown_file = os.path.join(temp_dir, "test.unknown")
     
     try:
-        # Create unknown file type
+        
         with open(unknown_file, "w") as f:
             f.write("unknown content")
         
@@ -186,7 +186,7 @@ def test_load_excel():
         temp_dir = tempfile.mkdtemp()
         excel_file = os.path.join(temp_dir, "test.xlsx")
         
-        # Create test Excel file using pandas
+        
         test_data = pd.DataFrame({
             "name": ["Alice", "Bob", "Charlie"],
             "age": [25, 30, 35],
@@ -217,14 +217,14 @@ def test_load_pdf():
     """Test PDF file loading"""
     try:
         temp_dir = tempfile.mkdtemp()
-        # Note: This test would need a real PDF file or PDF creation library
-        # For now, just test the error handling
+        
+        
         
         fake_pdf = os.path.join(temp_dir, "test.pdf")
         with open(fake_pdf, "w") as f:
             f.write("fake pdf content")
         
-        # This should fail gracefully
+        
         try:
             df = load_pdf(fake_pdf)
             print("PDF loading attempted")
@@ -241,7 +241,7 @@ def test_load_pdf():
 
 def test_load_file_contents_error_handling():
     """Test load_file_contents error handling"""
-    # Test with non-existent file
+    
     chunks = load_file_contents("/nonexistent/file.txt")
     
     assert isinstance(chunks, list)

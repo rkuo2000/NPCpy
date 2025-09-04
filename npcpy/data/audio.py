@@ -25,7 +25,7 @@ try:
     RATE = 16000
     CHUNK = 512
 
-    # State Management
+    
     is_speaking = False
     should_stop_speaking = False
     tts_sequence = 0
@@ -35,12 +35,12 @@ try:
     last_speech_time = 0
     running = True
 
-    # Queues
+    
     audio_queue = queue.Queue()
     tts_queue = queue.PriorityQueue()
     cleanup_files = []
 
-    # Initialize pygame mixer
+    
     pygame.mixer.quit()
     pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=512)
 except:
@@ -49,7 +49,7 @@ except:
 
 def convert_mp3_to_wav(mp3_file, wav_file):
     try:
-        # Ensure the output file doesn't exist before conversion
+        
         if os.path.exists(wav_file):
             os.remove(wav_file)
 
@@ -79,7 +79,7 @@ def convert_mp3_to_wav(mp3_file, wav_file):
         raise
 
 
-# Check if FFmpeg is available
+
 def check_ffmpeg():
     try:
         subprocess.run(
@@ -98,7 +98,7 @@ def get_context_string():
     return "\n".join(context)
 
 
-# Audio Management Functions
+
 def cleanup_temp_files():
     global cleanup_files
     for file in list(cleanup_files):
@@ -175,7 +175,7 @@ def run_transcription(audio_np):
         return None
 
 
-# History Management Functions
+
 def load_history():
     global history
     try:
@@ -216,7 +216,7 @@ def get_context_string():
     return "\n".join(context)
 
 
-# Audio Management Functions
+
 def cleanup_temp_files():
     global cleanup_files
     for file in list(cleanup_files):
@@ -255,7 +255,7 @@ def audio_callback(in_data, frame_count, time_info, status):
     return (in_data, pyaudio.paContinue)
 
 
-# Text-to-Speech Functions
+
 def play_audio_from_queue():
     global is_speaking, cleanup_files, should_stop_speaking
     next_sequence = 0
@@ -349,7 +349,7 @@ import uuid
 
 def create_and_queue_audio(text, state):
     """Create and queue audio with state awareness for TTS/recording coordination"""
-    # Set TTS speaking flag
+    
     state["tts_is_speaking"] = True
 
     if not text.strip():
@@ -368,12 +368,12 @@ def create_and_queue_audio(text, state):
 
             convert_mp3_to_wav(mp3_file, wav_file)
 
-            # Play audio and wait for completion
+            
             play_audio(wav_file, state)
     except Exception as e:
         print(f"Error in TTS process: {e}")
     finally:
-        # Ensure flag is reset even if there's an error
+        
         state["tts_is_speaking"] = False
         state["tts_just_finished"] = True
 
@@ -387,7 +387,7 @@ def create_and_queue_audio(text, state):
 
 def play_audio(filename, state):
     """Play audio with state awareness for TTS/recording coordination"""
-    CHUNK = 4096  # Increased chunk size
+    CHUNK = 4096  
 
     wf = wave.open(filename, "rb")
     p = pyaudio.PyAudio()
@@ -401,8 +401,8 @@ def play_audio(filename, state):
 
     data = wf.readframes(CHUNK)
 
-    # This is blocking until audio is done playing
-    while data and state["running"]:  # Check if system still running
+    
+    while data and state["running"]:  
         stream.write(data)
         data = wf.readframes(CHUNK)
 
@@ -425,7 +425,7 @@ def process_response_chunk(text_chunk):
 
 
 def process_text_for_tts(text):
-    text = re.sub(r"[*<>{}()\[\]&%#@^_=+~]", "", text)
+    text = re.sub(r"[*<>{}()\[\]&%
     text = text.strip()
     text = re.sub(r"(\w)\.(\w)\.", r"\1 \2 ", text)
     text = re.sub(r"([.!?])(\w)", r"\1 \2", text)
@@ -442,13 +442,13 @@ pip install numpy torch torchaudio faster-whisper pygame pyaudio gtts ollama
 
 And optionally FFmpeg for audio speed adjustment:
 ```bash
-# On Ubuntu/Debian
+
 sudo apt-get install ffmpeg
 
-# On MacOS with Homebrew
+
 brew install ffmpeg
 
-# On Windows with Chocolatey
+
 choco install ffmpeg
 ```
 

@@ -15,7 +15,7 @@ def test_rag_search_with_string():
         results = rag_search(
             query="Python programming",
             text_data=text_data,
-            similarity_threshold=0.1  # Lower threshold for testing
+            similarity_threshold=0.1  
         )
         
         assert isinstance(results, list)
@@ -62,7 +62,7 @@ def test_rag_search_no_embedding_model():
         results = rag_search(
             query="artificial intelligence",
             text_data=text_data,
-            embedding_model=None,  # Let it create its own
+            embedding_model=None,  
             similarity_threshold=0.1
         )
         
@@ -78,11 +78,11 @@ def test_load_all_files():
     temp_dir = tempfile.mkdtemp()
     
     try:
-        # Create test files
+        
         files_to_create = {
             "test1.py": "def hello():\n    print('Hello from Python')",
             "test2.txt": "This is a text file with some content.",
-            "test3.md": "# Markdown File\nThis is markdown content.",
+            "test3.md": "
             "test4.js": "function greet() { console.log('Hello from JS'); }",
             "ignore.log": "This file should be ignored"
         }
@@ -92,13 +92,13 @@ def test_load_all_files():
             with open(file_path, "w") as f:
                 f.write(content)
         
-        # Load files with default extensions
+        
         text_data = load_all_files(temp_dir, depth=1)
         
         assert isinstance(text_data, dict)
-        assert len(text_data) >= 4  # Should load .py, .txt, .md, .js but not .log
+        assert len(text_data) >= 4  
         
-        # Check specific files were loaded
+        
         py_files = [path for path in text_data.keys() if path.endswith('.py')]
         assert len(py_files) >= 1
         
@@ -115,7 +115,7 @@ def test_load_all_files_custom_extensions():
     temp_dir = tempfile.mkdtemp()
     
     try:
-        # Create test files
+        
         files = {
             "data.csv": "name,age\nJohn,25",
             "config.json": '{"setting": "value"}',
@@ -129,7 +129,7 @@ def test_load_all_files_custom_extensions():
             with open(file_path, "w") as f:
                 f.write(content)
         
-        # Load only specific extensions
+        
         text_data = load_all_files(
             temp_dir, 
             extensions=[".csv", ".json"],
@@ -137,7 +137,7 @@ def test_load_all_files_custom_extensions():
         )
         
         assert isinstance(text_data, dict)
-        assert len(text_data) == 2  # Only .csv and .json files
+        assert len(text_data) == 2  
         
         csv_files = [path for path in text_data.keys() if path.endswith('.csv')]
         json_files = [path for path in text_data.keys() if path.endswith('.json')]
@@ -157,23 +157,23 @@ def test_load_all_files_with_subdirectories():
     temp_dir = tempfile.mkdtemp()
     
     try:
-        # Create subdirectory structure
+        
         subdir = os.path.join(temp_dir, "subdir")
         os.makedirs(subdir)
         
-        # Create files in main directory
+        
         with open(os.path.join(temp_dir, "main.txt"), "w") as f:
             f.write("Main directory file")
         
-        # Create files in subdirectory
+        
         with open(os.path.join(subdir, "sub.txt"), "w") as f:
             f.write("Subdirectory file")
         
-        # Load with depth=2 to include subdirectories
+        
         text_data = load_all_files(temp_dir, depth=2)
         
         assert isinstance(text_data, dict)
-        assert len(text_data) >= 2  # Should find both files
+        assert len(text_data) >= 2  
         
         main_files = [path for path in text_data.keys() if "main.txt" in path]
         sub_files = [path for path in text_data.keys() if "sub.txt" in path]
@@ -193,12 +193,12 @@ def test_load_all_files_depth_limit():
     temp_dir = tempfile.mkdtemp()
     
     try:
-        # Create nested directory structure
+        
         level1 = os.path.join(temp_dir, "level1")
         level2 = os.path.join(level1, "level2")
         os.makedirs(level2)
         
-        # Create files at different levels
+        
         with open(os.path.join(temp_dir, "root.txt"), "w") as f:
             f.write("Root level file")
         
@@ -208,11 +208,11 @@ def test_load_all_files_depth_limit():
         with open(os.path.join(level2, "level2.txt"), "w") as f:
             f.write("Level 2 file")
         
-        # Load with depth=1 (should only get root and level1)
+        
         text_data = load_all_files(temp_dir, depth=1)
         
         level2_files = [path for path in text_data.keys() if "level2.txt" in path]
-        assert len(level2_files) == 0  # Should not find level2 files with depth=1
+        assert len(level2_files) == 0  
         
         print(f"Depth limit test: loaded {len(text_data)} files with depth=1")
         
@@ -229,7 +229,7 @@ def test_rag_search_high_threshold():
         results = rag_search(
             query="artificial intelligence deep learning",
             text_data=text_data,
-            similarity_threshold=0.8  # High threshold - should find few/no results
+            similarity_threshold=0.8  
         )
         
         assert isinstance(results, list)

@@ -1,4 +1,4 @@
-# search.py
+
 
 import requests
 import os
@@ -21,8 +21,8 @@ except:
     pass
 
 
-# add exa search
-# figure out if there is litellm equivalent for search
+
+
 
 def search_exa(query:str, 
                api_key:str = None, 
@@ -50,7 +50,7 @@ def search_perplexity(
 ):
     if api_key is None:
         api_key = os.environ["PERPLEXITY_API_KEY"]
-    # print("api_key", api_key)
+    
     url = "https://api.perplexity.ai/chat/completions"
     payload = {
         "model": "sonar",
@@ -71,13 +71,13 @@ def search_perplexity(
         "response_format": None,
     }
 
-    # Headers for the request, including the Authorization bearer token
+    
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
 
-    # Make the POST request to the API
+    
     response = requests.post(url, json=payload, headers=headers)
     response = json.loads(response.text)
-    #print(response)
+    
     return [response["choices"][0]["message"]["content"], response["citations"]]
 
 
@@ -107,7 +107,7 @@ def search_web(
 
     if provider == "perplexity":
         search_result = search_perplexity(query, api_key=api_key, **perplexity_kwargs)
-        # print(search_result, type(search_result))
+        
         return search_result
 
     if provider == "duckduckgo":
@@ -130,29 +130,29 @@ def search_web(
     elif provider =='exa':
         return search_exa(query, api_key=api_key, )
 
-    elif provider =='google':  # google
+    elif provider =='google':  
         urls = list(search(query, num_results=num_results))
-        # google shit doesnt seem to be working anymore, apparently a lbock they made on browsers without js?
-        #print("urls", urls)
-        #print(provider)
+        
+        
+        
         for url in urls:
             try:
-                # Fetch the webpage content
+                
                 headers = {
                     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
                 }
                 response = requests.get(url, headers=headers, timeout=5)
                 response.raise_for_status()
 
-                # Parse with BeautifulSoup
+                
                 soup = BeautifulSoup(response.text, "html.parser")
 
-                # Get title and content
+                
                 title = soup.title.string if soup.title else url
 
-                # Extract text content and clean it up
+                
                 content = " ".join([p.get_text() for p in soup.find_all("p")])
-                content = " ".join(content.split())  # Clean up whitespace
+                content = " ".join(content.split())  
 
                 results.append(
                     {
@@ -168,8 +168,8 @@ def search_web(
                 print(f"Error fetching {url}: {str(e)}")
                 continue
 
-    # except Exception as e:
-    #    print(f"Search error: {str(e)}")
+    
+    
     content_str = "\n".join(
         [r["content"] + "\n Citation: " + r["link"] + "\n\n\n" for r in results]
     )

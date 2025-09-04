@@ -40,13 +40,13 @@ def extract_variables(input_string):
     :param input_string: The string to extract variables from.
     :return: A list of extracted variable names.
     """
-    # Regular expression to match content within curly braces
+    
     pattern = r"\{([^}]+)\}"
 
-    # Find all matches using re.findall
+    
     matches = re.findall(pattern, input_string)
 
-    # Return the matches as a list
+    
     return matches
 
 
@@ -63,7 +63,7 @@ def load_csv_to_db(csv_path, table_name, db_path):
         conn.close()
 
 
-# Initialize Faker for synthetic data generation
+
 fake = Faker()
 
 
@@ -128,7 +128,7 @@ def load_csv_to_db(csv_path, table_name, db_path):
         conn.close()
 
 
-# Define schemas for tables
+
 schemas = {
     "raw_customer_feedback": [
         {"name": "feedback", "type": "TEXT"},
@@ -168,7 +168,7 @@ class SQLCompiler:
 
         def replace_ref(match):
             model_name = match.group(1)
-            return model_name  # Use the model name directly as the table name
+            return model_name  
 
         return re.sub(ref_pattern, replace_ref, sql_content)
 
@@ -277,7 +277,7 @@ class ModelRunner:
 
 
 def main():
-    # Define your CSV schemas here
+    
     schemas = {
         "raw_customer_feedback": [
             {"name": "feedback", "type": "TEXT"},
@@ -296,21 +296,21 @@ def main():
     models_directory = "models"
     db_path = os.path.expanduser("~/npcsh_history.db")
 
-    # Generate CSVs
+    
     generate_all_csvs(schemas, output_directory)
 
-    # Load CSVs into the database
+    
     for table_name in schemas.keys():
         load_csv_to_db(f"{output_directory}/{table_name}.csv", table_name, db_path)
 
-    # Initialize the NPC operations
+    
     npcsql = NPCSQLOperations(npc_directory="./npc_team", db_path=db_path)
 
-    # Initialize the SQL compiler and model runner
+    
     sql_compiler = SQLCompiler(models_directory)
     runner = ModelRunner(models_directory, sql_compiler, db_path, npcsql)
 
-    # Run all models
+    
     runner.run_all_models()
 
 

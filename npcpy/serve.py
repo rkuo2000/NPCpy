@@ -58,11 +58,11 @@ import os
 from pathlib import Path
 from flask_cors import CORS
 
-# Path for storing settings
-# instead of a static path relative to server launch directory
 
 
-# --- NEW: Global dictionary to track stream cancellation requests ---
+
+
+
 cancellation_flags = {}
 cancellation_lock = threading.Lock()
 
@@ -80,7 +80,7 @@ def get_project_npc_directory(current_path=None):
     if current_path:
         return os.path.join(current_path, "npc_team")
     else:
-        # Fallback to the old behavior if no path provided
+        
         return os.path.abspath("./npc_team")
 
 def load_project_env(current_path):
@@ -101,16 +101,16 @@ def load_project_env(current_path):
     
     if os.path.exists(env_path):
         print(f"Loading project environment from {env_path}")
-        # Load the environment variables into the current process
-        # Note: load_dotenv returns a boolean, not a dictionary
+        
+        
         success = load_dotenv(env_path, override=True)
         
         if success:
-            # Manually build a dictionary of loaded variables
+            
             with open(env_path, "r") as f:
                 for line in f:
                     line = line.strip()
-                    if line and not line.startswith("#"):
+                    if line and not line.startswith("
                         if "=" in line:
                             key, value = line.split("=", 1)
                             loaded_vars[key.strip()] = value.strip().strip("\"'")
@@ -123,7 +123,7 @@ def load_project_env(current_path):
     
     return loaded_vars
 
-# Initialize components
+
 def load_kg_data(generation=None):
     """Helper function to load data up to a specific generation."""
     engine = create_engine('sqlite:///' + app.config.get('DB_PATH'))
@@ -133,7 +133,7 @@ def load_kg_data(generation=None):
     concepts_df = pd.read_sql_query(f"SELECT * FROM kg_concepts{query_suffix}", engine)
     facts_df = pd.read_sql_query(f"SELECT * FROM kg_facts{query_suffix}", engine)
     
-    # Links don't have generation, so we filter them based on the loaded nodes
+    
     all_links_df = pd.read_sql_query("SELECT * FROM kg_links", engine)
     valid_nodes = set(concepts_df['name']).union(set(facts_df['statement']))
     links_df = all_links_df[all_links_df['source'].isin(valid_nodes) & all_links_df['target'].isin(valid_nodes)]
@@ -211,15 +211,15 @@ def load_npc_by_name_and_source(name, source, db_conn=None, current_path=None):
     if not db_conn:
         db_conn = get_db_connection()
     
-    # Determine which directory to search
+    
     if source == 'project':
         npc_directory = get_project_npc_directory(current_path)
         print(f"Looking for project NPC in: {npc_directory}")
-    else:  # Default to global if not specified or unknown
+    else:  
         npc_directory = app.config['user_npc_directory']
         print(f"Looking for global NPC in: {npc_directory}")
     
-    # Look for the NPC file in the appropriate directory
+    
     npc_path = os.path.join(npc_directory, f"{name}.npc")
     
     if os.path.exists(npc_path):
@@ -253,9 +253,9 @@ def get_conversation_history(conversation_id):
 
             return [
                 {
-                    "role": msg[0],  # role
-                    "content": msg[1],  # content
-                    "timestamp": msg[2],  # timestamp
+                    "role": msg[0],  
+                    "content": msg[1],  
+                    "timestamp": msg[2],  
                 }
                 for msg in messages
             ]
@@ -280,9 +280,9 @@ def fetch_messages_for_conversation(conversation_id):
 
             return [
                 {
-                    "role": message[0],  # role
-                    "content": message[1],  # content
-                    "timestamp": message[2],  # timestamp
+                    "role": message[0],  
+                    "content": message[1],  
+                    "timestamp": message[2],  
                 }
                 for message in messages
             ]
@@ -297,13 +297,13 @@ def fetch_messages_for_conversation(conversation_id):
 def list_generations():
     try:
         engine = create_engine('sqlite:///' + app.config.get('DB_PATH'))
-        # Combine generations from both tables to be safe
+        
         query = "SELECT DISTINCT generation FROM kg_concepts UNION SELECT DISTINCT generation FROM kg_facts"
         generations_df = pd.read_sql_query(query, engine)
         generations = generations_df.iloc[:, 0].tolist()
         return jsonify({"generations": sorted([g for g in generations if g is not None])})
     except Exception as e:
-        # If tables don't exist yet, return empty list
+        
         print(f"Error listing generations (likely new DB): {e}")
         return jsonify({"generations": []})
 
@@ -400,7 +400,7 @@ def get_attachment(attachment_id):
         data, name, type = command_history.get_attachment_data(attachment_id)
 
         if data:
-            # Convert binary data to base64 for sending
+            
             base64_data = base64.b64encode(data).decode("utf-8")
             return jsonify(
                 {"data": base64_data, "name": name, "type": type, "error": None}
@@ -412,10 +412,10 @@ def get_attachment(attachment_id):
 
 @app.route("/api/capture_screenshot", methods=["GET"])
 def capture():
-    # Capture screenshot using NPC-based method
+    
     screenshot = capture_screenshot(None, full=True)
 
-    # Ensure screenshot was captured successfully
+    
     if not screenshot:
         print("Screenshot capture failed")
         return None
@@ -431,7 +431,7 @@ def get_global_settings():
     try:
         npcshrc_path = os.path.expanduser("~/.npcshrc")
 
-        # Default settings
+        
         global_settings = {
             "model": "llama3.2",
             "provider": "ollama",
@@ -446,28 +446,28 @@ def get_global_settings():
         if os.path.exists(npcshrc_path):
             with open(npcshrc_path, "r") as f:
                 for line in f:
-                    # Skip comments and empty lines
-                    line = line.split("#")[0].strip()
+                    
+                    line = line.split("
                     if not line:
                         continue
 
                     if "=" not in line:
                         continue
 
-                    # Split on first = only
+                    
                     key, value = line.split("=", 1)
                     key = key.strip()
                     if key.startswith("export "):
                         key = key[7:]
 
-                    # Clean up the value - handle quoted strings properly
+                    
                     value = value.strip()
                     if value.startswith('"') and value.endswith('"'):
                         value = value[1:-1]
                     elif value.startswith("'") and value.endswith("'"):
                         value = value[1:-1]
 
-                    # Map environment variables to settings
+                    
                     key_mapping = {
                         "NPCSH_MODEL": "model",
                         "NPCSH_PROVIDER": "provider",
@@ -522,15 +522,15 @@ def save_global_settings():
         os.makedirs(os.path.dirname(npcshrc_path), exist_ok=True)
         print(data)
         with open(npcshrc_path, "w") as f:
-            # Write settings as environment variables
+            
             for key, value in data.get("global_settings", {}).items():
                 if key in key_mapping and value:
-                    # Quote value if it contains spaces
+                    
                     if " " in str(value):
                         value = f'"{value}"'
                     f.write(f"export {key_mapping[key]}={value}\n")
 
-            # Write custom variables
+            
             for key, value in data.get("global_vars", {}).items():
                 if key and value:
                     if " " in str(value):
@@ -544,7 +544,7 @@ def save_global_settings():
         return jsonify({"error": str(e)}), 500
 
 
-@app.route("/api/settings/project", methods=["GET", "OPTIONS"])  # Add OPTIONS
+@app.route("/api/settings/project", methods=["GET", "OPTIONS"])  
 def get_project_settings():
     if request.method == "OPTIONS":
         return "", 200
@@ -561,7 +561,7 @@ def get_project_settings():
             with open(env_path, "r") as f:
                 for line in f:
                     line = line.strip()
-                    if line and not line.startswith("#"):
+                    if line and not line.startswith("
                         if "=" in line:
                             key, value = line.split("=", 1)
                             env_vars[key.strip()] = value.strip().strip("\"'")
@@ -573,7 +573,7 @@ def get_project_settings():
         return jsonify({"error": str(e)}), 500
 
 
-@app.route("/api/settings/project", methods=["POST", "OPTIONS"])  # Add OPTIONS
+@app.route("/api/settings/project", methods=["POST", "OPTIONS"])  
 def save_project_settings():
     if request.method == "OPTIONS":
         return "", 200
@@ -608,35 +608,35 @@ def get_models():
     global available_models
     current_path = request.args.get("currentPath")
     if not current_path:
-        # Fallback to a default path or user home if needed,
-        # but ideally the frontend should always provide it.
-        current_path = os.path.expanduser("~/.npcsh")  # Or handle error
+        
+        
+        current_path = os.path.expanduser("~/.npcsh")  
         print("Warning: No currentPath provided for /api/models, using default.")
-        # return jsonify({"error": "currentPath parameter is required"}), 400
+        
 
     try:
-        # Reuse the existing function to detect models
+        
         available_models = get_locally_available_models(current_path)
 
-        # Optionally, add more details or format the response if needed
-        # Example: Add a display name
+        
+        
         formatted_models = []
         for m, p in available_models.items():
-            # Basic formatting, customize as needed
+            
             text_only = (
                 "(text only)"
                 if p == "ollama"
                 and m in ["llama3.2", "deepseek-v3", "phi4"]
                 else ""
             )
-            # Handle specific known model names for display
+            
             display_model = m
             if "claude-3-5-haiku-latest" in m:
                 display_model = "claude-3.5-haiku"
             elif "claude-3-5-sonnet-latest" in m:
                 display_model = "claude-3.5-sonnet"
             elif "gemini-1.5-flash" in m:
-                display_model = "gemini-1.5-flash"  # Handle multiple versions if neede
+                display_model = "gemini-1.5-flash"  
             elif "gemini-2.0-flash-lite-preview-02-05" in m:
                 display_model = "gemini-2.0-flash-lite-preview"
 
@@ -644,7 +644,7 @@ def get_models():
 
             formatted_models.append(
                 {
-                    "value": m,  # Use the actual model ID as the value
+                    "value": m,  
                     "provider": p,
                     "display_name": display_name,
                 }
@@ -656,29 +656,29 @@ def get_models():
         print(f"Error getting available models: {str(e)}")
 
         traceback.print_exc()
-        # Return an empty list or a specific error structure
+        
         return jsonify({"models": [], "error": str(e)}), 500
 
 @app.route('/api/<command>', methods=['POST'])
 def api_command(command):
     data = request.json or {}
     
-    # Check if command exists
+    
     handler = router.get_route(command)
     if not handler:
         return jsonify({"error": f"Unknown command: {command}"})
     
-    # Check if it's shell-only
+    
     if router.shell_only.get(command, False):
         return jsonify({"error": f"Command {command} is only available in shell mode"})
     
-    # Execute the command handler
+    
     try:
-        # Convert positional args from JSON 
+        
         args = data.get('args', [])
         kwargs = data.get('kwargs', {})
         
-        # Add command name back to the command string
+        
         command_str = command
         if args:
             command_str += " " + " ".join(str(arg) for arg in args)
@@ -695,13 +695,13 @@ def get_npc_team_global():
 
         npc_data = []
 
-        # Use existing helper to get NPCs from the global directory
+        
         for file in os.listdir(global_npc_directory):
             if file.endswith(".npc"):
                 npc_path = os.path.join(global_npc_directory, file)
                 npc = NPC(file=npc_path, db_conn=db_conn)
 
-                # Serialize the NPC data - updated for the new Jinx structure
+                
                 serialized_npc = {
                     "name": npc.name,
                     "primary_directive": npc.primary_directive,
@@ -736,7 +736,7 @@ def get_npc_team_global():
 
 @app.route("/api/jinxs/global", methods=["GET"])
 def get_global_jinxs():
-    # try:
+    
     user_home = os.path.expanduser("~")
     jinxs_dir = os.path.join(user_home, ".npcsh", "npc_team", "jinxs")
     jinxs = []
@@ -751,15 +751,15 @@ def get_global_jinxs():
     return jsonify({"jinxs": jinxs})
 
 
-# except Exception as e:
-#    return jsonify({"error": str(e)}), 500
+
+
 
 
 @app.route("/api/jinxs/project", methods=["GET"])
 def get_project_jinxs():
     current_path = request.args.get(
         "currentPath"
-    )  # Correctly retrieves `currentPath` from query params
+    )  
     if not current_path:
         return jsonify({"jinxs": []})
 
@@ -800,7 +800,7 @@ def save_jinx():
 
         os.makedirs(jinxs_dir, exist_ok=True)
 
-        # Full jinx structure
+        
         jinx_yaml = {
             "description": jinx_data.get("description", ""),
             "inputs": jinx_data.get("inputs", []),
@@ -827,16 +827,16 @@ def save_npc():
         if not npc_data or "name" not in npc_data:
             return jsonify({"error": "Invalid NPC data"}), 400
 
-        # Determine the directory based on whether it's global or project
+        
         if is_global:
             npc_directory = os.path.expanduser("~/.npcsh/npc_team")
         else:
             npc_directory = os.path.join(current_path, "npc_team")
 
-        # Ensure the directory exists
+        
         os.makedirs(npc_directory, exist_ok=True)
 
-        # Create the YAML content
+        
         yaml_content = f"""name: {npc_data['name']}
 primary_directive: "{npc_data['primary_directive']}"
 model: {npc_data['model']}
@@ -845,7 +845,7 @@ api_url: {npc_data.get('api_url', '')}
 use_global_jinxs: {str(npc_data.get('use_global_jinxs', True)).lower()}
 """
 
-        # Save the file
+        
         file_path = os.path.join(npc_directory, f"{npc_data['name']}.npc")
         with open(file_path, "w") as f:
             f.write(yaml_content)
@@ -874,7 +874,7 @@ def get_npc_team_project():
                 npc_path = os.path.join(project_npc_directory, file)
                 npc = NPC(file=npc_path, db_conn=db_conn)
 
-                # Serialize the NPC data, updated for new Jinx structure
+                
                 serialized_npc = {
                     "name": npc.name,
                     "primary_directive": npc.primary_directive,
@@ -950,7 +950,7 @@ def get_last_used_model_and_npc_in_conversation(conversation_id):
         print(f"Error getting last used model/NPC for conversation {conversation_id}: {e}")
         return {"model": None, "npc": None, "error": str(e)}
 
-# Add these new API routes:
+
 
 @app.route("/api/last_used_in_directory", methods=["GET"])
 def api_get_last_used_in_directory():
@@ -971,17 +971,17 @@ def api_get_last_used_in_conversation():
     
     result = get_last_used_model_and_npc_in_conversation(conversation_id)
     return jsonify(result)
-# Add this near your other utility functions
+
 def get_ctx_path(is_global, current_path=None):
     """Determines the path to the .ctx file."""
     if is_global:
-        # Assuming the global team context is in the root of the npc_team folder.
-        # Let's call it 'team.ctx' for consistency.
+        
+        
         return os.path.join(os.path.expanduser("~/.npcsh/npc_team/"), "npcsh.ctx")
     else:
         if not current_path:
             return None
-        # Project context is in the project's npc_team folder
+        
         return os.path.join(current_path, "npc_team", "team.ctx")
 
 
@@ -992,15 +992,15 @@ def read_ctx_file(file_path):
             try:
                 data = yaml.safe_load(f) or {}
 
-                # Normalize 'databases'
+                
                 if 'databases' in data and isinstance(data['databases'], list):
                     data['databases'] = [{"value": item} for item in data['databases']]
                 
-                # Normalize 'mcp_servers'
+                
                 if 'mcp_servers' in data and isinstance(data['mcp_servers'], list):
                     data['mcp_servers'] = [{"value": item} for item in data['mcp_servers']]
 
-                # Normalize 'preferences'
+                
                 if 'preferences' in data and isinstance(data['preferences'], list):
                     data['preferences'] = [{"value": item} for item in data['preferences']]
 
@@ -1008,25 +1008,25 @@ def read_ctx_file(file_path):
             except yaml.YAMLError as e:
                 print(f"YAML parsing error in {file_path}: {e}")
                 return {"error": "Failed to parse YAML."}
-    return {} # Return empty dict if file doesn't exist
+    return {} 
 
 def write_ctx_file(file_path, data):
     """Writes a dictionary to a YAML .ctx file, denormalizing list of objects back to strings."""
     if not file_path:
         return False
     
-    # Create a deep copy to avoid modifying the original data object
+    
     data_to_save = json.loads(json.dumps(data)) 
 
-    # Denormalize 'databases'
+    
     if 'databases' in data_to_save and isinstance(data_to_save['databases'], list):
         data_to_save['databases'] = [item.get("value", "") for item in data_to_save['databases'] if isinstance(item, dict)]
     
-    # Denormalize 'mcp_servers'
+    
     if 'mcp_servers' in data_to_save and isinstance(data_to_save['mcp_servers'], list):
         data_to_save['mcp_servers'] = [item.get("value", "") for item in data_to_save['mcp_servers'] if isinstance(item, dict)]
 
-    # Denormalize 'preferences'
+    
     if 'preferences' in data_to_save and isinstance(data_to_save['preferences'], list):
         data_to_save['preferences'] = [item.get("value", "") for item in data_to_save['preferences'] if isinstance(item, dict)]
 
@@ -1098,7 +1098,7 @@ def save_project_context():
 
 
 
-### RESPONSE HANDLING
+
 
 @app.route("/api/get_attachment_response", methods=["POST"])
 def get_attachment_response():
@@ -1115,12 +1115,12 @@ def get_attachment_response():
     provider = data.get("provider")
     message_id = data.get("messageId")
     
-    # Load project-specific environment variables if currentPath is provided
+    
     if current_path:
         loaded_vars = load_project_env(current_path)
         print(f"Loaded project env variables for attachment response: {list(loaded_vars.keys())}")
     
-    # Load the NPC if a name was provided
+    
     npc_object = None
     if npc_name:
         db_conn = get_db_connection()
@@ -1172,7 +1172,7 @@ def get_attachment_response():
     messages = response["messages"]
     response = response["response"]
 
-    # Save new messages
+    
     save_conversation_message(
         command_history, 
         conversation_id, 
@@ -1216,7 +1216,7 @@ IMAGE_MODELS = {
     ],
     "gemini": [
         {"value": "gemini-2.5-flash-image-preview", "display_name": "Gemini 2.5 Flash Image"},
-        {"value": "imagen-3.0-generate-002", "display_name": "Imagen 3.0 Generate (Preview)"}, # ADDED MODEL
+        {"value": "imagen-3.0-generate-002", "display_name": "Imagen 3.0 Generate (Preview)"}, 
     ],
     "diffusers": [
         {"value": "runwayml/stable-diffusion-v1-5", "display_name": "Stable Diffusion v1.5"},
@@ -1228,13 +1228,13 @@ def get_available_image_models(current_path=None):
     Retrieves available image generation models based on environment variables
     and predefined configurations.
     """
-    # Load project-specific environment variables (or rely on load_dotenv in server start)
+    
     if current_path:
-        load_project_env(current_path) # Reloads into os.environ
+        load_project_env(current_path) 
     
     all_image_models = []
 
-    # --- Prioritize models from NPCSH_IMAGE_MODEL/PROVIDER environment variables ---
+    
     env_image_model = os.getenv("NPCSH_IMAGE_MODEL")
     env_image_provider = os.getenv("NPCSH_IMAGE_PROVIDER")
 
@@ -1245,9 +1245,9 @@ def get_available_image_models(current_path=None):
             "display_name": f"{env_image_model} | {env_image_provider} (Configured)"
         })
 
-    # Add models from predefined IMAGE_MODELS
+    
     for provider_key, models_list in IMAGE_MODELS.items():
-        # Check if API keys/configs are available for cloud providers
+        
         if provider_key == "openai":
             if os.environ.get("OPENAI_API_KEY"):
                 all_image_models.extend([
@@ -1255,21 +1255,21 @@ def get_available_image_models(current_path=None):
                     for model in models_list
                 ])
         elif provider_key == "gemini":
-            if os.environ.get("GEMINI_API_KEY"): # Assuming GEMINI_API_KEY is used
+            if os.environ.get("GEMINI_API_KEY"): 
                 all_image_models.extend([
                     {**model, "provider": provider_key, "display_name": f"{model['display_name']} | {provider_key}"}
                     for model in models_list
                 ])
         elif provider_key == "diffusers":
-            # For diffusers, we'll assume they are always potentially available
-            # as `gen_image` is expected to handle the download/local inference.
+            
+            
             all_image_models.extend([
                 {**model, "provider": provider_key, "display_name": f"{model['display_name']} | {provider_key}"}
                 for model in models_list
             ])
-        # Add other providers here with their respective checks
+        
 
-    # Ensure uniqueness based on (value, provider) tuple
+    
     seen_models = set()
     unique_models = []
     for model_entry in all_image_models:
@@ -1298,11 +1298,11 @@ def generate_images():
     if not model_name or not provider_name:
         return jsonify({"error": "Image model and provider are required."}), 400
 
-    # Expand save directory path
+    
     save_dir = os.path.expanduser(save_dir)
     os.makedirs(save_dir, exist_ok=True)
 
-    # Add datetime to base filename
+    
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     base_filename_with_time = f"{base_filename}_{timestamp}"
 
@@ -1311,7 +1311,7 @@ def generate_images():
     command_history = CommandHistory(app.config.get('DB_PATH'))
     
     try:
-        # Process attachments if any
+        
         input_images = []
         attachments_loaded = []
         
@@ -1325,7 +1325,7 @@ def generate_images():
                             pil_img = Image.open(image_path)
                             input_images.append(pil_img)
                             
-                            # Load attachment for database storage
+                            
                             with open(image_path, 'rb') as f:
                                 img_data = f.read()
                             attachments_loaded.append({
@@ -1337,7 +1337,7 @@ def generate_images():
                         except Exception as e:
                             print(f"Warning: Could not load attachment image {image_path}: {e}")
 
-        # Call gen_image with input_images parameter
+        
         images_list = gen_image(
             prompt, 
             model=model_name, 
@@ -1352,16 +1352,16 @@ def generate_images():
         generated_attachments = []
         for i, pil_image in enumerate(images_list):
             if isinstance(pil_image, Image.Image):
-                # Generate filename with datetime and index
+                
                 filename = f"{base_filename_with_time}_{i+1:03d}.png" if n > 1 else f"{base_filename_with_time}.png"
                 filepath = os.path.join(save_dir, filename)
                 print(f'saved file to {filepath}')
                 
-                # Save the image to disk
+                
                 pil_image.save(filepath, format="PNG")
                 generated_filenames.append(filepath)
                 
-                # Prepare attachment data for database
+                
                 buffered = BytesIO()
                 pil_image.save(buffered, format="PNG")
                 img_data = buffered.getvalue()
@@ -1373,19 +1373,19 @@ def generate_images():
                     "size": len(img_data)
                 })
                 
-                # Also return base64 for preview
+                
                 img_str = base64.b64encode(img_data).decode("utf-8")
                 generated_images_base64.append(f"data:image/png;base64,{img_str}")
             else:
                 print(f"Warning: gen_image returned non-PIL object ({type(pil_image)}). Skipping image conversion.")
 
-        # Save generation record to database
+        
         generation_id = generate_message_id()
         
-        # Save input prompt as user message
+        
         save_conversation_message(
             command_history,
-            generation_id,  # Use as conversation ID
+            generation_id,  
             "user",
             f"Generate {n} image(s): {prompt}",
             wd=save_dir,
@@ -1396,11 +1396,11 @@ def generate_images():
             message_id=generation_id
         )
         
-        # Save generated images as assistant response
+        
         response_message = f"Generated {len(generated_images_base64)} image(s) saved to {save_dir}"
         save_conversation_message(
             command_history,
-            generation_id,  # Same conversation ID
+            generation_id,  
             "assistant", 
             response_message,
             wd=save_dir,
@@ -1414,7 +1414,7 @@ def generate_images():
         return jsonify({
             "images": generated_images_base64, 
             "filenames": generated_filenames,
-            "generation_id": generation_id,  # Return for potential future reference
+            "generation_id": generation_id,  
             "error": None
         })
     except Exception as e:
@@ -1439,8 +1439,8 @@ def get_image_models_api():
 
 
 
-### add a kwarg here for mode: cmd, chat, agent
-### for agent they will have 3 options: prompt, code, toolcalling
+
+
 
 
 @app.route("/api/stream", methods=["POST"])
@@ -1536,7 +1536,7 @@ def stream():
                     npc_object.team = team_object
                     print('team', team_object)                    
                 team_name = team_object.name
-                # Register the team in the app
+                
                 if not hasattr(app, 'registered_teams'):
                     app.registered_teams = {}
                 app.registered_teams[team_name] = team_object
@@ -1638,7 +1638,7 @@ def stream():
     
     
     exe_mode = data.get('executionMode','chat')
-    # print('EXE MODE', exe_mode)
+    
     if exe_mode == 'chat':
         stream_response = get_llm_response(
             commandstr, 
@@ -1663,32 +1663,32 @@ def stream():
         initial_state.npc = npc_object
         initial_state.team = team_object
         initial_state.messages = messages
-        #attachments=attachment_paths_for_llm,
-        #images=images, 
+        
+        
         state, stream_response = execute_command(
             commandstr, 
             initial_state, router=router)
         messages = state.messages
-        #messages = stream_response.get('messages', messages)
         
-        # user_message_filled = ''
-        #if isinstance(messages[-1].get('content'), list):
-        #    for cont in messages[-1].get('content'):
-        #        txt = cont.get('text')
-        #        if txt is not None:
-        #            user_message_filled +=txt       
-        #save_conversation_message(
-        #    command_history, 
-        #    conversation_id, 
-        #    "user", 
-        #    user_message_filled if len(user_message_filled)>0 else commandstr, 
-        ##    wd=current_path, 
-        #    model=model, 
-        #    provider=provider, 
-        #    npc=npc_name,
-        #    team=team, 
-        #    attachments=attachments_for_db, 
-        #    message_id=message_id,
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
     elif exe_mode == 'guac':
         print('not enabled yet')
         
@@ -1870,12 +1870,12 @@ def execute():
         import uuid
         stream_id = str(uuid.uuid4())
 
-    # --- NEW: Set the initial cancellation state for this new stream ---
+    
     with cancellation_lock:
         cancellation_flags[stream_id] = False
     print(f"Starting execute stream with ID: {stream_id}")
 
-    # Your original code...
+    
     commandstr = data.get("commandstr")
     conversation_id = data.get("conversationId")
     model = data.get("model", 'llama3.2')
@@ -1896,7 +1896,7 @@ def execute():
     npc_object = None
     team_object = None
     
-    # Handle team execution
+    
     if team:
         print(team)
         if hasattr(app, 'registered_teams') and team in app.registered_teams:
@@ -1905,13 +1905,13 @@ def execute():
         else:
             print(f"Warning: Team {team} not found in registered teams")
     
-    # Handle individual NPC execution
+    
     if npc_name:
-        # First check if there's a registered team and the NPC exists within that team
+        
         if team and hasattr(app, 'registered_teams') and team in app.registered_teams:
             team_object = app.registered_teams[team]
             print('team', team_object)
-            # Check if NPC exists in team's npcs (could be dict or list)
+            
             if hasattr(team_object, 'npcs'):
                 team_npcs = team_object.npcs
                 if isinstance(team_npcs, dict):
@@ -1924,18 +1924,18 @@ def execute():
                             npc_object = npc
                             print(f"Found NPC {npc_name} in registered team {team}")
                             break
-            # Also check the forenpc
+            
             if not npc_object and hasattr(team_object, 'forenpc') and hasattr(team_object.forenpc, 'name'):
                 if team_object.forenpc.name == npc_name:
                     npc_object = team_object.forenpc
                     print(f"Found NPC {npc_name} as forenpc in team {team}")
         
-        # If not found in team, check registered NPCs directly
+        
         if not npc_object and hasattr(app, 'registered_npcs') and npc_name in app.registered_npcs:
             npc_object = app.registered_npcs[npc_name]
             print(f"Found NPC {npc_name} in registered NPCs")
         
-        # Finally fall back to loading from files
+        
         if not npc_object:
             db_conn = get_db_connection()
             npc_object = load_npc_by_name_and_source(npc_name, npc_source, db_conn, current_path)
@@ -1994,7 +1994,7 @@ def execute():
         provider=provider, npc=npc_object, team=team_object, stream=True
     )
     print(response_gen)
-    #print(npc_object, provider, model)
+    
     message_id = generate_message_id()
 
     def event_stream(current_stream_id):
@@ -2005,7 +2005,7 @@ def execute():
 
         try:
             for response_chunk in response_gen['output']:
-                # --- Check the cancellation flag on every iteration ---
+                
                 with cancellation_lock:
                     if cancellation_flags.get(current_stream_id, False):
                         print(f"Cancellation flag triggered for {current_stream_id}. Breaking loop.")
@@ -2017,7 +2017,7 @@ def execute():
                 
                 chunk_content = ""
                 if isinstance(response_chunk, dict) and response_chunk.get("role") == "decision":
-                    # Stream decision immediately in standard format
+                    
                     chunk_data = {
                         "id": None, "object": None, "created": None, "model": model,
                         "choices": [
@@ -2077,7 +2077,7 @@ def execute():
                             "id": response_chunk.id, "object": response_chunk.object, "created": response_chunk.created, "model": response_chunk.model,
                             "choices": [{"index": choice.index, "delta": {"content": choice.delta.content, "role": choice.delta.role, "reasoning_content": reasoning_content if hasattr(choice.delta, "reasoning_content") else None}, "finish_reason": choice.finish_reason} for choice in response_chunk.choices]
                         }
-                    else: # its a string so assemble it
+                    else: 
                         chunk_content = response_chunk
                         complete_response.append(chunk_content)
                         chunk_data = {
@@ -2152,7 +2152,7 @@ def get_conversations():
                 ORDER BY MAX(timestamp) DESC
                 """)
 
-                # Check both with and without trailing slash
+                
                 path_without_slash = path.rstrip('/')
                 path_with_slash = path_without_slash + '/'
                 
@@ -2166,11 +2166,11 @@ def get_conversations():
                     {
                         "conversations": [
                             {
-                                "id": conv[0],  # conversation_id
-                                "timestamp": conv[1],  # start_time
-                                "last_message_timestamp": conv[2],  # last_message_timestamp
+                                "id": conv[0],  
+                                "timestamp": conv[1],  
+                                "last_message_timestamp": conv[2],  
                                 "preview": (
-                                    conv[3][:100] + "..."  # preview (now index 3)
+                                    conv[3][:100] + "..."  
                                     if conv[3] and len(conv[3]) > 100
                                     else conv[3]
                                 ),
@@ -2194,7 +2194,7 @@ def get_conversation_messages(conversation_id):
     try:
         engine = get_db_connection()
         with engine.connect() as conn:
-            # Modified query to ensure proper ordering and deduplication
+            
             query = text("""
                 WITH ranked_messages AS (
                     SELECT
@@ -2223,7 +2223,7 @@ def get_conversation_messages(conversation_id):
                 {
                     "messages": [
                         {
-                            "message_id": msg[1] if len(msg) > 1 else None,  # Adjust indices based on your schema
+                            "message_id": msg[1] if len(msg) > 1 else None,  
                             "role": msg[3] if len(msg) > 3 else None,
                             "content": msg[4] if len(msg) > 4 else None,
                             "timestamp": msg[5] if len(msg) > 5 else None,
@@ -2232,7 +2232,7 @@ def get_conversation_messages(conversation_id):
                             "npc": msg[8] if len(msg) > 8 else None,
                             "attachments": (
                                 get_message_attachments(msg[1])
-                                if len(msg) > 1 and msg[-1]  # attachment_ids
+                                if len(msg) > 1 and msg[-1]  
                                 else []
                             ),
                         }
@@ -2260,12 +2260,12 @@ def after_request(response):
 @app.route('/api/ollama/status', methods=['GET'])
 def ollama_status():
     try:
-        # The library's list function is a reliable way to check for a connection.
-        # It will raise an exception if it can't connect.
+        
+        
         ollama.list()
         return jsonify({"status": "running"})
     except ollama.RequestError as e:
-        # This catches connection errors, indicating Ollama is not running
+        
         print(f"Ollama status check failed: {e}")
         return jsonify({"status": "not_found"})
     except Exception as e:
@@ -2278,7 +2278,7 @@ def get_ollama_models():
     response = ollama.list()
     models_list = []
     
-    # The response is a list of Model objects. Access attributes with dot notation.
+    
     for model_obj in response['models']:
         models_list.append({
             "name": model_obj.model,
@@ -2300,7 +2300,7 @@ def delete_ollama_model():
         ollama.delete(model_name)
         return jsonify({"success": True, "message": f"Model {model_name} deleted."})
     except ollama.ResponseError as e:
-        # This will catch errors from Ollama, like "model not found"
+        
         return jsonify({"error": e.error}), e.status_code
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -2317,8 +2317,8 @@ def pull_ollama_model():
         try:
             stream = ollama.pull(model_name, stream=True)
             for progress_obj in stream:
-                # The stream yields ProgressResponse objects.
-                # Access their attributes and convert to a dictionary for JSON.
+                
+                
                 yield json.dumps({
                     'status': getattr(progress_obj, 'status', None),
                     'digest': getattr(progress_obj, 'digest', None),
@@ -2392,7 +2392,7 @@ def start_flask_server(
     user_npc_directory = None
 ):
     try:
-        # Register teams and NPCs with the app
+        
         if teams:
             app.registered_teams = teams
             print(f"Registered {len(teams)} teams: {list(teams.keys())}")
@@ -2404,14 +2404,14 @@ def start_flask_server(
             print(f"Registered {len(npcs)} NPCs: {list(npcs.keys())}")
         else:
             app.registered_npcs = {}
-        # Ensure the database tables exist
+        
         app.config['DB_PATH'] = db_path
         app.config['user_npc_directory'] = user_npc_directory
 
         command_history = CommandHistory(db_path)
         app.command_history = command_history
 
-        # Only apply CORS if origins are specified
+        
         if cors_origins:
 
             CORS(
@@ -2423,7 +2423,7 @@ def start_flask_server(
                 
             )
 
-        # Run the Flask app on all interfaces
+        
         print(f"Starting Flask server on http://0.0.0.0:{port}")
         app.run(host="0.0.0.0", port=port, debug=debug,  threaded=True)
     except Exception as e:
@@ -2434,8 +2434,8 @@ if __name__ == "__main__":
 
     SETTINGS_FILE = Path(os.path.expanduser("~/.npcshrc"))
 
-    # Configuration
+    
     db_path = os.path.expanduser("~/npcsh_history.db")
     user_npc_directory = os.path.expanduser("~/.npcsh/npc_team")
-    # Make project_npc_directory a function that updates based on current path
+    
     start_flask_server(db_path=db_path, user_npc_directory=user_npc_directory)

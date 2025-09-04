@@ -11,7 +11,7 @@ def test_command_history_creation():
     try:
         history = CommandHistory(temp_db)
         
-        # Check if tables were created
+        
         conn = sqlite3.connect(temp_db)
         cursor = conn.cursor()
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
@@ -126,7 +126,7 @@ def test_add_attachment():
     try:
         history = CommandHistory(temp_db)
         
-        # First create a conversation message
+        
         conversation_id = "test_conv_123"
         message_id = generate_message_id()
         
@@ -138,7 +138,7 @@ def test_add_attachment():
             message_id=message_id
         )
         
-        # Now add attachment to that message
+        
         attachment_data = b"Test file content"
         
         history.add_attachment(
@@ -167,12 +167,12 @@ def test_search_commands():
     try:
         history = CommandHistory(temp_db)
         
-        # Add some test commands
+        
         history.add_command("ls -la", [], "file listing", "/home")
         history.add_command("cd /tmp", [], "changed directory", "/home")
         history.add_command("python script.py", [], "script output", "/tmp")
         
-        # Search for commands
+        
         results = history.search_commands("python")
         assert len(results) >= 1
         assert any("python" in cmd["command"] for cmd in results)
@@ -193,7 +193,7 @@ def test_search_conversations():
         history = CommandHistory(temp_db)
         conversation_id = "search_test_conv"
         
-        # Add test conversations
+        
         history.add_conversation(
             "user", "How do I install Python?", conversation_id, "/test"
         )
@@ -201,7 +201,7 @@ def test_search_conversations():
             "assistant", "You can install Python from python.org", conversation_id, "/test"
         )
         
-        # Search conversations
+        
         results = history.search_conversations("Python")
         assert len(results) >= 1
         print(f"Found {len(results)} conversations mentioning 'Python'")
@@ -273,7 +273,7 @@ def test_start_new_conversation():
     assert len(conversation_id) > 0
     print(f"Started new conversation: {conversation_id}")
     
-    # Test with prepend
+    
     conversation_id_with_prepend = start_new_conversation("test_")
     assert conversation_id_with_prepend.startswith("test_")
     print(f"Started conversation with prepend: {conversation_id_with_prepend}")

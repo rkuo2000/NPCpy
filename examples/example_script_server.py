@@ -14,7 +14,7 @@ def create_simple_team():
     
     print(f"Creating team in: {team_dir}")
     
-    # Simple Coordinator NPC
+    
     coordinator_config = {
         "name": "coordinator",
         "primary_directive": "You coordinate tasks and delegate work to team members when needed. Handle general questions yourself.",
@@ -22,7 +22,7 @@ def create_simple_team():
         "provider": "ollama"
     }
     
-    # Developer NPC
+    
     developer_config = {
         "name": "developer",
         "primary_directive": "You are a software developer. Handle all coding and technical tasks directly.",
@@ -30,7 +30,7 @@ def create_simple_team():
         "provider": "ollama"
     }
     
-    # Writer NPC
+    
     writer_config = {
         "name": "writer",
         "primary_directive": "You are a technical writer. Handle all documentation and content creation directly.",
@@ -38,14 +38,13 @@ def create_simple_team():
         "provider": "ollama"
     }
     
-    # Save NPCs
     configs = [coordinator_config, developer_config, writer_config]
     for config in configs:
         npc_path = os.path.join(team_dir, f"{config['name']}.npc")
         with open(npc_path, 'w') as f:
             yaml.dump(config, f, default_flow_style=False)
     
-    # Team context
+    
     team_context = {
         "forenpc": "coordinator",
         "team_name": "Simple Team",
@@ -57,7 +56,7 @@ def create_simple_team():
     with open(ctx_path, 'w') as f:
         yaml.dump(team_context, f, default_flow_style=False)
     
-    # Simple jinx
+    
     simple_jinx = {
         "jinx_name": "hello_world",
         "description": "Simple greeting",

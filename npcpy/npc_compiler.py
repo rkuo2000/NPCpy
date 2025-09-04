@@ -95,14 +95,14 @@ class Jinx:
                 messages=None):
         """Execute the jinx with given inputs"""
         if jinja_env is None:
-            # For standalone jinx execution, we don't need FileSystemLoader
-            # Just use a basic environment with no file system dependencies
+            
+            
             from jinja2 import DictLoader
             jinja_env = Environment(
-                loader=DictLoader({}),  # Empty dict loader since we're not loading templates from files
+                loader=DictLoader({}),  
                 undefined=SilentUndefined,
             )
-        # Create context with input values and jinxs
+        
         context = (npc.shared_context.copy() if npc else {})
         context.update(input_values)
         context.update({
@@ -112,7 +112,7 @@ class Jinx:
             "messages": messages,
         })
         
-        # Process each step in sequence
+        
         for i, step in enumerate(self.steps):
             context = self._execute_step(
                 step, 
@@ -141,7 +141,7 @@ class Jinx:
         
 
         try:
-            #print(code)
+            
             template = jinja_env.from_string(code)
             rendered_code = template.render(**context)
             
@@ -153,16 +153,16 @@ class Jinx:
             rendered_code = code
             rendered_engine = engine
                 
-        # Execute based on engine type
+        
         if rendered_engine == "natural":
             if rendered_code.strip():
-                # Handle streaming case
+                
                 response = npc.get_llm_response(
                     rendered_code,
                     context=context,
                     messages=messages,
                 )
-               # print(response)
+               
                 response_text = response.get("response", "")
                 context['output'] = response_text
                 context["llm_response"] = response_text
@@ -170,7 +170,7 @@ class Jinx:
                 context[step_name] = response_text
                 context['messages'] = response.get('messages')
         elif rendered_engine == "python":
-            # Setup execution environment
+            
             exec_globals = {
                 "__builtins__": __builtins__,
                 "npc": npc,
@@ -190,14 +190,14 @@ class Jinx:
                 }
             
             
-            # Execute the code
+            
             exec_locals = {}
             exec(rendered_code, exec_globals, exec_locals)
             
-            # Update context with results
+            
             context.update(exec_locals)
             
-            # Handle explicit output
+            
             if "output" in exec_locals:
                 outp = exec_locals["output"]
                 context["output"] = outp
@@ -207,7 +207,7 @@ class Jinx:
                 context['messages'] = messages
                 
         else:
-            # Handle unknown engine
+            
             context[step_name] = {"error": f"Unsupported engine: {rendered_engine}"}
             
         return context
@@ -237,19 +237,19 @@ class Jinx:
     @classmethod
     def from_mcp(cls, mcp_tool):
         """Convert an MCP tool to NPC jinx format"""
-        # Extract function info from MCP tool
+        
         try:
             import inspect
 
-            # Get basic info
+            
             doc = mcp_tool.__doc__ or ""
             name = mcp_tool.__name__
             signature = inspect.signature(mcp_tool)
             
-            # Extract inputs from signature
+            
             inputs = []
             for param_name, param in signature.parameters.items():
-                if param_name != 'self':  # Skip self for methods
+                if param_name != 'self':  
                     param_type = param.annotation if param.annotation != inspect.Parameter.empty else None
                     param_default = None if param.default == inspect.Parameter.empty else param.default
                     
@@ -259,7 +259,7 @@ class Jinx:
                         "default": param_default
                     })
             
-            # Create tool data
+            
             jinx_data = {
                 "jinx_name": name,
                 "description": doc.strip(),
@@ -269,7 +269,7 @@ class Jinx:
                         "name": "mcp_function_call",
                         "engine": "python",
                         "code": f"""
-# Call the MCP function
+
 import {mcp_tool.__module__}
 output = {mcp_tool.__module__}.{name}(
     {', '.join([f'{inp["name"]}=context.get("{inp["name"]}")' for inp in inputs])}
@@ -306,7 +306,7 @@ def agent_pass_handler(command, extracted_data, **kwargs):
     npc = kwargs.get('npc')
     team = kwargs.get('team')
     
-    # If team isn't in kwargs, try to get it from the npc's context
+    
     if not team and npc and hasattr(npc, '_current_team'):
         team = npc._current_team
     
@@ -319,17 +319,17 @@ def agent_pass_handler(command, extracted_data, **kwargs):
     if not target_npc_name:
         return {"messages": kwargs.get('messages', []), "output": "Error: No target NPC specified"}
     
-    # PREVENT INFINITE LOOPS: Check if we're passing back to the same NPC
+    
     messages = kwargs.get('messages', [])
     
-    # Count how many times this has been passed around
+    
     pass_count = 0
     recent_passes = []
     
-    for msg in messages[-10:]:  # Check last 10 messages
+    for msg in messages[-10:]:  
         if 'NOTE: THIS COMMAND HAS BEEN PASSED FROM' in msg.get('content', ''):
             pass_count += 1
-            # Extract who passed it
+            
             if 'PASSED FROM' in msg.get('content', ''):
                 content = msg.get('content', '')
                 if 'PASSED FROM' in content and 'TO YOU' in content:
@@ -338,7 +338,7 @@ def agent_pass_handler(command, extracted_data, **kwargs):
     
     print(f"DEBUG: Pass count: {pass_count}, Recent passes: {recent_passes}")
     
-    # If we've been passing this around too much, force current NPC to handle it
+    
     if pass_count >= 3:
         return {
             "messages": kwargs.get('messages', []),
@@ -353,7 +353,7 @@ def agent_pass_handler(command, extracted_data, **kwargs):
                      "Document completed successfully."
         }
     
-    # Check if we're trying to pass to ourselves (immediate loop)
+    
     if target_npc_name == npc.name:
         return {
             "messages": kwargs.get('messages', []),
@@ -366,7 +366,7 @@ def agent_pass_handler(command, extracted_data, **kwargs):
     
     print(f"DEBUG: Looking for target NPC: {target_npc_name}")
     
-    # Get target NPC from team
+    
     target_npc = team.get_npc(target_npc_name)
     if not target_npc:
         available_npcs = list(team.npcs.keys()) if hasattr(team, 'npcs') else []
@@ -374,7 +374,7 @@ def agent_pass_handler(command, extracted_data, **kwargs):
     
     print(f"DEBUG: Found target NPC: {target_npc.name}")
     
-    # Use handle_agent_pass
+    
     result = npc.handle_agent_pass(
         target_npc,
         command,
@@ -388,18 +388,18 @@ def agent_pass_handler(command, extracted_data, **kwargs):
     print(f"DEBUG: Agent pass result: {type(result)}")
     return result
 
-# NPC-specific action space that extends the default
+
 def get_npc_action_space(npc=None, team=None):
     """Get action space for NPC including agent pass if team is available"""
     actions = DEFAULT_ACTION_SPACE.copy()
     
-    # Add agent pass action if we have a team
+    
     if team and hasattr(team, 'npcs') and len(team.npcs) > 1:
         available_npcs = [name for name in team.npcs.keys() if name != (npc.name if npc else None)]
         
-        # Create a closure that captures the team reference
+        
         def team_aware_handler(command, extracted_data, **kwargs):
-            # Inject the team into kwargs if it's missing
+            
             if 'team' not in kwargs or kwargs['team'] is None:
                 kwargs['team'] = team
             return agent_pass_handler(command, extracted_data, **kwargs)
@@ -469,21 +469,21 @@ class NPC:
             self.api_url = api_url 
             self.api_key = api_key
             self.team = team
-            #for these cases
-            # if npcsh is initialized, use the ~/.npcsh/npc_team
-            # otherwise imply
+            
+            
+            
             if use_global_jinxs:
                 self.jinxs_directory = os.path.expanduser('~/.npcsh/npc_team/jinxs/')
             else: 
                 self.jinxs_directory = None
-            self.npc_directory = None # only makes sense when the input is also a file 
-            # keep the jinxs tho to enable easieros.path.abspath('./npc_team/')
+            self.npc_directory = None 
+            
 
         if tools is not None:
             tools_schema, tool_map = auto_tools(tools)
-            self.tools = tools_schema  # Always store OpenAI-compatible schema here
-            self.tool_map = tool_map   # Store the callable map
-            self.tools_schema = tools_schema  # For backward compatibility if needed
+            self.tools = tools_schema  
+            self.tool_map = tool_map   
+            self.tools_schema = tools_schema  
         else:
             self.tools = []
             self.tool_map = {}
@@ -506,7 +506,7 @@ class NPC:
             undefined=SilentUndefined,
         )
         
-        # Set up database connection
+        
         self.db_conn = db_conn
         if self.db_conn:
             self._setup_db()
@@ -518,10 +518,10 @@ class NPC:
             self.tables = None
             
             
-        # Load jinxs
+        
         self.jinxs = self._load_npc_jinxs(jinxs or "*")
         
-        # Set up shared context for NPC
+        
         self.shared_context = {
             "dataframes": {},
             "current_data": None,
@@ -529,7 +529,7 @@ class NPC:
             "memories":{}
         }
         
-        # Add any additional attributes
+        
         for key, value in kwargs.items():
             setattr(self, key, value)
             
@@ -537,8 +537,8 @@ class NPC:
             init_db_tables()
     def _load_npc_memory(self):
         memory = self.command_history.get_messages_by_npc(self.name, n_last=self.memory_length)
-        #import pdb 
-        #pdb.set_trace()
+        
+        
         memory = [{'role':mem['role'], 'content':mem['content']} for mem in memory]
         
         return memory 
@@ -553,19 +553,19 @@ class NPC:
         if not npc_data:
             raise ValueError(f"Failed to load NPC from {file}")
             
-        # Extract core fields
+        
         self.name = npc_data.get("name")
         if not self.name:
-            # Fall back to filename if name not in file
+            
             self.name = os.path.splitext(os.path.basename(file))[0]
             
         self.primary_directive = npc_data.get("primary_directive")
         
-        # Handle wildcard jinxs specification
+        
         jinxs_spec = npc_data.get("jinxs", "*")
-        #print(jinxs_spec)
+        
         if jinxs_spec == "*":
-            # Will be loaded in _load_npc_jinxs
+            
             self.jinxs_spec = "*" 
         else:
             self.jinxs_spec = jinxs_spec
@@ -576,10 +576,10 @@ class NPC:
         self.api_key = npc_data.get("api_key")
         self.name = npc_data.get("name", self.name)
 
-        # Store path for future reference
+        
         self.npc_path = file
         
-        # Set NPC-specific jinxs directory path
+        
         self.npc_jinxs_directory = os.path.join(os.path.dirname(file), "jinxs")
     def get_system_prompt(self, simple=False):
         if simple or self.plain_system_message:
@@ -626,36 +626,36 @@ class NPC:
         if self.jinxs_directory is None:
             self.jinxs_dict = {}
             return None
-        # Handle wildcard case - load all jinxs from the jinxs directory
+        
         if jinxs == "*":
-            #print(f'loading all jinxs for {self.name}')
-            # Try to find jinxs in NPC-specific jinxs dir first
-            #print(self.npc_jinxs_directory)
+            
+            
+            
             npc_jinxs.extend(load_jinxs_from_directory(self.jinxs_directory))
-            #print(npc_jinxs)               
+            
             if os.path.exists(self.jinxs_directory):
                 npc_jinxs.extend(load_jinxs_from_directory(self.jinxs_directory))                
-            # Return all loaded jinxs
+            
             self.jinxs_dict = {jinx.jinx_name: jinx for jinx in npc_jinxs}
-            #print(npc_jinxs)
+            
             return npc_jinxs
             
 
         for jinx in jinxs:
-            #need to add a block here for mcp jinxs.
+            
                 
             if isinstance(jinx, Jinx):
                 npc_jinxs.append(jinx)
             elif isinstance(jinx, dict):
                 npc_jinxs.append(Jinx(jinx_data=jinx))
             
-                # Try to load from file
+                
                 jinx_path = None
                 jinx_name = jinx
                 if not jinx_name.endswith(".jinx"):
                     jinx_name += ".jinx"
                 
-                # Check NPC-specific jinxs directory first
+                
                 if hasattr(self, 'jinxs_directory') and os.path.exists(self.jinxs_directory):
                     candidate_path = os.path.join(self.jinxs_directory, jinx_name)
                     if os.path.exists(candidate_path):
@@ -668,7 +668,7 @@ class NPC:
                     except Exception as e:
                         print(f"Error loading jinx {jinx_path}: {e}")
         
-        # Update jinxs dictionary
+        
         self.jinxs_dict = {jinx.jinx_name: jinx for jinx in npc_jinxs}
         return npc_jinxs
     
@@ -706,7 +706,7 @@ class NPC:
     
     def execute_jinx(self, jinx_name, inputs, conversation_id=None, message_id=None, team_name=None):
         """Execute a jinx by name"""
-        # Find the jinx
+        
         if jinx_name in self.jinxs_dict:
             jinx = self.jinxs_dict[jinx_name]
         elif jinx_name in self.jinxs_dict:
@@ -744,14 +744,14 @@ class NPC:
         if context is None:
             context = self.shared_context
         
-        # Store team reference on NPC for handler access
+        
         if team:
             self._current_team = team
         
-        # Get NPC-specific action space
+        
         actions = get_npc_action_space(npc=self, team=team)
         
-        # Call the LLM command checker with NPC-specific actions
+        
         return npy.llm_funcs.check_llm_command(
             command,
             model=self.model,
@@ -771,7 +771,7 @@ class NPC:
                           context=None, 
                           shared_context=None, 
                           stream=False,
-                          team=None):  # Add team parameter
+                          team=None):  
         """Pass a command to another NPC"""
         print('handling agent pass')
         if isinstance(npc_to_pass, NPC):
@@ -779,12 +779,12 @@ class NPC:
         else:
             return {"error": "Invalid NPC to pass command to"}
         
-        # Update shared context
+        
         if shared_context is not None:
             self.shared_context.update(shared_context)
             target_npc.shared_context.update(shared_context)
             
-        # Add a note that this command was passed from another NPC
+        
         updated_command = (
             command
             + "\n\n"
@@ -905,7 +905,7 @@ class Team:
         if not os.path.exists(self.team_path):
             raise ValueError(f"Team directory not found: {self.team_path}")
         
-        # Load team context if available
+        
 
         for filename in os.listdir(self.team_path):
             if filename.endswith(".npc"):
@@ -918,13 +918,13 @@ class Team:
                     print(f"Error loading NPC {filename}: {e}")
         self.context = self._load_team_context()
 
-        # Load jinxs from jinxs directory
+        
         jinxs_dir = os.path.join(self.team_path, "jinxs")
         if os.path.exists(jinxs_dir):
             for jinx in load_jinxs_from_directory(jinxs_dir):
                 self.jinxs_dict[jinx.jinx_name] = jinx
         
-        # Load sub-teams (subfolders)
+        
         self._load_sub_teams()
 
 
@@ -933,10 +933,10 @@ class Team:
         """Load team context from .ctx file"""
 
                                 
-        #check if any .ctx file exists 
+        
         for fname in os.listdir(self.team_path):
             if fname.endswith('.ctx'):
-                # do stuff on the file
+                
                 ctx_data = load_yaml_file(os.path.join(self.team_path, fname))                
                 if ctx_data is not None:
                     if 'model' in ctx_data:
@@ -991,7 +991,7 @@ class Team:
                 not item.startswith('.') and 
                 item != "jinxs"):
                 
-                # Check if directory contains NPCs
+                
                 if any(f.endswith(".npc") for f in os.listdir(item_path) 
                       if os.path.isfile(os.path.join(item_path, f))):
                     try:
@@ -1011,9 +1011,9 @@ class Team:
         if hasattr(self, 'context') and self.context and 'forenpc' in self.context:
             forenpc_ref = self.context['forenpc']
             
-            # Handle Jinja template references
+            
             if '{{ref(' in forenpc_ref:
-                # Extract NPC name from {{ref('npc_name')}}
+                
                 match = re.search(r"{{\s*ref\('([^']+)'\)\s*}}", forenpc_ref)
                 if match:
                     forenpc_name = match.group(1)
@@ -1046,15 +1046,15 @@ class Team:
         if isinstance(npc_ref, NPC):
             return npc_ref
         elif isinstance(npc_ref, str):
-            # First check direct NPCs
+            
             if npc_ref in self.npcs:
                 return self.npcs[npc_ref]
             
-            # Then check sub-teams (hierarchical capability)
+            
             for sub_team_name, sub_team in self.sub_teams.items():
                 if npc_ref in sub_team.npcs:
                     return sub_team.npcs[npc_ref]
-                # Recursive search in sub-teams
+                
                 result = sub_team.get_npc(npc_ref)
                 if result:
                     return result
@@ -1069,27 +1069,27 @@ class Team:
         if not forenpc:
             return {"error": "No forenpc available to coordinate the team"}
         
-        # Log the orchestration start
+        
         log_entry(
             self.name,
             "orchestration_start",
             {"request": request}
         )
         
-        # Initial request goes to forenpc
+        
         result = forenpc.check_llm_command(request,
             context=getattr(self, 'context', {}),
             team = self, 
         )
         
-        # Track execution until complete
+        
         while True:
-            # Save the result
+            
             completion_prompt= "" 
             if isinstance(result, dict):
                 self.shared_context["execution_history"].append(result)
                 
-                # Track messages by NPC
+                
                 if result.get("messages") and result.get("npc_name"):
                     if result["npc_name"] not in self.shared_context["npc_messages"]:
                         self.shared_context["npc_messages"][result["npc_name"]] = []
@@ -1149,7 +1149,7 @@ class Team:
                     -'relevant' with boolean value
                     -'explanation' for irrelevance with quoted citations in your explanation noting why it is irrelevant to user input must be a single string.
                 Return only the JSON object."""
-            # Check if the result is complete
+            
             completion_check = npy.llm_funcs.get_llm_response(
                 completion_prompt, 
                 model=forenpc.model,
@@ -1159,17 +1159,17 @@ class Team:
                 npc=forenpc,
                 format="json"
             )
-            # Extract completion status
+            
             if isinstance(completion_check.get("response"), dict):
                 complete = completion_check["response"].get("relevant", False)
                 explanation = completion_check["response"].get("explanation", "")
             else:
-                # Default to incomplete if format is wrong
+                
                 complete = False
                 explanation = "Could not determine completion status"
             
-            #import pdb 
-            #pdb.set_trace()
+            
+            
             if complete:
                 
                 debrief = npy.llm_funcs.get_llm_response(
@@ -1198,7 +1198,7 @@ class Team:
                     "execution_history": self.shared_context["execution_history"],
                 }
             else:
-                # Continue with updated request
+                
                 updated_request = (
                     request
                     + "\n\nThe request has not yet been fully completed. "
@@ -1208,7 +1208,7 @@ class Team:
                 print('updating request', updated_request)
 
                 
-                # Call forenpc again
+                
                 result = forenpc.check_llm_command(
                     updated_request,
                     context=getattr(self, 'context', {}),
@@ -1235,27 +1235,27 @@ class Team:
         if not directory:
             raise ValueError("No directory specified for saving team")
             
-        # Create team directory
+        
         ensure_dirs_exist(directory)
         
-        # Save context
+        
         if hasattr(self, 'context') and self.context:
             ctx_path = os.path.join(directory, "team.ctx")
             write_yaml_file(ctx_path, self.context)
             
-        # Save NPCs
+        
         for npc in self.npcs.values():
             npc.save(directory)
             
-        # Create jinxs directory
+        
         jinxs_dir = os.path.join(directory, "jinxs")
         ensure_dirs_exist(jinxs_dir)
         
-        # Save jinxs
+        
         for jinx in self.jinxs.values():
             jinx.save(jinxs_dir)
             
-        # Save sub-teams
+        
         for team_name, team in self.sub_teams.items():
             team_dir = os.path.join(directory, team_name)
             team.save(team_dir)
@@ -1291,67 +1291,67 @@ class Pipeline:
         context = initial_context or {}
         results = {}
         
-        # Initialize database tables
+        
         init_db_tables()
         
-        # Generate pipeline hash for tracking
+        
         pipeline_hash = self._generate_hash()
         
-        # Create results table specific to this pipeline
+        
         results_table = f"{self.name}_results"
         self._ensure_results_table(results_table)
         
-        # Create run entry
+        
         run_id = self._create_run_entry(pipeline_hash)
         
-        # Add utility functions to context
+        
         context.update({
             "ref": lambda step_name: results.get(step_name),
             "source": self._fetch_data_from_source,
         })
         
-        # Execute each step
+        
         for step in self.steps:
             step_name = step.get("step_name")
             if not step_name:
                 raise ValueError(f"Missing step_name in step: {step}")
                 
-            # Get NPC for this step
+            
             npc_name = self._render_template(step.get("npc", ""), context)
             npc = self._get_npc(npc_name)
             if not npc:
                 raise ValueError(f"NPC {npc_name} not found for step {step_name}")
                 
-            # Render task template
+            
             task = self._render_template(step.get("task", ""), context)
             
-            # Execute with appropriate NPC
+            
             model = step.get("model", npc.model)
             provider = step.get("provider", npc.provider)
             
-            # Check for special mixa (mixture of agents) mode
+            
             mixa = step.get("mixa", False)
             if mixa:
                 response = self._execute_mixa_step(step, context, npc, model, provider)
             else:
-                # Check for data source
+                
                 source_matches = re.findall(r"{{\s*source\('([^']+)'\)\s*}}", task)
                 if source_matches:
                     response = self._execute_data_source_step(step, context, source_matches, npc, model, provider)
                 else:
-                    # Standard LLM execution
+                    
                     llm_response = npy.llm_funcs.get_llm_response(task, model=model, provider=provider, npc=npc)
                     response = llm_response.get("response", "")
             
-            # Store result
+            
             results[step_name] = response
             context[step_name] = response
             
-            # Save to database
+            
             self._store_step_result(run_id, step_name, npc_name, model, provider, 
                                    {"task": task}, response, results_table)
             
-        # Return all results
+        
         return {
             "results": results,
             "run_id": run_id
@@ -1383,7 +1383,7 @@ class Pipeline:
                 content = f.read()
             return hashlib.sha256(content.encode()).hexdigest()
         else:
-            # Generate hash from steps
+            
             content = json.dumps(self.steps)
             return hashlib.sha256(content.encode()).hexdigest()
             
@@ -1468,50 +1468,50 @@ class Pipeline:
             
     def _execute_mixa_step(self, step, context, npc, model, provider):
         """Execute a mixture of agents step"""
-        # Get task template
+        
         task = self._render_template(step.get("task", ""), context)
         
-        # Get configuration
+        
         mixa_turns = step.get("mixa_turns", 5)
         num_generating_agents = len(step.get("mixa_agents", []))
         if num_generating_agents == 0:
-            num_generating_agents = 3  # Default
+            num_generating_agents = 3  
             
         num_voting_agents = len(step.get("mixa_voters", []))
         if num_voting_agents == 0:
-            num_voting_agents = 3  # Default
+            num_voting_agents = 3  
             
-        # Step 1: Initial Response Generation
+        
         round_responses = []
         for _ in range(num_generating_agents):
             response = npy.llm_funcs.get_llm_response(task, model=model, provider=provider, npc=npc)
             round_responses.append(response.get("response", ""))
             
-        # Loop for each round of voting and refining
+        
         for turn in range(1, mixa_turns + 1):
-            # Step 2: Voting by agents
+            
             votes = [0] * len(round_responses)
             for _ in range(num_voting_agents):
                 voted_index = random.choice(range(len(round_responses)))
                 votes[voted_index] += 1
                 
-            # Step 3: Refinement feedback
+            
             refined_responses = []
             for i, resp in enumerate(round_responses):
                 feedback = (
                     f"Current responses and their votes:\n" + 
                     "\n".join([f"Response {j+1}: {r[:100]}... - Votes: {votes[j]}" 
                              for j, r in enumerate(round_responses)]) +
-                    f"\n\nRefine your response #{i+1}: {resp}"
+                    f"\n\nRefine your response 
                 )
                 
                 response = npy.llm_funcs.get_llm_response(feedback, model=model, provider=provider, npc=npc)
                 refined_responses.append(response.get("response", ""))
                 
-            # Update responses for next round
+            
             round_responses = refined_responses
             
-        # Final synthesis
+        
         synthesis_prompt = (
             "Synthesize these responses into a coherent answer:\n" +
             "\n".join(round_responses)
@@ -1526,31 +1526,31 @@ class Pipeline:
         table_name = source_matches[0]
         
         try:
-            # Fetch data
+            
             db_path = "~/npcsh_history.db"
             engine = create_engine(f"sqlite:///{os.path.expanduser(db_path)}")
             df = pd.read_sql(f"SELECT * FROM {table_name}", engine)
             
-            # Handle batch mode vs. individual processing
+            
             if step.get("batch_mode", False):
-                # Replace source reference with all data
+                
                 data_str = df.to_json(orient="records")
                 task = task_template.replace(f"{{{{ source('{table_name}') }}}}", data_str)
                 task = self._render_template(task, context)
                 
-                # Process all at once
+                
                 response = npy.llm_funcs.get_llm_response(task, model=model, provider=provider, npc=npc)
                 return response.get("response", "")
             else:
-                # Process each row individually
+                
                 results = []
                 for _, row in df.iterrows():
-                    # Replace source reference with row data
+                    
                     row_data = json.dumps(row.to_dict())
                     row_task = task_template.replace(f"{{{{ source('{table_name}') }}}}", row_data)
                     row_task = self._render_template(row_task, context)
                     
-                    # Process row
+                    
                     response = npy.llm_funcs.get_llm_response(row_task, model=model, provider=provider, npc=npc)
                     results.append(response.get("response", ""))
                     
@@ -1668,9 +1668,9 @@ def initialize_npc_project(
     forenpc_path = os.path.join(npc_team_dir, "forenpc.npc")
     
 
-    # Always ensure default NPC exists
+    
     if not os.path.exists(forenpc_path):
-        # Use your new NPC class to create sibiji
+        
         default_npc = {
             "name": "forenpc",
             "primary_directive": "You are the forenpc of an NPC team", 
@@ -1706,11 +1706,11 @@ def execute_jinx_command(
     """
     Execute a jinx command with the given arguments.
     """
-    # Extract inputs for the current jinx
+    
     input_values = extract_jinx_inputs(args, jinx)
 
-    # print(f"Input values: {input_values}")
-    # Execute the jinx with the extracted inputs
+    
+    
 
     jinx_output = jinx.execute(
         input_values,
@@ -1725,7 +1725,7 @@ def execute_jinx_command(
 def extract_jinx_inputs(args: List[str], jinx: Jinx) -> Dict[str, Any]:
     inputs = {}
 
-    # Create flag mapping
+    
     flag_mapping = {}
     for input_ in jinx.inputs:
         if isinstance(input_, str):
@@ -1736,11 +1736,11 @@ def extract_jinx_inputs(args: List[str], jinx: Jinx) -> Dict[str, Any]:
             flag_mapping[f"-{key[0]}"] = key
             flag_mapping[f"--{key}"] = key
 
-    # Process arguments
+    
     used_args = set()
     for i, arg in enumerate(args):
         if arg in flag_mapping:
-            # If flag is found, next argument is its value
+            
             if i + 1 < len(args):
                 input_name = flag_mapping[arg]
                 inputs[input_name] = args[i + 1]
@@ -1749,7 +1749,7 @@ def extract_jinx_inputs(args: List[str], jinx: Jinx) -> Dict[str, Any]:
             else:
                 print(f"Warning: {arg} flag is missing a value.")
 
-    # If no flags used, combine remaining args for first input
+    
     unused_args = [arg for i, arg in enumerate(args) if i not in used_args]
     if unused_args and jinx.inputs:
         first_input = jinx.inputs[0]
@@ -1759,14 +1759,14 @@ def extract_jinx_inputs(args: List[str], jinx: Jinx) -> Dict[str, Any]:
             key = list(first_input.keys())[0]
             inputs[key] = " ".join(unused_args)
 
-    # Add default values for inputs not provided
+    
     for input_ in jinx.inputs:
         if isinstance(input_, str):
             if input_ not in inputs:
-                if any(args):  # If we have any arguments at all
+                if any(args):  
                     raise ValueError(f"Missing required input: {input_}")
                 else:
-                    inputs[input_] = None  # Allow None for completely empty calls
+                    inputs[input_] = None  
         elif isinstance(input_, dict):
             key = list(input_.keys())[0]
             if key not in inputs:

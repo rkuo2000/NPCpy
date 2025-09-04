@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+
 """
 Standalone test script for Veo 3 video generation using npcpy.llm_funcs
 """
@@ -74,16 +74,16 @@ def main():
     output_dir.mkdir(parents=True, exist_ok=True)
     print(f"📁 Output directory: {output_dir}")
     
-    # Test 1: Basic Veo 3
+    
     test_veo3_basic()
     
-    # Test 2: Veo 3 with negative prompt
+    
     test_veo3_with_negative_prompt()
     
-    # Test 3: Custom output path
+    
     test_veo3_custom_output()
     
-    # List generated videos
+    
     video_files = list(output_dir.glob("*.mp4"))
     if video_files:
         print(f"\n🎬 Generated videos in {output_dir}:")

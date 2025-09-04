@@ -22,7 +22,7 @@ def test_npc_save_and_load():
     temp_dir = tempfile.mkdtemp()
     
     try:
-        # Create and save NPC
+        
         npc = NPC(
             name="save_test_npc",
             primary_directive="Test NPC for saving",
@@ -31,11 +31,11 @@ def test_npc_save_and_load():
         )
         npc.save(temp_dir)
         
-        # Verify file was created
+        
         npc_file = os.path.join(temp_dir, "save_test_npc.npc")
         assert os.path.exists(npc_file)
         
-        # Load NPC from file
+        
         loaded_npc = NPC(file=npc_file)
         assert loaded_npc.name == "save_test_npc"
         print(f"Saved and loaded NPC: {loaded_npc.name}")
@@ -115,7 +115,7 @@ def test_team_creation():
     temp_dir = tempfile.mkdtemp()
     
     try:
-        # Create NPCs for the team
+        
         npc1 = NPC(name="analyst", primary_directive="Analyze data")
         npc2 = NPC(name="critic", primary_directive="Critique analysis")
         

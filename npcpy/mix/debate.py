@@ -106,7 +106,7 @@ def run_synthesis_tournament(initial_contenders: list, initial_topic: str, model
             judge_theme = f"Judges evaluating two opposing arguments: '{argument1[:50]}...' versus '{argument2[:50]}...'"
             judging_panel = generate_npcs(judge_theme, 3, model=model, provider=provider)
 
-            # STAGE 1: Collect votes from the jury, with a clear example
+            
             votes = []
             print("\n--- The Jury Votes ---")
             vote_prompt = f"""
@@ -127,7 +127,7 @@ def run_synthesis_tournament(initial_contenders: list, initial_topic: str, model
                 votes.append(vote)
                 print(f"{judge.name} votes for: {vote}")
 
-            # STAGE 2: Tally votes and create a weighted synthesis
+            
             vote_counts = Counter(votes)
             winner_name, winner_votes = vote_counts.most_common(1)[0]
             
@@ -138,7 +138,7 @@ def run_synthesis_tournament(initial_contenders: list, initial_topic: str, model
             winning_argument = argument1 if winner_name == agent1.name else argument2
             losing_argument = argument2 if winner_name == agent1.name else winning_argument
 
-            # The final synthesis prompt, now with a clear example of the expected output format
+            
             final_synthesis_prompt = f"""
             You are a Master Synthesizer. Your task is to create a new, superior argument by merging two competing ideas based on a jury's verdict.
 

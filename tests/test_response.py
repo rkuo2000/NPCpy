@@ -33,7 +33,7 @@ def test_get_litellm_response_with_images():
     temp_dir = tempfile.mkdtemp()
     
     try:
-        # Create a simple test image file
+        
         from PIL import Image
         img = Image.new('RGB', (100, 100), color='red')
         img_path = os.path.join(temp_dir, "test_image.png")
@@ -92,7 +92,7 @@ def test_get_litellm_response_json_format():
     assert response is not None
     
     if "response" in response and response["response"]:
-        # The response should already be parsed JSON (dict/list), not a string
+        
         assert isinstance(response["response"], (dict, list)), f"Expected dict/list, got {type(response['response'])}"
         print("JSON format test passed - response is already parsed")
     
@@ -126,7 +126,7 @@ def test_get_ollama_response_with_format():
 
 def test_process_tool_calls():
     """Test tool call processing"""
-    # Mock response with tool calls
+    
     response_dict = {
         "response": "I'll calculate that for you",
         "messages": [{"role": "assistant", "content": "Let me calculate"}],
@@ -165,7 +165,7 @@ def test_get_litellm_response_with_api_key():
         provider="ollama",
         api_key=None
     )
-    # This should work with ollama provider even with None API key
+    
     assert response is not None
     print(f"API key test response: {response}")
 
@@ -177,7 +177,7 @@ def test_get_litellm_response_with_attachments():
     temp_dir = tempfile.mkdtemp()
     
     try:
-        # Create test file
+        
         test_file = os.path.join(temp_dir, "test.txt")
         with open(test_file, "w") as f:
             f.write("This is test content for attachment processing.")

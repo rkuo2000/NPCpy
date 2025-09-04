@@ -13,7 +13,7 @@ def package_files(directory):
 
 
 
-# Base requirements (no LLM packages)
+
 base_requirements = [
     "jinja2",
     "litellm",    
@@ -49,7 +49,7 @@ base_requirements = [
     "mcp", 
 ]
 
-# API integration requirements
+
 api_requirements = [
     "anthropic",
     "openai",
@@ -57,7 +57,7 @@ api_requirements = [
     "google-genai",
 ]
 
-# Local ML/AI requirements
+
 local_requirements = [
     "sentence_transformers",
     "opencv-python",
@@ -68,7 +68,7 @@ local_requirements = [
     "torch",
 ]
 
-# Voice/Audio requirements
+
 voice_requirements = [
     "pyaudio",
     "gtts",
@@ -84,12 +84,12 @@ setup(
     name="npcpy",
     version="1.1.33",
     packages=find_packages(exclude=["tests*"]),
-    install_requires=base_requirements,  # Only install base requirements by default
+    install_requires=base_requirements,  
     extras_require={
-        "lite": api_requirements,  # Just API integrations
-        "local": local_requirements,  # Local AI/ML features
-        "yap": voice_requirements,  # Voice/Audio features
-        "all": api_requirements + local_requirements + voice_requirements,  # Everything
+        "lite": api_requirements,  
+        "local": local_requirements,  
+        "yap": voice_requirements,  
+        "all": api_requirements + local_requirements + voice_requirements,  
     },
     author="Christopher Agostino",
     author_email="info@npcworldwi.de",

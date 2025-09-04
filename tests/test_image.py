@@ -15,13 +15,13 @@ def test_capture_screenshot_basic():
             assert "file_path" in result
             assert os.path.exists(result["file_path"])
             
-            # Check file size > 0
+            
             file_size = os.path.getsize(result["file_path"])
             assert file_size > 0
             
             print(f"Screenshot captured: {result['filename']} ({file_size} bytes)")
             
-            # Clean up
+            
             os.remove(result["file_path"])
         else:
             print("Screenshot capture returned None (user may have cancelled)")
@@ -45,7 +45,7 @@ def test_capture_screenshot_interactive():
                 file_size = os.path.getsize(result["file_path"])
                 print(f"Interactive screenshot captured: {result['filename']} ({file_size} bytes)")
                 
-                # Clean up
+                
                 os.remove(result["file_path"])
             else:
                 print("Screenshot file not found - user may have cancelled")
@@ -76,7 +76,7 @@ def test_capture_screenshot_with_npc():
             
             print(f"NPC screenshot test passed: {result['model_kwargs']}")
             
-            # Clean up if file exists
+            
             if os.path.exists(result["file_path"]):
                 os.remove(result["file_path"])
         else:
@@ -92,24 +92,24 @@ def test_compress_image():
         from PIL import Image
         import io
         
-        # Create a test image
+        
         img = Image.new('RGB', (1200, 800), color='red')
         
-        # Convert to bytes
+        
         img_buffer = io.BytesIO()
         img.save(img_buffer, format='PNG')
         original_bytes = img_buffer.getvalue()
         
-        # Compress the image
+        
         compressed_bytes = compress_image(original_bytes, max_size=(800, 600))
         
         assert isinstance(compressed_bytes, bytes)
         assert len(compressed_bytes) > 0
         
-        # Verify the compressed image can be loaded
+        
         compressed_img = Image.open(io.BytesIO(compressed_bytes))
         
-        # Check size was reduced
+        
         assert compressed_img.size[0] <= 800
         assert compressed_img.size[1] <= 600
         
@@ -128,17 +128,17 @@ def test_compress_image_rgba():
         from PIL import Image
         import io
         
-        # Create RGBA image (with transparency)
+        
         img = Image.new('RGBA', (400, 300), color=(255, 0, 0, 128))
         
         img_buffer = io.BytesIO()
         img.save(img_buffer, format='PNG')
         original_bytes = img_buffer.getvalue()
         
-        # Compress (should convert to RGB)
+        
         compressed_bytes = compress_image(original_bytes)
         
-        # Verify compressed image is RGB
+        
         compressed_img = Image.open(io.BytesIO(compressed_bytes))
         assert compressed_img.mode == 'RGB'
         
@@ -156,19 +156,19 @@ def test_compress_image_small_image():
         from PIL import Image
         import io
         
-        # Create small image
+        
         img = Image.new('RGB', (200, 150), color='blue')
         
         img_buffer = io.BytesIO()
         img.save(img_buffer, format='PNG')
         original_bytes = img_buffer.getvalue()
         
-        # Compress with larger max_size
+        
         compressed_bytes = compress_image(original_bytes, max_size=(800, 600))
         
         compressed_img = Image.open(io.BytesIO(compressed_bytes))
         
-        # Size should remain the same since it's already smaller
+        
         assert compressed_img.size == (200, 150)
         
         print(f"Small image test passed: size unchanged {compressed_img.size}")
@@ -182,23 +182,23 @@ def test_compress_image_small_image():
 def test_screenshot_directory_creation():
     """Test that screenshot directory is created if it doesn't exist"""
     try:
-        # This test verifies directory creation without actually taking screenshot
+        
         screenshot_dir = os.path.expanduser("~/.npcsh/screenshots")
         
-        # Remove directory if it exists
+        
         if os.path.exists(screenshot_dir):
             import shutil
             shutil.rmtree(os.path.dirname(screenshot_dir))
         
-        # Try to capture screenshot (will create directory)
+        
         result = capture_screenshot(full=True)
         
-        # Check if directory was created
+        
         assert os.path.exists(screenshot_dir)
         
         print("Screenshot directory creation test passed")
         
-        # Clean up screenshot file if created
+        
         if result and os.path.exists(result["file_path"]):
             os.remove(result["file_path"])
             
@@ -222,7 +222,7 @@ def test_platform_specific_screenshot():
         else:
             print(f"Unknown platform: {system}")
             
-        # Test basic functionality
+        
         result = capture_screenshot(full=True)
         
         if result:
@@ -242,18 +242,18 @@ def test_compress_image_different_formats():
         from PIL import Image
         import io
         
-        # Test with JPEG format input
+        
         img = Image.new('RGB', (600, 400), color='green')
         
-        # Save as JPEG
+        
         img_buffer = io.BytesIO()
         img.save(img_buffer, format='JPEG', quality=90)
         jpeg_bytes = img_buffer.getvalue()
         
-        # Compress
+        
         compressed_bytes = compress_image(jpeg_bytes)
         
-        # Should still work
+        
         compressed_img = Image.open(io.BytesIO(compressed_bytes))
         assert compressed_img.mode == 'RGB'
         

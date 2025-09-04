@@ -132,27 +132,27 @@ Once initialized and set up, you will find the following in your ~/.npcsh direct
 ```bash
 ~/.npcsh/
 
-└── images/ # images created or uploaded during conversations
-└── jobs/ # scheduled jobs 
-└── logs/ # logs for triggers and jobs
-├── npc_team/           # Global NPCs
-│   ├── jinxs/          # Global jinxs
-│   └── assembly_lines/ # Workflow pipelines
-└── screenshots/ # taken with the screenshot jinx or /ots macro
-└── triggers/ # jobs that trigger on certain conditions
+└── images/ 
+└── jobs/ 
+└── logs/ 
+├── npc_team/           
+│   ├── jinxs/          
+│   └── assembly_lines/ 
+└── screenshots/ 
+└── triggers/ 
 ```
 
 For cases where you wish to set up a project specific set of NPCs, jinxs, and assembly lines, add a `npc_team` directory to your project and `npcsh` should be able to pick up on its presence, like so:
 ```bash
-./npc_team/            # Project-specific NPCs
-├── jinxs/             # Project jinxs #example jinx next
+./npc_team/            
+├── jinxs/             
 │   └── example.jinx
-└── assembly_lines/    # Project workflows
+└── assembly_lines/    
     └── example.pipe
-└── models/    # Project workflows
+└── models/    
     └── example.model
-└── example1.npc        # Example NPC
-└── example2.npc        # Example NPC
-└── team.ctx            # Example ctx
+└── example1.npc        
+└── example2.npc        
+└── team.ctx            
 ```
 

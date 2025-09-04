@@ -32,7 +32,7 @@ def process_pdf(pdf_path: str, extract_images: bool = True, extract_tables: bool
     try:
         pdf_df = load_pdf(pdf_path)
         
-        # Extract text
+        
         if 'texts' in pdf_df.columns:
             texts = json.loads(pdf_df['texts'].iloc[0])
             for item in texts:
@@ -42,7 +42,7 @@ def process_pdf(pdf_path: str, extract_images: bool = True, extract_tables: bool
                     "bbox": item.get('bbox', None)
                 })
         
-        # Extract images
+        
         if extract_images and 'images' in pdf_df.columns:
             images_data = json.loads(pdf_df['images'].iloc[0])
             temp_paths = []
@@ -67,7 +67,7 @@ def process_pdf(pdf_path: str, extract_images: bool = True, extract_tables: bool
             
             result["temp_paths"] = temp_paths
             
-        # Extract tables (if requested and available)
+        
         if extract_tables and 'tables' in pdf_df.columns:
             tables_data = json.loads(pdf_df['tables'].iloc[0])
             for table in tables_data:
@@ -90,7 +90,7 @@ def process_image(image_path: str) -> Optional[str]:
         return None
     
     try:
-        # Just verify it's a valid image
+        
         Image.open(image_path)
         return image_path
     except Exception as e:
@@ -137,7 +137,7 @@ def extract_and_analyze(
     start_time = time.time()
     
     if not preprocess:
-        # Simple attachment-based approach
+        
         print(f"Using simple attachment-based approach with {len(file_paths)} files")
         format_param = "json" if output_json else None
         
@@ -157,14 +157,14 @@ def extract_and_analyze(
         }
         
     else:
-        # Detailed preprocessing approach
+        
         print(f"Using detailed preprocessing approach with {len(file_paths)} files")
         pdf_results = []
         image_paths = []
         csv_contents = []
         temp_files = []
         
-        # Process each file based on type
+        
         for file_path in file_paths:
             _, ext = os.path.splitext(file_path)
             ext = ext.lower()
@@ -174,7 +174,7 @@ def extract_and_analyze(
                 pdf_result = process_pdf(file_path, extract_tables=extract_tables)
                 pdf_results.append({"path": file_path, "content": pdf_result})
                 
-                # Add extracted images to the list
+                
                 if "temp_paths" in pdf_result:
                     image_paths.extend(pdf_result["temp_paths"])
                     temp_files.extend(pdf_result["temp_paths"])
@@ -191,22 +191,22 @@ def extract_and_analyze(
                 if csv_content:
                     csv_contents.append({"path": file_path, "content": csv_content})
         
-        # Build prompt with extracted content
+        
         prompt = "Analyze the following content extracted from multiple documents:\n\n"
         
-        # Add PDF text content
+        
         for pdf_result in pdf_results:
             pdf_path = pdf_result["path"]
             pdf_content = pdf_result["content"]
             
             if pdf_content["text"]:
                 prompt += f"PDF TEXT CONTENT ({os.path.basename(pdf_path)}):\n"
-                # Limit to first 5 text blocks to avoid exceeding context window
+                
                 for i, text_item in enumerate(pdf_content["text"][:5]):
                     prompt += f"- Page {text_item['page']}: {text_item['content'][:500]}...\n"
                 prompt += "\n"
             
-            # Add table content if available
+            
             if pdf_content["tables"]:
                 prompt += f"PDF TABLES ({os.path.basename(pdf_path)}):\n"
                 for i, table in enumerate(pdf_content["tables"][:3]):
@@ -214,19 +214,19 @@ def extract_and_analyze(
                     prompt += f"{str(table['data'])[:500]}...\n"
                 prompt += "\n"
         
-        # Add CSV content
+        
         for csv_item in csv_contents:
             prompt += f"CSV DATA ({os.path.basename(csv_item['path'])}):\n"
             prompt += f"{csv_item['content']}\n\n"
         
-        # Add analysis instructions
+        
         prompt += "\nPlease provide a comprehensive analysis of the content above, identifying key concepts, patterns, and insights."
         
         if output_json:
             prompt += "\nFormat your response as a JSON object with the following structure: " + \
                       '{"key_concepts": [], "data_points": [], "analysis": "", "insights": []}'
         
-        # Call LLM with preprocessed content and images
+        
         format_param = "json" if output_json else None
         response = get_llm_response(
             prompt=prompt,
@@ -246,7 +246,7 @@ def extract_and_analyze(
             "approach": "detailed-preprocessing"
         }
         
-        # Clean up temporary files
+        
         for temp_file in temp_files:
             if os.path.exists(temp_file):
                 try:
@@ -254,7 +254,7 @@ def extract_and_analyze(
                 except Exception as e:
                     print(f"Error removing temp file {temp_file}: {e}")
     
-    # Save results if output file specified
+    
     if output_file:
         try:
             with open(output_file, 'w') as f:
@@ -291,7 +291,7 @@ if __name__ == "__main__":
     print(result["analysis"])
     print(f"\nProcessing completed in {result['processing_time']:.2f} seconds")
     
-    # Example paths for direct script execution if no args provided
+    
     if not sys.argv[1:]:
         print("\nRunning example with default paths:")
         pdf_path = 'test_data/yuan2004.pdf'

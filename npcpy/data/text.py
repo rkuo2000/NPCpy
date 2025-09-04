@@ -37,70 +37,70 @@ def rag_search(
             )
     results = []
 
-    # Compute the embedding of the query
+    
     query_embedding = embedding_model.encode(
         query, convert_to_tensor=True, show_progress_bar=False
     )
     if isinstance(text_data, str):
-        # split at the sentence level
+        
         lines = text_data.split(".")
         if not lines:
             return results
-        # Compute embeddings for each line
+        
         if text_data_embedded is None:
             line_embeddings = embedding_model.encode(lines, convert_to_tensor=True)
         else:
             line_embeddings = text_data_embedded
-        # Compute cosine similarities
+        
         cosine_scores = util.cos_sim(query_embedding, line_embeddings)[0].cpu().numpy()
 
-        # Find indices of lines above the similarity threshold
+        
         relevant_line_indices = np.where(cosine_scores >= similarity_threshold)[0]
-        # print("relevant_line_indices", cosine_scores)
-        # print(np.mean(cosine_scores))
-        # print(np.max(cosine_scores))
+        
+        
+        
 
         for idx in relevant_line_indices:
             idx = int(idx)
-            # Get context lines (±10 lines)
+            
             start_idx = max(0, idx - 10)
-            end_idx = min(len(lines), idx + 11)  # +11 because end index is exclusive
+            end_idx = min(len(lines), idx + 11)  
             snippet = ". ".join(lines[start_idx:end_idx])
             results.append(snippet)
 
     elif isinstance(text_data, dict):
         for filename, content in text_data.items():
-            # Split content into lines
+            
             lines = content.split("\n")
             if not lines:
                 continue
-            # Compute embeddings for each line
+            
             if text_data_embedded is None:
                 line_embeddings = embedding_model.encode(lines, convert_to_tensor=True)
             else:
                 line_embeddings = text_data_embedded[filename]
-            # Compute cosine similarities
+            
             cosine_scores = (
                 util.cos_sim(query_embedding, line_embeddings)[0].cpu().numpy()
             )
 
-            # Find indices of lines above the similarity threshold
-            ##print("most similar", np.max(cosine_scores))
-            ##print("most similar doc", lines[np.argmax(cosine_scores)])
+            
+            
+            
             relevant_line_indices = np.where(cosine_scores >= similarity_threshold)[0]
-            # print("relevant_line_indices", cosine_scores)
-            # print(np.mean(cosine_scores))
-            # print(np.max(cosine_scores))
+            
+            
+            
             for idx in relevant_line_indices:
-                idx = int(idx)  # Ensure idx is an integer
-                # Get context lines (±10 lines)
+                idx = int(idx)  
+                
                 start_idx = max(0, idx - 10)
                 end_idx = min(
                     len(lines), idx + 11
-                )  # +11 because end index is exclusive
+                )  
                 snippet = "\n".join(lines[start_idx:end_idx])
                 results.append((filename, snippet))
-        # print("results", results)
+        
     return results
 
 
@@ -122,10 +122,10 @@ def load_all_files(
     """
     text_data = {}
     if depth < 1:
-        return text_data  # Reached the specified depth, stop recursion.
+        return text_data  
 
     if extensions is None:
-        # Default to common text file extensions
+        
         extensions = [
             ".txt",
             ".md",
@@ -139,11 +139,11 @@ def load_all_files(
             ".ts",
             ".tsx",
             ".npc",
-            # Add more extensions if needed
+            
         ]
 
     try:
-        # List all entries in the directory
+        
         entries = os.listdir(directory)
     except Exception as e:
         print(f"Could not list directory {directory}: {e}")
@@ -159,7 +159,7 @@ def load_all_files(
                 except Exception as e:
                     print(f"Could not read file {path}: {e}")
         elif os.path.isdir(path):
-            # Recurse into subdirectories, decreasing depth by 1
+            
             subdir_data = load_all_files(path, extensions, depth=depth - 1)
             text_data.update(subdir_data)
 

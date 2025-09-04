@@ -11,17 +11,17 @@ from docstring_parser import parse as parse_docstring
 
 def python_type_to_json_schema(py_type: type) -> Dict[str, Any]:
     """Convert Python type hints to JSON schema types."""
-    # Handle Union types (including Optional)
+    
     if get_origin(py_type) is Union:
         args = get_args(py_type)
-        # Check if it's Optional (Union with None)
+        
         if len(args) == 2 and type(None) in args:
             non_none_type = args[0] if args[1] is type(None) else args[1]
             return python_type_to_json_schema(non_none_type)
-        # For other unions, just use the first type for now
+        
         return python_type_to_json_schema(args[0])
     
-    # Handle List types
+    
     if get_origin(py_type) is list:
         item_type = get_args(py_type)[0] if get_args(py_type) else str
         return {
@@ -29,11 +29,11 @@ def python_type_to_json_schema(py_type: type) -> Dict[str, Any]:
             "items": python_type_to_json_schema(item_type)
         }
     
-    # Handle Dict types
+    
     if get_origin(py_type) is dict:
         return {"type": "object"}
     
-    # Basic type mappings
+    
     type_mapping = {
         str: {"type": "string"},
         int: {"type": "integer"},
@@ -48,16 +48,16 @@ def python_type_to_json_schema(py_type: type) -> Dict[str, Any]:
 
 def extract_function_info(func: Callable) -> Dict[str, Any]:
     """Extract function information including name, description, and parameters."""
-    # Get function signature
+    
     sig = inspect.signature(func)
     
-    # Get type hints
+    
     try:
         type_hints = get_type_hints(func)
     except Exception:
         type_hints = {}
     
-    # Parse docstring
+    
     docstring = inspect.getdoc(func)
     parsed_doc = None
     if docstring:
@@ -66,7 +66,7 @@ def extract_function_info(func: Callable) -> Dict[str, Any]:
         except Exception:
             pass
     
-    # Extract function name and description
+    
     func_name = func.__name__
     description = ""
     
@@ -75,31 +75,31 @@ def extract_function_info(func: Callable) -> Dict[str, Any]:
         if hasattr(parsed_doc, 'long_description') and parsed_doc.long_description:
             description += f". {parsed_doc.long_description}"
     elif docstring:
-        # Fallback to first line of docstring
+        
         description = docstring.split('\n')[0].strip()
     
-    # Extract parameters
+    
     properties = {}
     required = []
     param_descriptions = {}
     
-    # Get parameter descriptions from docstring
+    
     if parsed_doc and hasattr(parsed_doc, 'params'):
         for param in parsed_doc.params:
             param_descriptions[param.arg_name] = param.description or ""
     
     for param_name, param in sig.parameters.items():
-        # Skip self parameter
+        
         if param_name == 'self':
             continue
             
-        # Get parameter type
+        
         param_type = type_hints.get(param_name, str)
         
-        # Convert to JSON schema
+        
         param_schema = python_type_to_json_schema(param_type)
         
-        # Add description if available
+        
         if param_name in param_descriptions:
             param_schema["description"] = param_descriptions[param_name]
         else:
@@ -107,7 +107,7 @@ def extract_function_info(func: Callable) -> Dict[str, Any]:
         
         properties[param_name] = param_schema
         
-        # Check if parameter is required (no default value)
+        
         if param.default is inspect.Parameter.empty:
             required.append(param_name)
     
@@ -165,10 +165,10 @@ def auto_tools(functions: List[Callable]) -> tuple[List[Dict[str, Any]], Dict[st
             except:
                 return "Invalid mathematical expression"
         
-        # Automatically generate schema and map
+        
         tools_schema, tool_map = auto_tools([get_weather, calculate_math])
         
-        # Use with get_llm_response
+        
         response = get_llm_response(
             "What's the weather in Paris and what's 15 * 23?",
             model='gpt-4o-mini',

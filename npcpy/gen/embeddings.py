@@ -1,9 +1,9 @@
-#######
-#######
-#######
-#######
-####### EMBEDDINGS
-#######
+
+
+
+
+
+
 from typing import List, Dict, Optional
 import numpy as np
 from datetime import datetime
@@ -49,17 +49,17 @@ def store_embeddings_for_model(
     collection_name = f"{provider}_{model}_embeddings"
     collection = chroma_client.get_collection(collection_name)
 
-    # Create meaningful metadata for each document (adjust as necessary)
+    
     if metadata is None:
-        metadata = [{"text_length": len(text)} for text in texts]  # Example metadata
+        metadata = [{"text_length": len(text)} for text in texts]  
         print(
             "metadata is none, creating metadata for each document as the length of the text"
         )
-    # Add embeddings to the collection with metadata
+    
     collection.add(
         ids=[str(i) for i in range(len(texts))],
         embeddings=embeddings,
-        metadatas=metadata,  # Passing populated metadata
+        metadatas=metadata,  
         documents=texts,
     )
 
@@ -67,7 +67,7 @@ def store_embeddings_for_model(
 def delete_embeddings_from_collection(collection, ids):
     """Delete embeddings by id from Chroma collection."""
     if ids:
-        collection.delete(ids=ids)  # Only delete if ids are provided
+        collection.delete(ids=ids)  
 
 
 def get_embeddings(
@@ -83,6 +83,6 @@ def get_embeddings(
     else:
         raise ValueError(f"Unsupported provider: {provider}")
 
-    # Store the embeddings in the relevant Chroma collection
-    # store_embeddings_for_model(texts, embeddings, model, provider)
+    
+    
     return embeddings

@@ -13,7 +13,7 @@ def setup_test_team():
     os.makedirs(team_dir, exist_ok=True)
     os.makedirs(os.path.join(team_dir, "jinxs"), exist_ok=True)
     
-    # Create a data analyst NPC
+    
     analyst_config = {
         "name": "data_analyst",
         "primary_directive": """You are a data analyst specializing in financial and business data analysis. 
@@ -22,7 +22,7 @@ def setup_test_team():
         "provider": "ollama"
     }
     
-    # Create a content writer NPC  
+    
     writer_config = {
         "name": "content_writer",
         "primary_directive": """You are a technical content writer who excels at creating clear, engaging documentation, 
@@ -31,7 +31,7 @@ def setup_test_team():
         "provider": "ollama"
     }
     
-    # Create a research specialist NPC
+    
     researcher_config = {
         "name": "researcher",
         "primary_directive": """You are a research specialist who excels at gathering information, 
@@ -40,7 +40,7 @@ def setup_test_team():
         "provider": "ollama"
     }
     
-    # Create coordinator NPC
+    
     coordinator_config = {
         "name": "coordinator", 
         "primary_directive": """You are a project coordinator who manages team workflows. You analyze requests 
@@ -49,14 +49,14 @@ def setup_test_team():
         "provider": "ollama"
     }
     
-    # Write NPC files
+    
     configs = [analyst_config, writer_config, researcher_config, coordinator_config]
     for config in configs:
         npc_path = os.path.join(team_dir, f"{config['name']}.npc")
         with open(npc_path, 'w') as f:
             yaml.dump(config, f)
     
-    # Create team context
+    
     team_context = {
         "forenpc": "coordinator",
         "preferences": {
@@ -69,7 +69,7 @@ def setup_test_team():
     with open(ctx_path, 'w') as f:
         yaml.dump(team_context, f)
     
-    # Create a useful jinx for data analysis
+    
     data_jinx = {
         "jinx_name": "analyze_csv_data",
         "description": "Load and analyze CSV data, create basic statistics and insights",
@@ -85,7 +85,7 @@ def setup_test_team():
 import pandas as pd
 import numpy as np
 
-# Load the CSV file
+
 try:
     df = pd.read_csv(context['file_path'])
     context['dataframe'] = df
@@ -138,7 +138,7 @@ def test_financial_analysis_request():
     The data is at /tmp/q3_sales_data.csv (you can simulate this analysis)
     """
     
-    # Create sample data for demonstration
+    
     sample_data_path = "/tmp/q3_sales_data.csv"
     import pandas as pd
     sample_df = pd.DataFrame({
@@ -206,7 +206,7 @@ def test_direct_npc_interaction():
     team_dir = setup_test_team()
     team = Team(team_path=team_dir)
     
-    # Get specific NPC
+    
     analyst = team.get_npc("data_analyst")
     
     request = """
@@ -230,7 +230,7 @@ def test_agent_passing():
     team_dir = setup_test_team()
     team = Team(team_path=team_dir)
     
-    # Start with coordinator
+    
     coordinator = team.get_npc("coordinator") 
     
     request = """
@@ -246,7 +246,7 @@ def test_agent_passing():
 if __name__ == "__main__":
     print("Testing NPC Orchestration and Agent Passing...\n")
     
-    # Run test cases
+    
     test_financial_analysis_request()
     test_competitive_research_request() 
     test_technical_documentation_request()

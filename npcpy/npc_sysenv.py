@@ -4,7 +4,7 @@ import logging
 import re
 import os
 import socket
-import concurrent.futures # For managing timeouts on blocking calls
+import concurrent.futures 
 import platform
 import sqlite3
 import sys
@@ -13,7 +13,7 @@ import textwrap
 import json
 ON_WINDOWS = platform.system() == "Windows"
 
-# Try/except for termios, tty, pty, select, signal
+
 try:
     if not ON_WINDOWS:
         import termios
@@ -28,14 +28,14 @@ except ImportError:
     select = None
     signal = None
 
-# Try/except for readline
+
 try:
     import readline
 except ImportError:
     readline = None
     logging.warning('no readline support, some features may not work as desired.')
 
-# Try/except for rich imports
+
 try:
     from rich.console import Console
     from rich.markdown import Markdown
@@ -48,7 +48,7 @@ except ImportError:
 import warnings
 import time
 
-# Global variables
+
 running = True
 is_recording = False
 recording_data = []
@@ -85,19 +85,19 @@ def get_locally_available_models(project_directory, airplane_mode=False):
                         key, value = line.split("=", 1)
                         env_vars[key.strip()] = value.strip().strip("\"'")
 
-    # --- Internet check here ---
+    
     internet_available = check_internet_connection()
     if not internet_available:
         logging.info("No internet connection detected. External API calls will be skipped (effective airplane_mode).")
-        # If no internet, force airplane_mode to True, regardless of its initial value.
+        
         airplane_mode = True
     else:
         logging.info("Internet connection detected. Proceeding based on 'airplane_mode' parameter.")
-    # --- End internet check ---
+    
 
     if not airplane_mode:
         timeout_seconds = 3.5
-        # Use a single ThreadPoolExecutor for all network-dependent API calls
+        
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
 
             if "ANTHROPIC_API_KEY" in env_vars or os.environ.get("ANTHROPIC_API_KEY"):
@@ -106,12 +106,12 @@ def get_locally_available_models(project_directory, airplane_mode=False):
                     
                     def fetch_anthropic_models():
                         client = anthropic.Anthropic(api_key=env_vars.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_API_KEY"))
-                        # Modern Anthropic client can also take a timeout in constructor:
-                        # client = anthropic.Anthropic(api_key=..., timeout=timeout_seconds)
+                        
+                        
                         return client.models.list()
 
                     future = executor.submit(fetch_anthropic_models)
-                    models = future.result(timeout=timeout_seconds) # Apply timeout
+                    models = future.result(timeout=timeout_seconds) 
 
                     for model in models.data:
                         available_models[model.id] = 'anthropic'
@@ -128,7 +128,7 @@ def get_locally_available_models(project_directory, airplane_mode=False):
                         return openai.models.list()
 
                     future = executor.submit(fetch_openai_models)
-                    models = future.result(timeout=timeout_seconds) # Apply timeout
+                    models = future.result(timeout=timeout_seconds) 
 
                     for model in models.data:
                         if (
@@ -151,7 +151,7 @@ def get_locally_available_models(project_directory, airplane_mode=False):
                     def fetch_gemini_models():
                         client = genai.Client(api_key=env_vars.get("GEMINI_API_KEY") or os.environ.get("GEMINI_API_KEY"))
                         found_models = []
-                        # Define the model names you want to filter for
+                        
                         target_models = [
                             'gemini-2.5-pro', 
                             'gemini-2.5-flash', 
@@ -165,15 +165,15 @@ def get_locally_available_models(project_directory, airplane_mode=False):
                             for action in m.supported_actions:
                                 if action == "generateContent":
                                     if 'models/' in m.name:
-                                        model_name_part = m.name.split('/')[1]  # Extract the part after 'models/'
-                                        # Check if any of the target models are contained within the model name
+                                        model_name_part = m.name.split('/')[1]  
+                                        
                                         if any(model in model_name_part for model in target_models):
                                             found_models.append(model_name_part)
                         return set(found_models)
                     future = executor.submit(fetch_gemini_models)
-                    models = future.result(timeout=timeout_seconds) # Apply timeout
+                    models = future.result(timeout=timeout_seconds) 
 
-                    for model in models: # 'models' is already a set of strings here
+                    for model in models: 
                         if "gemini" in model:
                             available_models[model] = "gemini"
                 except (ImportError, concurrent.futures.TimeoutError, Exception) as e:
@@ -184,13 +184,13 @@ def get_locally_available_models(project_directory, airplane_mode=False):
                 available_models['deepseek-reasoner'] = 'deepseek'        
     try:
         import ollama
-        timeout_seconds = 0.5 # Re-using the same timeout
+        timeout_seconds = 0.5 
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ollama_executor:
             def fetch_ollama_models():
                 return ollama.list()
             
             future = ollama_executor.submit(fetch_ollama_models)
-            models = future.result(timeout=timeout_seconds) # Apply timeout to Ollama call
+            models = future.result(timeout=timeout_seconds) 
 
         for model in models.models:
             if "embed" not in model.model:
@@ -238,9 +238,9 @@ def preprocess_markdown(md_text):
     current_code_block = []
 
     for line in lines:
-        if line.startswith("```"):  # Toggle code block
+        if line.startswith("```"):  
             if inside_code_block:
-                # Close code block, unindent, and append
+                
                 processed_lines.append("```")
                 processed_lines.extend(
                     textwrap.dedent("\n".join(current_code_block)).split("\n")
@@ -285,7 +285,7 @@ def render_markdown(text: str) -> None:
     for line in lines:
         if line.startswith("```"):
             if inside_code_block:
-                # End of code block - render the collected code
+                
                 code = "\n".join(code_lines)
                 if code.strip():
                     syntax = Syntax(
@@ -294,13 +294,13 @@ def render_markdown(text: str) -> None:
                     console.print(syntax)
                 code_lines = []
             else:
-                # Start of code block - get language if specified
+                
                 lang = line[3:].strip() or None
             inside_code_block = not inside_code_block
         elif inside_code_block:
             code_lines.append(line)
         else:
-            # Regular markdown
+            
             console.print(Markdown(line))
 
 def get_directory_npcs(directory: str = None) -> List[str]:
@@ -371,7 +371,7 @@ def init_db_tables(db_path="~/npcsh_history.db"):
     """Initialize necessary database tables"""
     db_path = os.path.expanduser(db_path)
     with sqlite3.connect(db_path) as conn:
-        # NPC log table for storing all kinds of entries
+        
         conn.execute("""
             CREATE TABLE IF NOT EXISTS npc_log (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -383,7 +383,7 @@ def init_db_tables(db_path="~/npcsh_history.db"):
             )
         """)
         
-        # Pipeline runs table for tracking pipeline executions
+        
         conn.execute("""
             CREATE TABLE IF NOT EXISTS pipeline_runs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -394,7 +394,7 @@ def init_db_tables(db_path="~/npcsh_history.db"):
             )
         """)
         
-        # Compiled NPCs table for storing compiled NPC content
+        
         conn.execute("""
             CREATE TABLE IF NOT EXISTS compiled_npcs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -430,26 +430,26 @@ def get_model_and_provider(command: str, available_models: list) -> tuple:
     model_match = re.search(r"@(\S+)", command)
     if model_match:
         model_name = model_match.group(1)
-        # Autocomplete model name
+        
         matches = [m for m in available_models if m.startswith(model_name)]
         if matches:
             if len(matches) == 1:
-                model_name = matches[0]  # Complete the name if only one match
-            # Find provider for the (potentially autocompleted) model
+                model_name = matches[0]  
+            
             provider = lookup_provider(model_name)
             if provider:
-                # Remove the model tag from the command
+                
                 cleaned_command = command.replace(
                     f"@{model_match.group(1)}", ""
                 ).strip()
-                # print(cleaned_command, 'cleaned_command')
+                
                 return model_name, provider, cleaned_command
             else:
-                return None, None, command  # Provider not found
+                return None, None, command  
         else:
-            return None, None, command  # No matching model
+            return None, None, command  
     else:
-        return None, None, command  # No model specified
+        return None, None, command  
 
 def render_code_block(code: str, language: str = None) -> None:
     """Render a code block with syntax highlighting using rich, left-justified with no line numbers"""
@@ -458,7 +458,7 @@ def render_code_block(code: str, language: str = None) -> None:
 
     console = Console(highlight=True)
     code = code.strip()
-    # If code starts with a language identifier, remove it
+    
     if code.split("\n", 1)[0].lower() in ["python", "bash", "javascript"]:
         code = code.split("\n", 1)[1]
     syntax = Syntax(
@@ -479,8 +479,8 @@ def print_and_process_stream_with_markdown(response, model, provider, show=False
         print('\n') 
         return response 
     
-    # Save cursor position at the start
-    sys.stdout.write('\033[s')  # Save cursor position
+    
+    sys.stdout.write('\033[s')  
     sys.stdout.flush()
     
     try:
@@ -550,7 +550,7 @@ def print_and_process_stream_with_markdown(response, model, provider, show=False
         print('\n⚠️ Stream interrupted by user')
     
     if tool_call_data["id"] or tool_call_data["function_name"] or tool_call_data["arguments"]:
-        str_output += "\n\n### Tool Call Data\n"
+        str_output += "\n\n
         if tool_call_data["id"]:
             str_output += f"**ID:** {tool_call_data['id']}\n\n"
         if tool_call_data["function_name"]:
@@ -565,12 +565,12 @@ def print_and_process_stream_with_markdown(response, model, provider, show=False
     if interrupted:
         str_output += "\n\n[⚠️ Response interrupted by user]"
     
-    # Always restore cursor position and clear everything after it
-    sys.stdout.write('\033[u')  # Restore cursor position
-    sys.stdout.write('\033[J')  # Clear from cursor down
+    
+    sys.stdout.write('\033[u')  
+    sys.stdout.write('\033[J')  
     sys.stdout.flush()
     
-    # Now render the markdown at the restored position
+    
     render_markdown(str_output)
     print('\n')
     
@@ -645,7 +645,7 @@ def print_and_process_stream(response, model, provider):
                         print('<think>')
                     print(reasoning_content, end="", flush=True)
                     thinking_str+=reasoning_content
-                # chunk content wont be nonzero length until thinking part is done.
+                
                 
                 if chunk_content != "":
                     if len(thinking_str) >0 and not thinking_part and '</think>' not in thinking_str:
@@ -664,7 +664,7 @@ def print_and_process_stream(response, model, provider):
         print('\n⚠️ Stream interrupted by user')
     
     if tool_call_data["id"] or tool_call_data["function_name"] or tool_call_data["arguments"]:
-        str_output += "\n\n### Tool Call Data\n"
+        str_output += "\n\n
         if tool_call_data["id"]:
             str_output += f"**ID:** {tool_call_data['id']}\n\n"
         if tool_call_data["function_name"]:
@@ -807,12 +807,12 @@ def lookup_provider(model: str) -> str:
     if any(model.startswith(prefix) for prefix in ollama_prefixes):
         return "ollama"
 
-    # OpenAI models
+    
     openai_prefixes = ["gpt-", "dall-e-", "whisper-", "o1"]
     if any(model.startswith(prefix) for prefix in openai_prefixes):
         return "openai"
 
-    # Anthropic models
+    
     if model.startswith("claude"):
         return "anthropic"
     if model.startswith("gemini"):
