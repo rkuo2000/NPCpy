@@ -162,7 +162,7 @@ def test_breathe():
     print(result)
     print()
 
-    # Test 3: Project planning conversation
+    
     messages = [
         {'role': 'user', 'content': 'I want to build a todo app'},
         {'role': 'assistant', 'content': 'What features do you need?'},

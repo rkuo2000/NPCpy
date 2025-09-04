@@ -215,7 +215,7 @@ Status:
 
         task_name = f"NPCSH_{trigger_name}"
 
-        # Create a scheduled task that runs at startup
+        
         cmd = [
             "schtasks",
             "/create",
@@ -227,12 +227,12 @@ Status:
             "onstart",
             "/ru",
             "System",
-            "/f",  # Force creation
+            "/f",  
         ]
 
         subprocess.run(cmd, check=True)
 
-        # Start the task immediately
+        
         subprocess.run(["schtasks", "/run", "/tn", task_name])
 
         output = f"""Trigger service created:

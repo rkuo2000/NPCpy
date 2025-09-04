@@ -21,11 +21,98 @@ except ImportError:
         import pandas as pd
         PANDAS_BACKEND = 'pandas'
 
+class NPCSQLOperations:
+    def __init__(self, npc_directory: str, db_engine: Union[str, Engine] = "~/npcsh_history.db"):
+        self.npc_directory = npc_directory
+        
+        if isinstance(db_engine, str):
+            self.engine = create_engine_from_path(db_engine)
+        else:
+            self.engine = db_engine
+            
+        self.npc_loader = None
+        self.function_map = self._build_function_map()
+        
+    def _get_team(self):
+        return self.npc_loader if hasattr(self.npc_loader, 'npcs') else None
 
+    def _build_function_map(self):
+        import npcpy.llm_funcs as llm_funcs
+        import types
+        
+        function_map = {}
+        for name in dir(llm_funcs):
+            if name.startswith('_'):
+                continue
+            obj = getattr(llm_funcs, name)
+            if isinstance(obj, types.FunctionType) and obj.__module__ == 'npcpy.llm_funcs':
+                function_map[name] = obj
+        
+        return function_map
 
-
-
-
+    def _resolve_npc_reference(self, npc_ref: str):
+        if not npc_ref or not self.npc_loader:
+            return None
+            
+        if npc_ref.endswith('.npc'):
+            npc_ref = npc_ref[:-4]
+        
+        npc = self.npc_loader.get_npc(npc_ref)
+        if npc:
+            return npc
+            
+        if ',' in npc_ref:
+            npc_names = [name.strip() for name in npc_ref.split(',')]
+            npcs = [self.npc_loader.get_npc(name) for name in npc_names]
+            npcs = [npc for npc in npcs if npc is not None]
+            
+            if npcs:
+                from npcpy.npc_compiler import Team
+                temp_team = Team(npcs=npcs)
+                return temp_team
+                
+        return None
+        
+    def execute_ai_function(self, func_name: str, df: pd.DataFrame, **params):
+        if func_name not in self.function_map:
+            raise ValueError(f"Unknown AI function: {func_name}")
+            
+        func = self.function_map[func_name]
+        
+        npc_ref = params.get('npc', '')
+        resolved_npc = self._resolve_npc_reference(npc_ref)
+        
+        resolved_team = self._get_team()
+        if not resolved_team and hasattr(resolved_npc, 'team'):
+            resolved_team = resolved_npc.team
+        
+        def apply_function(row):
+            try:
+                query_template = params.get('query', '')
+                if query_template:
+                    row_data = {col: str(row[col]) for col in df.columns}
+                    query = query_template.format(**row_data)
+                else:
+                    query = ''
+                
+                sig = inspect.signature(func)
+                func_params = {k: v for k, v in {
+                    'prompt': query,
+                    'npc': resolved_npc,
+                    'team': resolved_team,
+                    'context': params.get('context', '')
+                }.items() if k in sig.parameters}
+                
+                result = func(**func_params)
+                return result.get("response", "") if isinstance(result, dict) else str(result)
+                
+            except Exception as e:
+                print(f"Error applying function {func_name}: {e}")
+                return f"Error: {str(e)}"
+        
+        return df.apply(apply_function, axis=1)
+    
+    
 class SQLModel:
     def __init__(self, name: str, content: str, path: str, npc_directory: str):
         self.name = name
@@ -52,10 +139,25 @@ class SQLModel:
         matches = re.finditer(pattern, self.content)
 
         ai_function_names = [
-            "advocate", "bootstrap", "contrast", "criticize", "decompose", 
-            "delegate", "dilate", "erode", "harmonize", "integrate",
-            "mediate", "orchestrate", "reconcile", "resample", "spread_and_sync",
-            "strategize", "summarize", "synthesize", "validate"
+            "advocate", 
+            "bootstrap", 
+            "contrast", 
+            "criticize", 
+            "decompose", 
+            "delegate", 
+            "dilate", 
+            "erode", 
+            "harmonize",
+            "integrate",
+            "mediate", 
+            "orchestrate",
+            "reconcile", 
+            "resample", 
+            "spread_and_sync",
+            "strategize", 
+            "summarize", 
+            "synthesize", 
+            "validate"
         ]
 
         for match in matches:

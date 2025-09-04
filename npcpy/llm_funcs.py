@@ -2275,30 +2275,74 @@ Context: {context}"""
     response_texts = [r['response'] for r in results]
     return synthesize(response_texts, sync_strategy, model, provider, npc or (team.get_forenpc() if team else None), context)
 
-def synthesize(prompt, responses: List[str], sync_strategy: str, model: str, provider: str, npc: Any, team:Any, context: str) -> Dict[str, Any]:
-    """Synthesize multiple responses using specified strategy"""
+def criticize(
+    prompt: str,
+    model: str = None,
+    provider: str = None,
+    npc: Any = None,
+    team: Any = None,
+    context: str = None,
+    **kwargs
+) -> Dict[str, Any]:
+    """Provide critical analysis and constructive criticism"""
+    critique_prompt = f"""
+    Provide a critical analysis and constructive criticism of the following:
+    {prompt}
     
-    strategies = {
-        "consensus": "Find areas of agreement and build consensus view",
-        "winner_takes_all": "Select the most convincing or comprehensive response",
-        "weighted_average": "Weight responses by quality/confidence and blend",
-        "majority_vote": "Identify majority position across responses",
-        "dialectical": "Synthesize opposing views into higher-order understanding",
-        "distribution_analysis": "Analyze the full distribution of responses and extract insights"
-    }
+    Focus on identifying weaknesses, potential improvements, and alternative approaches.
+    Be specific and provide actionable feedback.
+    """
     
-    strategy_instruction = strategies.get(sync_strategy, strategies["consensus"])
+    return get_llm_response(
+        critique_prompt,
+        model=model,
+        provider=provider,
+        npc=npc,
+        team=team,
+        context=context,
+        **kwargs
+    )
+def synthesize(
+    prompt: str,
+    model: str = None,
+    provider: str = None,
+    npc: Any = None,
+    team: Any = None,
+    context: str = None,
+    **kwargs
+) -> Dict[str, Any]:
+    """Synthesize information from multiple sources or perspectives"""
     
-    synthesis_prompt = f"""Response Distribution Analysis:
-{chr(10).join([f'Response {i+1}: {r}' for i, r in enumerate(responses)])}
-
-Synthesis Strategy: {strategy_instruction}
-Context: {context}
-
-
-Analyze the distribution of these responses and synthesize according to the strategy.
-
-{prompt}
-"""
+    # Extract responses from kwargs if provided, otherwise use prompt as single response
+    responses = kwargs.get('responses', [prompt])
+    sync_strategy = kwargs.get('sync_strategy', 'consensus')
     
-    return get_llm_response(synthesis_prompt, model=model, provider=provider, npc=npc, context=context)
+    # If we have multiple responses, create a synthesis prompt
+    if len(responses) > 1:
+        synthesis_prompt = f"""Synthesize these multiple perspectives:
+        
+        {chr(10).join([f'Response {i+1}: {r}' for i, r in enumerate(responses)])}
+        
+        Synthesis strategy: {sync_strategy}
+        Context: {context}
+        
+        Create a coherent synthesis that incorporates key insights from all perspectives."""
+    else:
+        # For single response, just summarize/refine it
+        synthesis_prompt = f"""Refine and synthesize this content:
+        
+        {responses[0]}
+        
+        Context: {context}
+        
+        Create a clear, concise synthesis that captures the essence of the content."""
+    
+    return get_llm_response(
+        synthesis_prompt,
+        model=model,
+        provider=provider,
+        npc=npc,
+        team=team,
+        context=context,
+        **kwargs
+    )
