@@ -83,6 +83,7 @@ def get_project_npc_directory(current_path=None):
         
         return os.path.abspath("./npc_team")
 
+
 def load_project_env(current_path):
     """
     Load environment variables from a project's .env file
@@ -101,16 +102,16 @@ def load_project_env(current_path):
     
     if os.path.exists(env_path):
         print(f"Loading project environment from {env_path}")
-        
-        
+        # Load the environment variables into the current process
+        # Note: load_dotenv returns a boolean, not a dictionary
         success = load_dotenv(env_path, override=True)
         
         if success:
-            
+            # Manually build a dictionary of loaded variables
             with open(env_path, "r") as f:
                 for line in f:
                     line = line.strip()
-                    if line and not line.startswith("
+                    if line and not line.startswith("#"):
                         if "=" in line:
                             key, value = line.split("=", 1)
                             loaded_vars[key.strip()] = value.strip().strip("\"'")
@@ -122,6 +123,8 @@ def load_project_env(current_path):
         print(f"No .env file found at {env_path}")
     
     return loaded_vars
+
+
 
 
 def load_kg_data(generation=None):
@@ -431,7 +434,7 @@ def get_global_settings():
     try:
         npcshrc_path = os.path.expanduser("~/.npcshrc")
 
-        
+        # Default settings
         global_settings = {
             "model": "llama3.2",
             "provider": "ollama",
@@ -446,28 +449,28 @@ def get_global_settings():
         if os.path.exists(npcshrc_path):
             with open(npcshrc_path, "r") as f:
                 for line in f:
-                    
-                    line = line.split("
+                    # Skip comments and empty lines
+                    line = line.split("#")[0].strip()
                     if not line:
                         continue
 
                     if "=" not in line:
                         continue
 
-                    
+                    # Split on first = only
                     key, value = line.split("=", 1)
                     key = key.strip()
                     if key.startswith("export "):
                         key = key[7:]
 
-                    
+                    # Clean up the value - handle quoted strings properly
                     value = value.strip()
                     if value.startswith('"') and value.endswith('"'):
                         value = value[1:-1]
                     elif value.startswith("'") and value.endswith("'"):
                         value = value[1:-1]
 
-                    
+                    # Map environment variables to settings
                     key_mapping = {
                         "NPCSH_MODEL": "model",
                         "NPCSH_PROVIDER": "provider",
@@ -497,6 +500,8 @@ def get_global_settings():
     except Exception as e:
         print(f"Error in get_global_settings: {str(e)}")
         return jsonify({"error": str(e)}), 500
+
+
 
 
 @app.route("/api/settings/global", methods=["POST", "OPTIONS"])
@@ -543,8 +548,7 @@ def save_global_settings():
         print(f"Error in save_global_settings: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
-
-@app.route("/api/settings/project", methods=["GET", "OPTIONS"])  
+@app.route("/api/settings/project", methods=["GET", "OPTIONS"])  # Add OPTIONS
 def get_project_settings():
     if request.method == "OPTIONS":
         return "", 200
@@ -561,7 +565,7 @@ def get_project_settings():
             with open(env_path, "r") as f:
                 for line in f:
                     line = line.strip()
-                    if line and not line.startswith("
+                    if line and not line.startswith("#"):
                         if "=" in line:
                             key, value = line.split("=", 1)
                             env_vars[key.strip()] = value.strip().strip("\"'")
