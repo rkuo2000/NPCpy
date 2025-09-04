@@ -112,7 +112,7 @@ class NPCSQLOperations:
         
         return df.apply(apply_function, axis=1)
     
-    
+
 class SQLModel:
     def __init__(self, name: str, content: str, path: str, npc_directory: str):
         self.name = name
@@ -125,44 +125,32 @@ class SQLModel:
         self.ai_functions = self._extract_ai_functions()
 
     def _extract_dependencies(self) -> Set[str]:
-        """Extract model dependencies using ref() calls"""
         pattern = r"\{\{\s*ref\(['\"]([^'\"]+)['\"]\)\s*\}\}"
         return set(re.findall(pattern, self.content))
+    
     def _check_ai_functions(self) -> bool:
-        """Check if the model contains NQL AI function calls"""
         return "nql." in self.content
 
     def _extract_ai_functions(self) -> Dict[str, Dict]:
-        """Extract NQL AI functions and their parameters from the SQL content."""
+        import npcpy.llm_funcs as llm_funcs
+        import types
+        
         ai_functions = {}
         pattern = r"nql\.(\w+)\s*\(((?:[^()]*|\([^()]*\))*)\)"
         matches = re.finditer(pattern, self.content)
 
-        ai_function_names = [
-            "advocate", 
-            "bootstrap", 
-            "contrast", 
-            "criticize", 
-            "decompose", 
-            "delegate", 
-            "dilate", 
-            "erode", 
-            "harmonize",
-            "integrate",
-            "mediate", 
-            "orchestrate",
-            "reconcile", 
-            "resample", 
-            "spread_and_sync",
-            "strategize", 
-            "summarize", 
-            "synthesize", 
-            "validate"
-        ]
+        # Get available function names dynamically
+        available_functions = []
+        for name in dir(llm_funcs):
+            if name.startswith('_'):
+                continue
+            obj = getattr(llm_funcs, name)
+            if isinstance(obj, types.FunctionType) and obj.__module__ == 'npcpy.llm_funcs':
+                available_functions.append(name)
 
         for match in matches:
             func_name = match.group(1)
-            if func_name in ai_function_names:
+            if func_name in available_functions:
                 params = [
                     param.strip().strip("\"'") for param in match.group(2).split(",")
                 ]
@@ -179,8 +167,7 @@ class SQLModel:
                     "context": params[3] if len(params) > 3 else None,
                 }
         return ai_functions
-
-
+    
 
 
 class ModelCompiler:

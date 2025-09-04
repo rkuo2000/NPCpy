@@ -15,7 +15,7 @@ build:
     - alsa-utils
 
 mkdocs:
-  configuration: mkdocs.yml  # Changed from sphinx
+  configuration: mkdocs.yml  
 
 python:
   install:
