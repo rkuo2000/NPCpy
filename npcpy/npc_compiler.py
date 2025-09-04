@@ -304,13 +304,10 @@ def load_jinxs_from_directory(directory):
 def agent_pass_handler(command, extracted_data, **kwargs):
     """Handler for agent pass action"""
     npc = kwargs.get('npc')
-    team = kwargs.get('team')
-    
-    
+    team = kwargs.get('team')    
     if not team and npc and hasattr(npc, '_current_team'):
         team = npc._current_team
     
-    print(f"DEBUG agent_pass_handler: npc={npc.name if npc else None}, team={team.name if team else None}")
     
     if not npc or not team:
         return {"messages": kwargs.get('messages', []), "output": f"Error: No NPC ({npc.name if npc else 'None'}) or team ({team.name if team else 'None'}) available for agent pass"}
@@ -318,7 +315,6 @@ def agent_pass_handler(command, extracted_data, **kwargs):
     target_npc_name = extracted_data.get('target_npc')
     if not target_npc_name:
         return {"messages": kwargs.get('messages', []), "output": "Error: No target NPC specified"}
-    
     
     messages = kwargs.get('messages', [])
     
@@ -336,43 +332,14 @@ def agent_pass_handler(command, extracted_data, **kwargs):
                     parts = content.split('PASSED FROM')[1].split('TO YOU')[0].strip()
                     recent_passes.append(parts)
     
-    print(f"DEBUG: Pass count: {pass_count}, Recent passes: {recent_passes}")
-    
-    
-    if pass_count >= 3:
-        return {
-            "messages": kwargs.get('messages', []),
-            "output": f"Task has been passed around {pass_count} times. {npc.name} will handle it directly.\n\n" +
-                     "I'll create a simple document as requested. Here's a basic document structure:\n\n" +
-                     "# Simple Document\n\n" +
-                     "## Introduction\n" +
-                     "This document was created as requested.\n\n" +
-                     "## Content\n" +
-                     "Document content goes here.\n\n" +
-                     "## Conclusion\n" +
-                     "Document completed successfully."
-        }
-    
-    
-    if target_npc_name == npc.name:
-        return {
-            "messages": kwargs.get('messages', []),
-            "output": f"Cannot pass task to myself ({npc.name}). I'll handle this directly.\n\n" +
-                     f"Creating a simple document as requested:\n\n" +
-                     f"# Simple Document\n\n" +
-                     f"This document has been created by {npc.name}.\n" +
-                     f"Content and structure provided as requested."
-        }
-    
-    print(f"DEBUG: Looking for target NPC: {target_npc_name}")
-    
+
     
     target_npc = team.get_npc(target_npc_name)
     if not target_npc:
         available_npcs = list(team.npcs.keys()) if hasattr(team, 'npcs') else []
-        return {"messages": kwargs.get('messages', []), "output": f"Error: NPC '{target_npc_name}' not found in team. Available: {available_npcs}"}
+        return {"messages": kwargs.get('messages', []), 
+                "output": f"Error: NPC '{target_npc_name}' not found in team. Available: {available_npcs}"}
     
-    print(f"DEBUG: Found target NPC: {target_npc.name}")
     
     
     result = npc.handle_agent_pass(
@@ -385,7 +352,6 @@ def agent_pass_handler(command, extracted_data, **kwargs):
         team=team
     )
     
-    print(f"DEBUG: Agent pass result: {type(result)}")
     return result
 
 
