@@ -36,6 +36,196 @@ import math
 from PIL import Image
 
 
+def agent_pass_handler(command, extracted_data, **kwargs):
+    """Handler for agent pass action"""
+    npc = kwargs.get('npc')
+    team = kwargs.get('team')    
+    if not team and npc and hasattr(npc, '_current_team'):
+        team = npc._current_team
+    
+    
+    if not npc or not team:
+        return {"messages": kwargs.get('messages', []), "output": f"Error: No NPC ({npc.name if npc else 'None'}) or team ({team.name if team else 'None'}) available for agent pass"}
+    
+    target_npc_name = extracted_data.get('target_npc')
+    if not target_npc_name:
+        return {"messages": kwargs.get('messages', []), "output": "Error: No target NPC specified"}
+    
+    messages = kwargs.get('messages', [])
+    
+    
+    pass_count = 0
+    recent_passes = []
+    
+    for msg in messages[-10:]:  
+        if 'NOTE: THIS COMMAND HAS BEEN PASSED FROM' in msg.get('content', ''):
+            pass_count += 1
+            
+            if 'PASSED FROM' in msg.get('content', ''):
+                content = msg.get('content', '')
+                if 'PASSED FROM' in content and 'TO YOU' in content:
+                    parts = content.split('PASSED FROM')[1].split('TO YOU')[0].strip()
+                    recent_passes.append(parts)
+    
+
+    
+    target_npc = team.get_npc(target_npc_name)
+    if not target_npc:
+        available_npcs = list(team.npcs.keys()) if hasattr(team, 'npcs') else []
+        return {"messages": kwargs.get('messages', []), 
+                "output": f"Error: NPC '{target_npc_name}' not found in team. Available: {available_npcs}"}
+    
+    
+    
+    result = npc.handle_agent_pass(
+        target_npc,
+        command,
+        messages=kwargs.get('messages'),
+        context=kwargs.get('context'),
+        shared_context=getattr(team, 'shared_context', None),
+        stream=kwargs.get('stream', False),
+        team=team
+    )
+    
+    return result
+
+def log_entry(entity_id, entry_type, content, metadata=None, db_path="~/npcsh_history.db"):
+    """Log an entry for an NPC or team"""
+    db_path = os.path.expanduser(db_path)
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            "INSERT INTO npc_log (entity_id, entry_type, content, metadata) VALUES (?, ?, ?, ?)",
+            (entity_id, entry_type, json.dumps(content), json.dumps(metadata) if metadata else None)
+        )
+        conn.commit()
+
+def get_log_entries(entity_id, entry_type=None, limit=10, db_path="~/npcsh_history.db"):
+    """Get log entries for an NPC or team"""
+    db_path = os.path.expanduser(db_path)
+    with sqlite3.connect(db_path) as conn:
+        query = "SELECT entry_type, content, metadata, timestamp FROM npc_log WHERE entity_id = ?"
+        params = [entity_id]
+        
+        if entry_type:
+            query += " AND entry_type = ?"
+            params.append(entry_type)
+        
+        query += " ORDER BY timestamp DESC LIMIT ?"
+        params.append(limit)
+        
+        results = conn.execute(query, params).fetchall()
+        
+        return [
+            {
+                "entry_type": r[0],
+                "content": json.loads(r[1]),
+                "metadata": json.loads(r[2]) if r[2] else None,
+                "timestamp": r[3]
+            }
+            for r in results
+        ]
+
+
+def load_yaml_file(file_path):
+    """Load a YAML file with error handling"""
+    try:
+        with open(os.path.expanduser(file_path), 'r') as f:
+            return yaml.safe_load(f)
+    except Exception as e:
+        print(f"Error loading YAML file {file_path}: {e}")
+        return None
+
+def write_yaml_file(file_path, data):
+    """Write data to a YAML file"""
+    try:
+        with open(os.path.expanduser(file_path), 'w') as f:
+            yaml.dump(data, f)
+        return True
+    except Exception as e:
+        print(f"Error writing YAML file {file_path}: {e}")
+        return False
+
+def create_or_replace_table(db_path, table_name, data):
+    """Creates or replaces a table in the SQLite database"""
+    conn = sqlite3.connect(os.path.expanduser(db_path))
+    try:
+        data.to_sql(table_name, conn, if_exists="replace", index=False)
+        print(f"Table '{table_name}' created/replaced successfully.")
+        return True
+    except Exception as e:
+        print(f"Error creating/replacing table '{table_name}': {e}")
+        return False
+    finally:
+        conn.close()
+
+def find_file_path(filename, search_dirs, suffix=None):
+    """Find a file in multiple directories"""
+    if suffix and not filename.endswith(suffix):
+        filename += suffix
+        
+    for dir_path in search_dirs:
+        file_path = os.path.join(os.path.expanduser(dir_path), filename)
+        if os.path.exists(file_path):
+            return file_path
+            
+    return None
+
+
+
+def initialize_npc_project(
+    directory=None,
+    templates=None,
+    context=None,
+    model=None,
+    provider=None,
+) -> str:
+    """Initialize an NPC project"""
+    if directory is None:
+        directory = os.getcwd()
+
+    npc_team_dir = os.path.join(directory, "npc_team")
+    os.makedirs(npc_team_dir, exist_ok=True)
+    
+    for subdir in ["jinxs", 
+                   "assembly_lines", 
+                   "sql_models", 
+                   "jobs", 
+                   "triggers"]:
+        os.makedirs(os.path.join(npc_team_dir, subdir), exist_ok=True)
+    
+    forenpc_path = os.path.join(npc_team_dir, "forenpc.npc")
+    
+
+    
+    if not os.path.exists(forenpc_path):
+        
+        default_npc = {
+            "name": "forenpc",
+            "primary_directive": "You are the forenpc of an NPC team", 
+        }
+        with open(forenpc_path, "w") as f:
+            yaml.dump(default_npc, f)
+    ctx_path = os.path.join(npc_team_dir, "team.ctx")
+    if not os.path.exists(ctx_path):
+        default_ctx = {
+            'name': '',
+            'context' : '', 
+            'preferences': '', 
+            'mcp_servers': '', 
+            'databases':'', 
+            'use_global_jinxs': True,
+            'forenpc': 'forenpc'
+        }
+        with open(ctx_path, "w") as f:
+            yaml.dump(default_ctx, f)
+            
+    return f"NPC project initialized in {npc_team_dir}"
+
+
+
+
+
+
 class Jinx:
     ''' 
     
@@ -283,6 +473,8 @@ output = {mcp_tool.__module__}.{name}(
             
         except: 
             pass    
+
+
 def load_jinxs_from_directory(directory):
     """Load all jinxs from a directory"""
     jinxs = []
@@ -301,59 +493,6 @@ def load_jinxs_from_directory(directory):
                 print(f"Error loading jinx {filename}: {e}")
                 
     return jinxs
-def agent_pass_handler(command, extracted_data, **kwargs):
-    """Handler for agent pass action"""
-    npc = kwargs.get('npc')
-    team = kwargs.get('team')    
-    if not team and npc and hasattr(npc, '_current_team'):
-        team = npc._current_team
-    
-    
-    if not npc or not team:
-        return {"messages": kwargs.get('messages', []), "output": f"Error: No NPC ({npc.name if npc else 'None'}) or team ({team.name if team else 'None'}) available for agent pass"}
-    
-    target_npc_name = extracted_data.get('target_npc')
-    if not target_npc_name:
-        return {"messages": kwargs.get('messages', []), "output": "Error: No target NPC specified"}
-    
-    messages = kwargs.get('messages', [])
-    
-    
-    pass_count = 0
-    recent_passes = []
-    
-    for msg in messages[-10:]:  
-        if 'NOTE: THIS COMMAND HAS BEEN PASSED FROM' in msg.get('content', ''):
-            pass_count += 1
-            
-            if 'PASSED FROM' in msg.get('content', ''):
-                content = msg.get('content', '')
-                if 'PASSED FROM' in content and 'TO YOU' in content:
-                    parts = content.split('PASSED FROM')[1].split('TO YOU')[0].strip()
-                    recent_passes.append(parts)
-    
-
-    
-    target_npc = team.get_npc(target_npc_name)
-    if not target_npc:
-        available_npcs = list(team.npcs.keys()) if hasattr(team, 'npcs') else []
-        return {"messages": kwargs.get('messages', []), 
-                "output": f"Error: NPC '{target_npc_name}' not found in team. Available: {available_npcs}"}
-    
-    
-    
-    result = npc.handle_agent_pass(
-        target_npc,
-        command,
-        messages=kwargs.get('messages'),
-        context=kwargs.get('context'),
-        shared_context=getattr(team, 'shared_context', None),
-        stream=kwargs.get('stream', False),
-        team=team
-    )
-    
-    return result
-
 
 def get_npc_action_space(npc=None, team=None):
     """Get action space for NPC including agent pass if team is available"""
@@ -388,6 +527,65 @@ def get_npc_action_space(npc=None, team=None):
         }
     
     return actions
+
+
+
+
+def extract_jinx_inputs(args: List[str], jinx: Jinx) -> Dict[str, Any]:
+    inputs = {}
+
+    
+    flag_mapping = {}
+    for input_ in jinx.inputs:
+        if isinstance(input_, str):
+            flag_mapping[f"-{input_[0]}"] = input_
+            flag_mapping[f"--{input_}"] = input_
+        elif isinstance(input_, dict):
+            key = list(input_.keys())[0]
+            flag_mapping[f"-{key[0]}"] = key
+            flag_mapping[f"--{key}"] = key
+
+    
+    used_args = set()
+    for i, arg in enumerate(args):
+        if arg in flag_mapping:
+            
+            if i + 1 < len(args):
+                input_name = flag_mapping[arg]
+                inputs[input_name] = args[i + 1]
+                used_args.add(i)
+                used_args.add(i + 1)
+            else:
+                print(f"Warning: {arg} flag is missing a value.")
+
+    
+    unused_args = [arg for i, arg in enumerate(args) if i not in used_args]
+    if unused_args and jinx.inputs:
+        first_input = jinx.inputs[0]
+        if isinstance(first_input, str):
+            inputs[first_input] = " ".join(unused_args)
+        elif isinstance(first_input, dict):
+            key = list(first_input.keys())[0]
+            inputs[key] = " ".join(unused_args)
+
+    
+    for input_ in jinx.inputs:
+        if isinstance(input_, str):
+            if input_ not in inputs:
+                if any(args):  
+                    raise ValueError(f"Missing required input: {input_}")
+                else:
+                    inputs[input_] = None  
+        elif isinstance(input_, dict):
+            key = list(input_.keys())[0]
+            if key not in inputs:
+                inputs[key] = input_[key]
+
+    return inputs
+
+
+
+
 class NPC:
     def __init__(
         self,
@@ -808,7 +1006,33 @@ class NPC:
         else:
             str_rep += "No jinxs available.\n"
         return str_rep 
+
+
+
+def execute_jinx_command(
+    jinx: Jinx,
+    args: List[str],
+    messages=None,
+    npc: NPC = None,
+) -> Dict[str, Any]:
+    """
+    Execute a jinx command with the given arguments.
+    """
     
+    input_values = extract_jinx_inputs(args, jinx)
+
+    
+    
+
+    jinx_output = jinx.execute(
+        input_values,
+        jinx.jinx_name,
+        npc=npc,
+    )
+
+    return {"messages": messages, "output": jinx_output}
+
+
 class Team:
     def __init__(self, 
                  team_path=None, 
@@ -1449,42 +1673,9 @@ class Pipeline:
             
         
         round_responses = []
-        for _ in range(num_generating_agents):
-            response = npy.llm_funcs.get_llm_response(task, model=model, provider=provider, npc=npc)
-            round_responses.append(response.get("response", ""))
-            
         
-        for turn in range(1, mixa_turns + 1):
-            
-            votes = [0] * len(round_responses)
-            for _ in range(num_voting_agents):
-                voted_index = random.choice(range(len(round_responses)))
-                votes[voted_index] += 1
-                
-            
-            refined_responses = []
-            for i, resp in enumerate(round_responses):
-                feedback = (
-                    f"Current responses and their votes:\n" + 
-                    "\n".join([f"Response {j+1}: {r[:100]}... - Votes: {votes[j]}" 
-                             for j, r in enumerate(round_responses)]) +
-                    f"\n\nRefine your response 
-                )
-                
-                response = npy.llm_funcs.get_llm_response(feedback, model=model, provider=provider, npc=npc)
-                refined_responses.append(response.get("response", ""))
-                
-            
-            round_responses = refined_responses
-            
         
-        synthesis_prompt = (
-            "Synthesize these responses into a coherent answer:\n" +
-            "\n".join(round_responses)
-        )
-        final_response = npy.llm_funcs.get_llm_response(synthesis_prompt, model=model, provider=provider, npc=npc)
-        
-        return final_response.get("response", "")
+        return 
         
     def _execute_data_source_step(self, step, context, source_matches, npc, model, provider):
         """Execute a step with data source"""
@@ -1525,218 +1716,4 @@ class Pipeline:
             print(f"Error processing data source {table_name}: {e}")
             return f"Error: {str(e)}"
 
-
-
-def log_entry(entity_id, entry_type, content, metadata=None, db_path="~/npcsh_history.db"):
-    """Log an entry for an NPC or team"""
-    db_path = os.path.expanduser(db_path)
-    with sqlite3.connect(db_path) as conn:
-        conn.execute(
-            "INSERT INTO npc_log (entity_id, entry_type, content, metadata) VALUES (?, ?, ?, ?)",
-            (entity_id, entry_type, json.dumps(content), json.dumps(metadata) if metadata else None)
-        )
-        conn.commit()
-
-def get_log_entries(entity_id, entry_type=None, limit=10, db_path="~/npcsh_history.db"):
-    """Get log entries for an NPC or team"""
-    db_path = os.path.expanduser(db_path)
-    with sqlite3.connect(db_path) as conn:
-        query = "SELECT entry_type, content, metadata, timestamp FROM npc_log WHERE entity_id = ?"
-        params = [entity_id]
-        
-        if entry_type:
-            query += " AND entry_type = ?"
-            params.append(entry_type)
-        
-        query += " ORDER BY timestamp DESC LIMIT ?"
-        params.append(limit)
-        
-        results = conn.execute(query, params).fetchall()
-        
-        return [
-            {
-                "entry_type": r[0],
-                "content": json.loads(r[1]),
-                "metadata": json.loads(r[2]) if r[2] else None,
-                "timestamp": r[3]
-            }
-            for r in results
-        ]
-
-
-def load_yaml_file(file_path):
-    """Load a YAML file with error handling"""
-    try:
-        with open(os.path.expanduser(file_path), 'r') as f:
-            return yaml.safe_load(f)
-    except Exception as e:
-        print(f"Error loading YAML file {file_path}: {e}")
-        return None
-
-def write_yaml_file(file_path, data):
-    """Write data to a YAML file"""
-    try:
-        with open(os.path.expanduser(file_path), 'w') as f:
-            yaml.dump(data, f)
-        return True
-    except Exception as e:
-        print(f"Error writing YAML file {file_path}: {e}")
-        return False
-
-def create_or_replace_table(db_path, table_name, data):
-    """Creates or replaces a table in the SQLite database"""
-    conn = sqlite3.connect(os.path.expanduser(db_path))
-    try:
-        data.to_sql(table_name, conn, if_exists="replace", index=False)
-        print(f"Table '{table_name}' created/replaced successfully.")
-        return True
-    except Exception as e:
-        print(f"Error creating/replacing table '{table_name}': {e}")
-        return False
-    finally:
-        conn.close()
-
-def find_file_path(filename, search_dirs, suffix=None):
-    """Find a file in multiple directories"""
-    if suffix and not filename.endswith(suffix):
-        filename += suffix
-        
-    for dir_path in search_dirs:
-        file_path = os.path.join(os.path.expanduser(dir_path), filename)
-        if os.path.exists(file_path):
-            return file_path
-            
-    return None
-
-
-
-def initialize_npc_project(
-    directory=None,
-    templates=None,
-    context=None,
-    model=None,
-    provider=None,
-) -> str:
-    """Initialize an NPC project"""
-    if directory is None:
-        directory = os.getcwd()
-
-    npc_team_dir = os.path.join(directory, "npc_team")
-    os.makedirs(npc_team_dir, exist_ok=True)
-    
-    for subdir in ["jinxs", 
-                   "assembly_lines", 
-                   "sql_models", 
-                   "jobs", 
-                   "triggers"]:
-        os.makedirs(os.path.join(npc_team_dir, subdir), exist_ok=True)
-    
-    forenpc_path = os.path.join(npc_team_dir, "forenpc.npc")
-    
-
-    
-    if not os.path.exists(forenpc_path):
-        
-        default_npc = {
-            "name": "forenpc",
-            "primary_directive": "You are the forenpc of an NPC team", 
-        }
-        with open(forenpc_path, "w") as f:
-            yaml.dump(default_npc, f)
-    ctx_path = os.path.join(npc_team_dir, "team.ctx")
-    if not os.path.exists(ctx_path):
-        default_ctx = {
-            'name': '',
-            'context' : '', 
-            'preferences': '', 
-            'mcp_servers': '', 
-            'databases':'', 
-            'use_global_jinxs': True,
-            'forenpc': 'forenpc'
-        }
-        with open(ctx_path, "w") as f:
-            yaml.dump(default_ctx, f)
-            
-    return f"NPC project initialized in {npc_team_dir}"
-
-
-
-
-
-def execute_jinx_command(
-    jinx: Jinx,
-    args: List[str],
-    messages=None,
-    npc: NPC = None,
-) -> Dict[str, Any]:
-    """
-    Execute a jinx command with the given arguments.
-    """
-    
-    input_values = extract_jinx_inputs(args, jinx)
-
-    
-    
-
-    jinx_output = jinx.execute(
-        input_values,
-        jinx.jinx_name,
-        npc=npc,
-    )
-
-    return {"messages": messages, "output": jinx_output}
-
-
-
-def extract_jinx_inputs(args: List[str], jinx: Jinx) -> Dict[str, Any]:
-    inputs = {}
-
-    
-    flag_mapping = {}
-    for input_ in jinx.inputs:
-        if isinstance(input_, str):
-            flag_mapping[f"-{input_[0]}"] = input_
-            flag_mapping[f"--{input_}"] = input_
-        elif isinstance(input_, dict):
-            key = list(input_.keys())[0]
-            flag_mapping[f"-{key[0]}"] = key
-            flag_mapping[f"--{key}"] = key
-
-    
-    used_args = set()
-    for i, arg in enumerate(args):
-        if arg in flag_mapping:
-            
-            if i + 1 < len(args):
-                input_name = flag_mapping[arg]
-                inputs[input_name] = args[i + 1]
-                used_args.add(i)
-                used_args.add(i + 1)
-            else:
-                print(f"Warning: {arg} flag is missing a value.")
-
-    
-    unused_args = [arg for i, arg in enumerate(args) if i not in used_args]
-    if unused_args and jinx.inputs:
-        first_input = jinx.inputs[0]
-        if isinstance(first_input, str):
-            inputs[first_input] = " ".join(unused_args)
-        elif isinstance(first_input, dict):
-            key = list(first_input.keys())[0]
-            inputs[key] = " ".join(unused_args)
-
-    
-    for input_ in jinx.inputs:
-        if isinstance(input_, str):
-            if input_ not in inputs:
-                if any(args):  
-                    raise ValueError(f"Missing required input: {input_}")
-                else:
-                    inputs[input_] = None  
-        elif isinstance(input_, dict):
-            key = list(input_.keys())[0]
-            if key not in inputs:
-                inputs[key] = input_[key]
-
-    return inputs
 
