@@ -131,7 +131,7 @@ def load_file_contents(file_path, chunk_size=250):
         elif file_ext in ['XLS', 'XLSX']:
             df = load_excel(file_path)
             full_content = df.to_string()
-        elif file_ext in ['TXT', 'MD']:
+        elif file_ext in ['TXT', 'MD', 'PY', 'JSX', 'TSX', 'TS', 'JS', 'JSON', 'SQL', 'NPC', 'JINX', 'LINE', 'YAML']:
             full_content = load_txt(file_path)
         elif file_ext == 'JSON':
             data = load_json(file_path)

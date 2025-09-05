@@ -4,6 +4,7 @@ from flask_sse import sse
 import redis
 import threading
 import uuid
+import sys 
 import traceback
 
 
@@ -102,12 +103,12 @@ def load_project_env(current_path):
     
     if os.path.exists(env_path):
         print(f"Loading project environment from {env_path}")
-        # Load the environment variables into the current process
-        # Note: load_dotenv returns a boolean, not a dictionary
+        
+        
         success = load_dotenv(env_path, override=True)
         
         if success:
-            # Manually build a dictionary of loaded variables
+            
             with open(env_path, "r") as f:
                 for line in f:
                     line = line.strip()
@@ -434,7 +435,7 @@ def get_global_settings():
     try:
         npcshrc_path = os.path.expanduser("~/.npcshrc")
 
-        # Default settings
+        
         global_settings = {
             "model": "llama3.2",
             "provider": "ollama",
@@ -449,7 +450,7 @@ def get_global_settings():
         if os.path.exists(npcshrc_path):
             with open(npcshrc_path, "r") as f:
                 for line in f:
-                    # Skip comments and empty lines
+                    
                     line = line.split("#")[0].strip()
                     if not line:
                         continue
@@ -457,20 +458,20 @@ def get_global_settings():
                     if "=" not in line:
                         continue
 
-                    # Split on first = only
+                    
                     key, value = line.split("=", 1)
                     key = key.strip()
                     if key.startswith("export "):
                         key = key[7:]
 
-                    # Clean up the value - handle quoted strings properly
+                    
                     value = value.strip()
                     if value.startswith('"') and value.endswith('"'):
                         value = value[1:-1]
                     elif value.startswith("'") and value.endswith("'"):
                         value = value[1:-1]
 
-                    # Map environment variables to settings
+                    
                     key_mapping = {
                         "NPCSH_MODEL": "model",
                         "NPCSH_PROVIDER": "provider",
@@ -548,7 +549,7 @@ def save_global_settings():
         print(f"Error in save_global_settings: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
-@app.route("/api/settings/project", methods=["GET", "OPTIONS"])  # Add OPTIONS
+@app.route("/api/settings/project", methods=["GET", "OPTIONS"])  
 def get_project_settings():
     if request.method == "OPTIONS":
         return "", 200
@@ -1425,7 +1426,64 @@ def generate_images():
         print(f"Image generation error: {str(e)}")
         traceback.print_exc()
         return jsonify({"images": [], "filenames": [], "error": str(e)}), 500
+
+
+
+@app.route("/api/mcp_tools", methods=["GET"])
+def get_mcp_tools():
+    """
+    API endpoint to retrieve the list of tools available from a given MCP server script.
+    It will try to use an existing client from corca_states if available and matching,
+    otherwise it creates a temporary client.
+    """
+    server_path = request.args.get("mcpServerPath")
+    conversation_id = request.args.get("conversationId")
+    npc_name = request.args.get("npc")
     
+    if not server_path:
+        return jsonify({"error": "mcpServerPath parameter is required."}), 400
+
+    
+    try:
+        from npcsh.corca import MCPClientNPC
+    except ImportError:
+        return jsonify({"error": "MCP Client (npcsh.corca) not available. Ensure npcsh.corca is installed and importable."}), 500
+
+    temp_mcp_client = None
+    try:
+        
+        if conversation_id and npc_name and hasattr(app, 'corca_states'):
+            state_key = f"{conversation_id}_{npc_name or 'default'}"
+            if state_key in app.corca_states:
+                existing_corca_state = app.corca_states[state_key]
+                if hasattr(existing_corca_state, 'mcp_client') and existing_corca_state.mcp_client \
+                   and existing_corca_state.mcp_client.server_script_path == server_path:
+                    print(f"Using existing MCP client for {state_key} to fetch tools.")
+                    temp_mcp_client = existing_corca_state.mcp_client
+                    return jsonify({"tools": temp_mcp_client.available_tools_llm, "error": None})
+
+        
+        print(f"Creating a temporary MCP client to fetch tools for {server_path}.")
+        temp_mcp_client = MCPClientNPC()
+        if temp_mcp_client.connect_sync(server_path):
+            return jsonify({"tools": temp_mcp_client.available_tools_llm, "error": None})
+        else:
+            return jsonify({"error": f"Failed to connect to MCP server at {server_path}."}), 500
+    except FileNotFoundError as e:
+        return jsonify({"error": f"MCP Server script not found: {e}"}), 404
+    except ValueError as e:
+        return jsonify({"error": f"Invalid MCP Server script: {e}"}), 400
+    except Exception as e:
+        print(f"Error getting MCP tools for {server_path}: {traceback.format_exc()}")
+        return jsonify({"error": f"An unexpected error occurred: {e}"}), 500
+    finally:
+        
+        if temp_mcp_client and temp_mcp_client.session and (
+            not (conversation_id and npc_name and hasattr(app, 'corca_states') and state_key in app.corca_states and getattr(app.corca_states[state_key], 'mcp_client', None) == temp_mcp_client)
+        ):
+            print(f"Disconnecting temporary MCP client for {server_path}.")
+            temp_mcp_client.disconnect_sync()
+
 
 @app.route("/api/image_models", methods=["GET"]) 
 def get_image_models_api():
@@ -1667,37 +1725,135 @@ def stream():
         initial_state.npc = npc_object
         initial_state.team = team_object
         initial_state.messages = messages
-        
+        initial_state.command_history = command_history
         
         state, stream_response = execute_command(
             commandstr, 
             initial_state, router=router)
-        messages = state.messages
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
+        messages = state.messages        
         
     elif exe_mode == 'guac':
-        print('not enabled yet')
+        from npcsh.guac import execute_guac_command
+        from npcsh.routes import router
+        from npcsh._state import initial_state
+        from pathlib import Path
+        import pandas as pd, numpy as np, matplotlib.pyplot as plt
+
+        if not hasattr(app, 'guac_locals'):
+            app.guac_locals = {}
+
+        if conversation_id not in app.guac_locals:
+            app.guac_locals[conversation_id] = {
+                'pd': pd, 
+                'np': np, 
+                'plt': plt, 
+                'datetime': datetime,
+                'Path': Path, 
+                'os': os, 
+                'sys': sys, 
+                'json': json
+            }
+
+        initial_state.model = model
+        initial_state.provider = provider  
+        initial_state.npc = npc_object
+        initial_state.team = team_object
+        initial_state.messages = messages
+        initial_state.command_history = command_history
+        
+        state, stream_response = execute_guac_command(
+            commandstr,
+            initial_state, 
+            app.guac_locals[conversation_id],
+            "guac",
+            Path.cwd() / "npc_team", 
+            router
+        )
+        messages = state.messages
         
     elif exe_mode == 'corca':
-        print('not enabled yet')
+        
+        try:
+            from npcsh.corca import execute_command_corca, create_corca_state_and_mcp_client, MCPClientNPC
+        except ImportError:
+            
+            print("ERROR: npcsh.corca or MCPClientNPC not found. Corca mode is disabled.", file=sys.stderr)
+            state = None 
+            stream_response = {"output": "Corca mode is not available due to missing dependencies.", "messages": messages}
+            
+        
+        if state is not None: 
+            
+            mcp_server_path_from_request = data.get("mcpServerPath")
+            selected_mcp_tools_from_request = data.get("selectedMcpTools", [])
+            
+            
+            effective_mcp_server_path = mcp_server_path_from_request
+            if not effective_mcp_server_path and team_object and hasattr(team_object, 'team_ctx') and team_object.team_ctx:
+                mcp_servers_list = team_object.team_ctx.get('mcp_servers', [])
+                if mcp_servers_list and isinstance(mcp_servers_list, list):
+                    first_server_obj = next((s for s in mcp_servers_list if isinstance(s, dict) and 'value' in s), None)
+                    if first_server_obj:
+                        effective_mcp_server_path = first_server_obj['value']
+                elif isinstance(team_object.team_ctx.get('mcp_server'), str): 
+                    effective_mcp_server_path = team_object.team_ctx.get('mcp_server')
+
+            
+            if not hasattr(app, 'corca_states'):
+                app.corca_states = {}
+            
+            state_key = f"{conversation_id}_{npc_name or 'default'}"
+            
+            corca_state = None
+            if state_key not in app.corca_states:
+                
+                corca_state = create_corca_state_and_mcp_client(
+                    conversation_id=conversation_id,
+                    command_history=command_history,
+                    npc=npc_object,
+                    team=team_object,
+                    current_path=current_path,
+                    mcp_server_path=effective_mcp_server_path
+                )
+                app.corca_states[state_key] = corca_state
+            else:
+                corca_state = app.corca_states[state_key]
+                corca_state.npc = npc_object
+                corca_state.team = team_object
+                corca_state.current_path = current_path
+                corca_state.messages = messages
+                corca_state.command_history = command_history
+
+                
+                current_mcp_client_path = getattr(corca_state.mcp_client, 'server_script_path', None)
+
+                if effective_mcp_server_path != current_mcp_client_path:
+                    print(f"MCP server path changed/updated for {state_key}. Disconnecting old client (if any) and reconnecting to {effective_mcp_server_path or 'None'}.")
+                    if corca_state.mcp_client and corca_state.mcp_client.session:
+                        corca_state.mcp_client.disconnect_sync()
+                        corca_state.mcp_client = None 
+
+                    if effective_mcp_server_path:
+                        new_mcp_client = MCPClientNPC()
+                        if new_mcp_client.connect_sync(effective_mcp_server_path):
+                            corca_state.mcp_client = new_mcp_client
+                            print(f"Successfully reconnected MCP client for {state_key} to {effective_mcp_server_path}.")
+                        else:
+                            print(f"Failed to reconnect MCP client for {state_key} to {effective_mcp_server_path}. Corca will have no tools.")
+                            corca_state.mcp_client = None
+                    
+                
+            
+            state, stream_response = execute_command_corca(
+                commandstr,
+                corca_state,
+                command_history,
+                selected_mcp_tools_names=selected_mcp_tools_from_request 
+            )
+            
+            
+            app.corca_states[state_key] = state
+            messages = state.messages 
 
 
     user_message_filled = ''
