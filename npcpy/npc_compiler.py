@@ -1042,7 +1042,9 @@ class Team:
                  npcs=None, 
                  forenpc=None,
                  jinxs=None,                   
-                 db_conn=None):
+                 db_conn=None, 
+                 model = None, 
+                 provider = None):
         """
         Initialize an NPC team from directory or list of NPCs
         
@@ -1051,6 +1053,9 @@ class Team:
             npcs: List of NPC objects
             db_conn: Database connection
         """
+        self.model = model
+        self.provider = provider
+        
         self.npcs = {}
         self.sub_teams = {}
         self.jinxs_dict = jinxs or {}

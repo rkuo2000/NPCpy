@@ -543,8 +543,8 @@ def get_litellm_response(
     
 
     api_params = {"messages": result["messages"]}
-    
-    if api_url is not None and provider == "openai-like":
+
+    if api_url is not None and (provider == "openai-like" or provider == "openai"):
         api_params["api_base"] = api_url
         provider = "openai"
     
@@ -573,7 +573,6 @@ def get_litellm_response(
             ]:
                 api_params[key] = value
 
-    
     if not auto_process_tool_calls or not (tools and tool_map):
         api_params["stream"] = stream
         resp = completion(**api_params)

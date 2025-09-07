@@ -292,7 +292,21 @@ from npcpy.llm_funcs import gen_video
 video = gen_video("make a video of the moon in the summer of marco polo", model='runwayml/stable-diffusion-v1-5', provider='diffusers')
 ```
 
-
+Or audio TTS and STT:
+```
+from npcpy.gen.audio_gen import tts_elevenlabs
+audio = tts_elevenlabs('''The representatives of the people of France, formed into a National Assembly,
+considering that ignorance, neglect, or contempt of human rights, are the sole causes of
+public misfortunes and corruptions of Government, have resolved to set forth in a solemn
+declaration, these natural, imprescriptible, and inalienable rights: that this declaration
+being constantly present to the minds of the members of the body social, they may be for
+ever kept attentive to their rights and their duties; that the acts of the legislative and
+executive powers of government, being capable of being every moment compared with
+the end of political institutions, may be more respected; and also, that the future claims of
+the citizens, being directed by simple and incontestable principles, may tend to the
+maintenance of the Constitution, and the general happiness. ''')
+# it will play the audio automatically.
+```
 ## Serving an NPC Team
 
 `npcpy` includes a built-in Flask server that makes it easy to deploy NPC teams for production use. You can serve teams with tools, jinxs, and complex workflows that frontends can interact with via REST APIs.
