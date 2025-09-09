@@ -693,6 +693,7 @@ def get_litellm_response(
             result["response"] = string_chunk_generator()
         else:
             result["response"] = llm_response
+    return result            
 def process_tool_calls(response_dict, tool_map, model, provider, messages, stream=False):
     result = response_dict.copy()
     result["tool_results"] = []
