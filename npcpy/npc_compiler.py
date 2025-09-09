@@ -854,7 +854,12 @@ class NPC:
             if self.tools is not None:
                 tools = self.tools
                 tool_map = self.tool_map
+                
+        if tool_choice is None and tools:
+            tool_choice = "auto"
 
+
+                
         response = npy.llm_funcs.get_llm_response(
             request, 
             model=self.model, 
