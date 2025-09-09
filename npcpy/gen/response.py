@@ -665,8 +665,8 @@ def get_litellm_response(
             processed_result["response"] = final_stream
             
         return processed_result
-    
-    
+        
+        
     else:
         llm_response = resp.choices[0].message.content
         result["messages"].append({"role": "assistant", "content": llm_response})
@@ -674,22 +674,25 @@ def get_litellm_response(
         if stream:
             def string_chunk_generator():
                 chunk_size = 1
-                for i in range(0, len(llm_response), chunk_size):
-                    chunk_text = llm_response[i:i+chunk_size]
-                    time.sleep(.005)
+                for i, char in enumerate(llm_response):
                     yield type('MockChunk', (), {
+                        'id': f'mock-chunk-{i}',
+                        'object': 'chat.completion.chunk',
+                        'created': int(time.time()),
+                        'model': model or 'unknown',
                         'choices': [type('Choice', (), {
-                            'delta': type('Delta', (), {'content': chunk_text})()
+                            'index': 0,
+                            'delta': type('Delta', (), {
+                                'content': char,
+                                'role': 'assistant' if i == 0 else None
+                            })(),
+                            'finish_reason': 'stop' if i == len(llm_response) - 1 else None
                         })()]
                     })()
             
             result["response"] = string_chunk_generator()
         else:
             result["response"] = llm_response
-            
-        return result
-
-
 def process_tool_calls(response_dict, tool_map, model, provider, messages, stream=False):
     result = response_dict.copy()
     result["tool_results"] = []
