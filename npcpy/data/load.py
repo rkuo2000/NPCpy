@@ -112,10 +112,11 @@ extension_map = {
     "GZ": "archives",
 }
 
-def load_file_contents(file_path, chunk_size=250):
+def load_file_contents(file_path, chunk_size=None):
     file_ext = os.path.splitext(file_path)[1].upper().lstrip('.')
     full_content = ""
-    
+    if not isinstance(chunk_size, int):
+        chunk_size=250
     try:
         if file_ext == 'PDF':
             full_content = load_pdf(file_path)
