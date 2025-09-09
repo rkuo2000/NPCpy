@@ -49,7 +49,11 @@ def search_perplexity(
     top_p: float = 0.9,
 ):
     if api_key is None:
-        api_key = os.environ["PERPLEXITY_API_KEY"]
+        api_key = os.environ.get("PERPLEXITY_API_KEY")
+        if api_key is None: 
+            raise 
+        
+        
     
     url = "https://api.perplexity.ai/chat/completions"
     payload = {

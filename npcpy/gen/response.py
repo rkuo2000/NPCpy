@@ -753,7 +753,7 @@ def process_tool_calls(response_dict, tool_map, model, provider, messages, strea
                 tool_result = tool_map[tool_name](**arguments)
                 print('Executed Tool Result:', tool_result)
             except Exception as e:
-                tool_result = f"Error executing tool '{tool_name}': {str(e)}"
+                tool_result = f"Error executing tool '{tool_name}': {str(e)}. Tool map is : {tool_map}"
 
             try:
                 tool_result_str = json.dumps(tool_result, default=str)
