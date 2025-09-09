@@ -659,7 +659,18 @@ def get_litellm_response(
             final_api_params = api_params.copy()
             final_api_params["messages"] = clean_messages
             final_api_params["stream"] = True
-            final_api_params["tools"] = None 
+
+
+            final_api_params = api_params.copy()
+            final_api_params["messages"] = clean_messages
+            final_api_params["stream"] = True
+            if "tools" in final_api_params:
+                del final_api_params["tools"]
+            if "tool_choice" in final_api_params:
+                del final_api_params["tool_choice"]
+
+            final_stream = completion(**final_api_params)
+
             
             final_stream = completion(**final_api_params)
             processed_result["response"] = final_stream
