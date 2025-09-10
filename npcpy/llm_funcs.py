@@ -208,6 +208,8 @@ def get_llm_response(
     elif prompt:
         messages.append({"role": "user", 
                          "content": prompt + context_str})    
+    #import pdb 
+    #pdb.set_trace()
     response = get_litellm_response(
         prompt + context_str,
         messages=messages,
@@ -1663,6 +1665,9 @@ def get_facts(content_text,
               provider = None,
               npc=None,
               context : str=None, 
+              attempt_number=1,
+              n_attempts=3,
+
               **kwargs):
     """Extract facts from content text"""
     
@@ -1765,6 +1770,17 @@ def get_facts(content_text,
                                 context=context,
                                 **kwargs)
 
+    if len(response.get("response", {}).get("facts", [])) == 0 and attempt_number < n_attempts:
+        print(f"  Attempt {attempt_number} to extract facts yielded no results. Retrying...")
+        return get_facts(content_text, 
+                         model=model, 
+                         provider=provider, 
+                         npc=npc,
+                         context=context,
+                         attempt_number=attempt_number+1,
+                         n_attempts=n_attempts,
+                         **kwargs)
+    
     return response["response"].get("facts", [])
 
         
@@ -1775,7 +1791,7 @@ def zoom_in(facts,
             npc=None,
             context: str = None, 
             attempt_number: int = 1,
-            n_tries=3,            
+            n_attempts=3,            
             **kwargs):
     """Infer new implied facts from existing facts"""
     valid_facts = []
@@ -1995,7 +2011,10 @@ def get_related_facts_llm(new_fact_statement,
                           model = None, 
                           provider = None,
                           npc = None, 
-                          context=''):
+                          attempt_number = 1,
+                          n_attempts = 3,
+                          context='', 
+                          **kwargs):
     """Identifies which existing facts are causally or thematically related to a new fact."""
     prompt = f"""
     A new fact has been learned: "{new_fact_statement}"
@@ -2008,12 +2027,25 @@ def get_related_facts_llm(new_fact_statement,
 
     Respond with JSON: {{"related_facts": ["statement of a related fact", ...]}}
     """
-    response = get_llm_response(prompt, 
+    response = get_llm_response(prompt,
                                 model=model, 
                                 provider=provider, 
-                                npc = npc,
                                 format="json", 
-                                context=context)
+                                npc=npc,
+                                context=context,
+                                **kwargs)   
+    if attempt_number > n_attempts:
+        print(f"  Attempt {attempt_number} to find related facts yielded no results. Giving up.")
+        return get_related_facts_llm(new_fact_statement, 
+                                       existing_fact_statements, 
+                                       model=model, 
+                                       provider=provider, 
+                                       npc=npc,
+                                       attempt_number=attempt_number+1,
+                                       n_attempts=n_attempts,
+                                       context=context,
+                                       **kwargs)    
+
     return response["response"].get("related_facts", [])
 
 def find_best_link_concept_llm(candidate_concept_name, 
