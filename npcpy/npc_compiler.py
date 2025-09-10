@@ -588,427 +588,623 @@ def extract_jinx_inputs(args: List[str], jinx: Jinx) -> Dict[str, Any]:
 
 
 
+from npcpy.memory.command_history import load_kg_from_db, save_kg_to_db
+from npcpy.memory.knowledge_graph import kg_initial, kg_evolve_incremental, kg_sleep_process, kg_dream_process
+from npcpy.llm_funcs import get_llm_response, breathe
+import os
+from datetime import datetime
+import json
 
 class NPC:
-    def __init__(
-        self,
-        file: str = None,
-        name: str = None,
-        primary_directive: str = None,
-        plain_system_message: bool = False,
-        team = None, 
-        jinxs: list = None,
-        tools: list = None,
-        model: str = None,
-        provider: str = None,
-        api_url: str = None,
-        api_key: str = None,
-        db_conn=None,
-        use_global_jinxs=False,
-        **kwargs
-    ):
-        """
-        Initialize an NPC from a file path or with explicit parameters
-        
-        Args:
-            file: Path to .npc file or name for the NPC
-            primary_directive: System prompt/directive for the NPC
-            jinxs: List of jinxs available to the NPC or "*" to load all jinxs
-            model: LLM model to use
-            provider: LLM provider to use
-            api_url: API URL for LLM
-            api_key: API key for LLM
-            db_conn: Database connection
-        """
-        if not file and not name and not primary_directive:
-            raise ValueError("Either 'file' or 'name' and 'primary_directive' must be provided") 
-        if file:
-            if file.endswith(".npc"):
-                self._load_from_file(file)
-            file_parent = os.path.dirname(file)
-            self.jinxs_directory = os.path.join(file_parent, "jinxs")
-            self.npc_directory = file_parent
-        else:
-            self.name = name            
-            self.primary_directive = primary_directive
-            self.model = model 
-            self.provider = provider 
-            self.api_url = api_url 
-            self.api_key = api_key
-            self.team = team
-            
-            
-            
-            if use_global_jinxs:
-                self.jinxs_directory = os.path.expanduser('~/.npcsh/npc_team/jinxs/')
-            else: 
-                self.jinxs_directory = None
-            self.npc_directory = None 
-            
+   def __init__(
+       self,
+       file: str = None,
+       name: str = None,
+       primary_directive: str = None,
+       plain_system_message: bool = False,
+       team = None, 
+       jinxs: list = None,
+       tools: list = None,
+       model: str = None,
+       provider: str = None,
+       api_url: str = None,
+       api_key: str = None,
+       db_conn=None,
+       use_global_jinxs=False,
+       **kwargs
+   ):
+       """
+       Initialize an NPC from a file path or with explicit parameters
+       
+       Args:
+           file: Path to .npc file or name for the NPC
+           primary_directive: System prompt/directive for the NPC
+           jinxs: List of jinxs available to the NPC or "*" to load all jinxs
+           model: LLM model to use
+           provider: LLM provider to use
+           api_url: API URL for LLM
+           api_key: API key for LLM
+           db_conn: Database connection
+       """
+       if not file and not name and not primary_directive:
+           raise ValueError("Either 'file' or 'name' and 'primary_directive' must be provided") 
+       if file:
+           if file.endswith(".npc"):
+               self._load_from_file(file)
+           file_parent = os.path.dirname(file)
+           self.jinxs_directory = os.path.join(file_parent, "jinxs")
+           self.npc_directory = file_parent
+       else:
+           self.name = name            
+           self.primary_directive = primary_directive
+           self.model = model 
+           self.provider = provider 
+           self.api_url = api_url 
+           self.api_key = api_key
+           self.team = team
+           
+           if use_global_jinxs:
+               self.jinxs_directory = os.path.expanduser('~/.npcsh/npc_team/jinxs/')
+           else: 
+               self.jinxs_directory = None
+           self.npc_directory = None 
 
-        if tools is not None:
-            tools_schema, tool_map = auto_tools(tools)
-            self.tools = tools_schema  
-            self.tool_map = tool_map   
-            self.tools_schema = tools_schema  
-        else:
-            self.tools = []
-            self.tool_map = {}
-            self.tools_schema = []
-        self.plain_system_message = plain_system_message
-        self.use_global_jinxs = use_global_jinxs
-        
-        self.memory_length = 20
-        self.memory_strategy = 'recent'
-        dirs = []
-        if self.npc_directory:
-            dirs.append(self.npc_directory)
-        if self.jinxs_directory:
-            dirs.append(self.jinxs_directory)
-            
-        self.jinja_env = Environment(
-            loader=FileSystemLoader([
-                os.path.expanduser(d) for d in dirs
-            ]),
-            undefined=SilentUndefined,
-        )
-        
-        
-        self.db_conn = db_conn
-        if self.db_conn:
-            self._setup_db()
-            self.command_history = CommandHistory(db=self.db_conn)
-            self.memory = self._load_npc_memory()
-        else:   
-            self.command_history = None
-            self.memory = None
-            self.tables = None
-            
-            
-        
-        self.jinxs = self._load_npc_jinxs(jinxs or "*")
-        
-        
-        self.shared_context = {
-            "dataframes": {},
-            "current_data": None,
-            "computation_results": [],
-            "memories":{}
-        }
-        
-        
-        for key, value in kwargs.items():
-            setattr(self, key, value)
-            
-        if db_conn is not None:
-            init_db_tables()
-    def _load_npc_memory(self):
-        memory = self.command_history.get_messages_by_npc(self.name, n_last=self.memory_length)
-        
-        
-        memory = [{'role':mem['role'], 'content':mem['content']} for mem in memory]
-        
-        return memory 
-    def _load_from_file(self, file):
-        """Load NPC configuration from file"""
-        if "~" in file:
-            file = os.path.expanduser(file)
-        if not os.path.isabs(file):
-            file = os.path.abspath(file)
-            
-        npc_data = load_yaml_file(file)
-        if not npc_data:
-            raise ValueError(f"Failed to load NPC from {file}")
-            
-        
-        self.name = npc_data.get("name")
-        if not self.name:
-            
-            self.name = os.path.splitext(os.path.basename(file))[0]
-            
-        self.primary_directive = npc_data.get("primary_directive")
-        
-        
-        jinxs_spec = npc_data.get("jinxs", "*")
-        
-        if jinxs_spec == "*":
-            
-            self.jinxs_spec = "*" 
-        else:
-            self.jinxs_spec = jinxs_spec
+       if tools is not None:
+           tools_schema, tool_map = auto_tools(tools)
+           self.tools = tools_schema  
+           self.tool_map = tool_map   
+           self.tools_schema = tools_schema  
+       else:
+           self.tools = []
+           self.tool_map = {}
+           self.tools_schema = []
+       self.plain_system_message = plain_system_message
+       self.use_global_jinxs = use_global_jinxs
+       
+       self.memory_length = 20
+       self.memory_strategy = 'recent'
+       dirs = []
+       if self.npc_directory:
+           dirs.append(self.npc_directory)
+       if self.jinxs_directory:
+           dirs.append(self.jinxs_directory)
+           
+       self.jinja_env = Environment(
+           loader=FileSystemLoader([
+               os.path.expanduser(d) for d in dirs
+           ]),
+           undefined=SilentUndefined,
+       )
+       
+       self.db_conn = db_conn
+       if self.db_conn:
+           self._setup_db()
+           self.command_history = CommandHistory(db=self.db_conn)
+           self.memory = self._load_npc_memory()
+           self.kg_data = self._load_npc_kg()
+       else:   
+           self.command_history = None
+           self.memory = None
+           self.kg_data = None
+           self.tables = None
+           
+       self.jinxs = self._load_npc_jinxs(jinxs or "*")
+       
+       self.shared_context = {
+           "dataframes": {},
+           "current_data": None,
+           "computation_results": [],
+           "memories":{}
+       }
+       
+       for key, value in kwargs.items():
+           setattr(self, key, value)
+           
+       if db_conn is not None:
+           init_db_tables()
 
-        self.model = npc_data.get("model")
-        self.provider = npc_data.get("provider")
-        self.api_url = npc_data.get("api_url")
-        self.api_key = npc_data.get("api_key")
-        self.name = npc_data.get("name", self.name)
+   def _load_npc_kg(self):
+       """Load knowledge graph data for this NPC from database"""
+       if not self.command_history:
+           return None
+           
+       directory_path = os.getcwd()
+       team_name = getattr(self.team, 'name', 'default_team') if self.team else 'default_team'
+       
+       kg_data = load_kg_from_db(
+           engine=self.command_history.engine,
+           team_name=team_name,
+           npc_name=self.name,
+           directory_path=directory_path
+       )
+       
+       if not kg_data.get('facts') and not kg_data.get('concepts'):
+           return self._initialize_kg_from_history()
+       
+       return kg_data
 
-        
-        self.npc_path = file
-        
-        
-        self.npc_jinxs_directory = os.path.join(os.path.dirname(file), "jinxs")
-    def get_system_prompt(self, simple=False):
-        if simple or self.plain_system_message:
-            return self.primary_directive
-        else:
-                
-            return get_system_message(self, team=self.team)
-    def _setup_db(self):
-        """Set up database tables and determine type"""
-        try:
+   def _initialize_kg_from_history(self):
+       """Initialize KG from conversation history if no KG exists"""
+       if not self.command_history:
+           return None
+           
+       recent_messages = self.command_history.get_messages_by_npc(
+           self.name, 
+           n_last=50
+       )
+       
+       if not recent_messages:
+           return {
+               "generation": 0, 
+               "facts": [], 
+               "concepts": [], 
+               "concept_links": [], 
+               "fact_to_concept_links": {}, 
+               "fact_to_fact_links": []
+           }
+       
+       content_text = "\n".join([
+           msg['content'] for msg in recent_messages 
+           if msg['role'] == 'user' and isinstance(msg['content'], str)
+       ])
+       
+       if not content_text.strip():
+           return {
+               "generation": 0, 
+               "facts": [], 
+               "concepts": [], 
+               "concept_links": [], 
+               "fact_to_concept_links": {}, 
+               "fact_to_fact_links": []
+           }
+       
+       kg_data = kg_initial(
+           content_text=content_text,
+           model=self.model,
+           provider=self.provider,
+           npc=self,
+           context=getattr(self, 'shared_context', {})
+       )
+       
+       self._save_kg()
+       return kg_data
 
-            dialect = self.db_conn.dialect.name
+   def _save_kg(self):
+       """Save current KG data to database"""
+       if not self.kg_data or not self.command_history:
+           return False
+           
+       directory_path = os.getcwd()
+       team_name = getattr(self.team, 'name', 'default_team') if self.team else 'default_team'
+       save_kg_to_db(
+           engine=self.command_history.engine,
+           kg_data=self.kg_data,
+           team_name=team_name,
+           npc_name=self.name,
+           directory_path=directory_path
+       )
+       return True
 
-            with self.db_conn.connect() as conn:
-                if dialect == "postgresql":
-                    result = conn.execute(text("""
-                        SELECT table_name, obj_description((quote_ident(table_name))::regclass, 'pg_class')
-                        FROM information_schema.tables
-                        WHERE table_schema='public';
-                    """))
-                    self.tables = result.fetchall()
-                    self.db_type = "postgres"
+   def get_memory_context(self):
+       """Get formatted memory context for system prompt"""
+       if not self.kg_data:
+           return ""
+           
+       context_parts = []
+       
+       recent_facts = self.kg_data.get('facts', [])[-10:]
+       if recent_facts:
+           context_parts.append("Recent memories:")
+           for fact in recent_facts:
+               context_parts.append(f"- {fact['statement']}")
+       
+       concepts = self.kg_data.get('concepts', [])
+       if concepts:
+           concept_names = [c['name'] for c in concepts[:5]]
+           context_parts.append(f"Key concepts: {', '.join(concept_names)}")
+       
+       return "\n".join(context_parts)
 
-                elif dialect == "sqlite":
-                    result = conn.execute(text(
-                        "SELECT name, sql FROM sqlite_master WHERE type='table';"
-                    ))
-                    self.tables = result.fetchall()
-                    self.db_type = "sqlite"
+   def update_memory(
+       self, 
+       user_input: str, 
+       assistant_response: str
+   ):
+       """Update NPC memory from conversation turn using KG evolution"""
+       conversation_turn = f"User: {user_input}\nAssistant: {assistant_response}"
+       
+       if not self.kg_data:
+           self.kg_data = kg_initial(
+               content_text=conversation_turn,
+               model=self.model,
+               provider=self.provider,
+               npc=self
+           )
+       else:
+           self.kg_data, _ = kg_evolve_incremental(
+               existing_kg=self.kg_data,
+               new_content_text=conversation_turn,
+               model=self.model,
+               provider=self.provider,
+               npc=self,
+               get_concepts=True,
+               link_concepts_facts=False,
+               link_concepts_concepts=False,
+               link_facts_facts=False
+           )
+       
+       self._save_kg()
 
-                else:
-                    print(f"Unsupported DB dialect: {dialect}")
-                    self.tables = None
-                    self.db_type = None
+   def enter_tool_use_loop(
+       self, 
+       prompt: str, 
+       tools: list = None, 
+       tool_map: dict = None, 
+       max_iterations: int = 5,
+       stream: bool = False
+   ):
+       """Enter interactive tool use loop for complex tasks"""
+       if not tools:
+           tools = self.tools
+       if not tool_map:
+           tool_map = self.tool_map
+           
+       messages = self.memory.copy() if self.memory else []
+       messages.append({"role": "user", "content": prompt})
+       
+       for iteration in range(max_iterations):
+           response = get_llm_response(
+               prompt="",
+               model=self.model,
+               provider=self.provider,
+               npc=self,
+               messages=messages,
+               tools=tools,
+               tool_map=tool_map,
+               auto_process_tool_calls=True,
+               stream=stream
+           )
+           
+           messages = response.get('messages', messages)
+           
+           if not response.get('tool_calls'):
+               return {
+                   "final_response": response.get('response'),
+                   "messages": messages,
+                   "iterations": iteration + 1
+               }
+               
+       return {
+           "final_response": "Max iterations reached",
+           "messages": messages,
+           "iterations": max_iterations
+       }
 
-        except Exception as e:
-            print(f"Error setting up database: {e}")
-            self.tables = None
-            self.db_type = None    
-    def _load_npc_jinxs(self, jinxs):
-        """Load and process NPC-specific jinxs"""
-        npc_jinxs = []
-        
-        if self.jinxs_directory is None:
-            self.jinxs_dict = {}
-            return None
-        
-        if jinxs == "*":
-            
-            
-            
-            npc_jinxs.extend(load_jinxs_from_directory(self.jinxs_directory))
-            
-            if os.path.exists(self.jinxs_directory):
-                npc_jinxs.extend(load_jinxs_from_directory(self.jinxs_directory))                
-            
-            self.jinxs_dict = {jinx.jinx_name: jinx for jinx in npc_jinxs}
-            
-            return npc_jinxs
-            
+   def get_code_response(
+       self, 
+       prompt: str, 
+       language: str = "python", 
+       execute: bool = False, 
+       locals_dict: dict = None
+   ):
+       """Generate and optionally execute code responses"""
+       code_prompt = f"""Generate {language} code for: {prompt}
+       
+       Provide ONLY executable {language} code without explanations.
+       Do not include markdown formatting or code blocks.
+       Begin directly with the code."""
+       
+       response = get_llm_response(
+           prompt=code_prompt,
+           model=self.model,
+           provider=self.provider,
+           npc=self,
+           stream=False
+       )
+       
+       generated_code = response.get('response', '')
+       
+       result = {
+           "code": generated_code,
+           "executed": False,
+           "output": None,
+           "error": None
+       }
+       
+       if execute and language == "python":
+           if locals_dict is None:
+               locals_dict = {}
+               
+           exec_globals = {"__builtins__": __builtins__}
+           exec_globals.update(locals_dict)
+           
+           exec_locals = {}
+           exec(generated_code, exec_globals, exec_locals)
+           
+           locals_dict.update(exec_locals)
+           result["executed"] = True
+           result["output"] = exec_locals.get("output", "Code executed successfully")
+       
+       return result
 
-        for jinx in jinxs:
-            
-                
-            if isinstance(jinx, Jinx):
-                npc_jinxs.append(jinx)
-            elif isinstance(jinx, dict):
-                npc_jinxs.append(Jinx(jinx_data=jinx))
-            
-                
-                jinx_path = None
-                jinx_name = jinx
-                if not jinx_name.endswith(".jinx"):
-                    jinx_name += ".jinx"
-                
-                
-                if hasattr(self, 'jinxs_directory') and os.path.exists(self.jinxs_directory):
-                    candidate_path = os.path.join(self.jinxs_directory, jinx_name)
-                    if os.path.exists(candidate_path):
-                        jinx_path = candidate_path
-                        
-                if jinx_path:
-                    try:
-                        jinx_obj = Jinx(jinx_path=jinx_path)
-                        npc_jinxs.append(jinx_obj)
-                    except Exception as e:
-                        print(f"Error loading jinx {jinx_path}: {e}")
-        
-        
-        self.jinxs_dict = {jinx.jinx_name: jinx for jinx in npc_jinxs}
-        return npc_jinxs
-    
-    def get_llm_response(self, 
-                         request,
-                         jinxs= None,
-                         tools=None,
-                         tool_map= None,
-                         tool_choice=None, 
-                         messages: Optional[List[Dict[str, str]]] = None,
-                         auto_process_tool_calls: bool = True,
-                         **kwargs):
-        """Get a response from the LLM"""
-        
-        if tools is None:
-            if self.tools is not None:
-                tools = self.tools
-                tool_map = self.tool_map
+   def _load_npc_memory(self):
+       """Enhanced memory loading that includes KG context"""
+       memory = self.command_history.get_messages_by_npc(self.name, n_last=self.memory_length)
+       memory = [{'role':mem['role'], 'content':mem['content']} for mem in memory]
+       return memory 
 
-        response = npy.llm_funcs.get_llm_response(
-            request, 
-            model=self.model, 
-            provider=self.provider, 
-            npc=self, 
-            jinxs=jinxs,
-            tools=tools, 
-            tool_map=tool_map,
-            tool_choice=tool_choice,           
-            auto_process_tool_calls=auto_process_tool_calls,
-            messages=self.memory if messages is None else messages,
-            **kwargs
-        )        
-        
-        return response
-    
-    def execute_jinx(self, jinx_name, inputs, conversation_id=None, message_id=None, team_name=None):
-        """Execute a jinx by name"""
-        
-        if jinx_name in self.jinxs_dict:
-            jinx = self.jinxs_dict[jinx_name]
-        elif jinx_name in self.jinxs_dict:
-            jinx = self.jinxs_dict[jinx_name]
-        else:
-            return {"error": f"jinx '{jinx_name}' not found"}
-        
-        result = jinx.execute(
-            input_values=inputs,
-            context=self.shared_context,
-            jinja_env=self.jinja_env,
-            npc=self
-        )
-        if self.db_conn is not None:
-            self.db_conn.add_jinx_call(
-                triggering_message_id=message_id,
-                conversation_id=conversation_id,
-                jinx_name=jinx_name,
-                jinx_inputs=inputs,
-                jinx_output=result,
-                status="success",
-                error_message=None,
-                duration_ms=None,
-                npc_name=self.name,
-                team_name=team_name,
-            )
-        return result
-    def check_llm_command(self,
-                          command, 
-                          messages=None,
-                          context=None,
-                          team=None,
-                          stream=False):
-        """Check if a command is for the LLM"""
-        if context is None:
-            context = self.shared_context
-        
-        
-        if team:
-            self._current_team = team
-        
-        
-        actions = get_npc_action_space(npc=self, team=team)
-        
-        
-        return npy.llm_funcs.check_llm_command(
-            command,
-            model=self.model,
-            provider=self.provider,
-            npc=self,
-            team=team,
-            messages=self.memory if messages is None else messages,
-            context=context,
-            stream=stream,
-            actions=actions  
-        )
-    
-    def handle_agent_pass(self, 
-                          npc_to_pass,
-                          command, 
-                          messages=None, 
-                          context=None, 
-                          shared_context=None, 
-                          stream=False,
-                          team=None):  
-        """Pass a command to another NPC"""
-        print('handling agent pass')
-        if isinstance(npc_to_pass, NPC):
-            target_npc = npc_to_pass
-        else:
-            return {"error": "Invalid NPC to pass command to"}
-        
-        
-        if shared_context is not None:
-            self.shared_context.update(shared_context)
-            target_npc.shared_context.update(shared_context)
-            
-        
-        updated_command = (
-            command
-            + "\n\n"
-            + f"NOTE: THIS COMMAND HAS BEEN PASSED FROM {self.name} TO YOU, {target_npc.name}.\n"
-            + "PLEASE CHOOSE ONE OF THE OTHER OPTIONS WHEN RESPONDING."
-        )
-        
+   def _load_from_file(self, file):
+       """Load NPC configuration from file"""
+       if "~" in file:
+           file = os.path.expanduser(file)
+       if not os.path.isabs(file):
+           file = os.path.abspath(file)
+           
+       npc_data = load_yaml_file(file)
+       if not npc_data:
+           raise ValueError(f"Failed to load NPC from {file}")
+           
+       self.name = npc_data.get("name")
+       if not self.name:
+           self.name = os.path.splitext(os.path.basename(file))[0]
+           
+       self.primary_directive = npc_data.get("primary_directive")
+       
+       jinxs_spec = npc_data.get("jinxs", "*")
+       
+       if jinxs_spec == "*":
+           self.jinxs_spec = "*" 
+       else:
+           self.jinxs_spec = jinxs_spec
 
-        result = target_npc.check_llm_command(
-            updated_command,
-            messages=messages,
-            context=target_npc.shared_context,
-            team=team, 
-            stream=stream
-        )
-        if isinstance(result, dict):
-            result['npc_name'] = target_npc.name
-            result['passed_from'] = self.name
-        
-        return result    
+       self.model = npc_data.get("model")
+       self.provider = npc_data.get("provider")
+       self.api_url = npc_data.get("api_url")
+       self.api_key = npc_data.get("api_key")
+       self.name = npc_data.get("name", self.name)
 
-    def to_dict(self):
-        """Convert NPC to dictionary representation"""
-        jinx_rep = [] 
-        if self.jinxs is not None:
-            jinx_rep = [ jinx.to_dict() if isinstance(jinx, Jinx) else jinx for jinx in self.jinxs]
-        return {
-            "name": self.name,
-            "primary_directive": self.primary_directive,
-            "model": self.model,
-            "provider": self.provider,
-            "api_url": self.api_url,
-            "api_key": self.api_key,
-            "jinxs": jinx_rep, 
-            "use_global_jinxs": self.use_global_jinxs
-        }
-        
-    def save(self, directory=None):
-        """Save NPC to file"""
-        if directory is None:
-            directory = self.npc_directory
-            
-        ensure_dirs_exist(directory)
-        npc_path = os.path.join(directory, f"{self.name}.npc")
-        
-        return write_yaml_file(npc_path, self.to_dict())
-    
-    def __str__(self):
-        """String representation of NPC"""
-        str_rep = f"NPC: {self.name}\nDirective: {self.primary_directive}\nModel: {self.model}\nProvider: {self.provider}\nAPI URL: {self.api_url}\n"
-        if self.jinxs:
-            str_rep += "Jinxs:\n"
-            for jinx in self.jinxs:
-                str_rep += f"  - {jinx.jinx_name}\n"
-        else:
-            str_rep += "No jinxs available.\n"
-        return str_rep 
+       self.npc_path = file
+       self.npc_jinxs_directory = os.path.join(os.path.dirname(file), "jinxs")
+
+   def get_system_prompt(self, simple=False):
+       """Get system prompt for the NPC"""
+       if simple or self.plain_system_message:
+           return self.primary_directive
+       else:
+           return get_system_message(self, team=self.team)
+
+   def _setup_db(self):
+       """Set up database tables and determine type"""
+       dialect = self.db_conn.dialect.name
+
+       with self.db_conn.connect() as conn:
+           if dialect == "postgresql":
+               result = conn.execute(text("""
+                   SELECT table_name, obj_description((quote_ident(table_name))::regclass, 'pg_class')
+                   FROM information_schema.tables
+                   WHERE table_schema='public';
+               """))
+               self.tables = result.fetchall()
+               self.db_type = "postgres"
+
+           elif dialect == "sqlite":
+               result = conn.execute(text(
+                   "SELECT name, sql FROM sqlite_master WHERE type='table';"
+               ))
+               self.tables = result.fetchall()
+               self.db_type = "sqlite"
+
+           else:
+               print(f"Unsupported DB dialect: {dialect}")
+               self.tables = None
+               self.db_type = None
+
+   def _load_npc_jinxs(self, jinxs):
+       """Load and process NPC-specific jinxs"""
+       npc_jinxs = []
+       
+       if self.jinxs_directory is None:
+           self.jinxs_dict = {}
+           return None
+       
+       if jinxs == "*":
+           npc_jinxs.extend(load_jinxs_from_directory(self.jinxs_directory))
+           
+           if os.path.exists(self.jinxs_directory):
+               npc_jinxs.extend(load_jinxs_from_directory(self.jinxs_directory))                
+           
+           self.jinxs_dict = {jinx.jinx_name: jinx for jinx in npc_jinxs}
+           
+           return npc_jinxs
+
+       for jinx in jinxs:
+           if isinstance(jinx, Jinx):
+               npc_jinxs.append(jinx)
+           elif isinstance(jinx, dict):
+               npc_jinxs.append(Jinx(jinx_data=jinx))
+           
+               jinx_path = None
+               jinx_name = jinx
+               if not jinx_name.endswith(".jinx"):
+                   jinx_name += ".jinx"
+               
+               if hasattr(self, 'jinxs_directory') and os.path.exists(self.jinxs_directory):
+                   candidate_path = os.path.join(self.jinxs_directory, jinx_name)
+                   if os.path.exists(candidate_path):
+                       jinx_path = candidate_path
+                       
+               if jinx_path:
+                   jinx_obj = Jinx(jinx_path=jinx_path)
+                   npc_jinxs.append(jinx_obj)
+       
+       self.jinxs_dict = {jinx.jinx_name: jinx for jinx in npc_jinxs}
+       return npc_jinxs
+   
+   def get_llm_response(self, 
+                        request,
+                        jinxs= None,
+                        tools=None,
+                        tool_map= None,
+                        tool_choice=None, 
+                        messages: Optional[List[Dict[str, str]]] = None,
+                        auto_process_tool_calls: bool = True,
+                        **kwargs):
+       """Get a response from the LLM"""
+       
+       if tools is None:
+           if self.tools is not None:
+               tools = self.tools
+               tool_map = self.tool_map
+
+       response = npy.llm_funcs.get_llm_response(
+           request, 
+           model=self.model, 
+           provider=self.provider, 
+           npc=self, 
+           jinxs=jinxs,
+           tools=tools, 
+           tool_map=tool_map,
+           tool_choice=tool_choice,           
+           auto_process_tool_calls=auto_process_tool_calls,
+           messages=self.memory if messages is None else messages,
+           **kwargs
+       )        
+       
+       return response
+   
+   def execute_jinx(self, jinx_name, inputs, conversation_id=None, message_id=None, team_name=None):
+       """Execute a jinx by name"""
+       
+       if jinx_name in self.jinxs_dict:
+           jinx = self.jinxs_dict[jinx_name]
+       elif jinx_name in self.jinxs_dict:
+           jinx = self.jinxs_dict[jinx_name]
+       else:
+           return {"error": f"jinx '{jinx_name}' not found"}
+       
+       result = jinx.execute(
+           input_values=inputs,
+           context=self.shared_context,
+           jinja_env=self.jinja_env,
+           npc=self
+       )
+       if self.db_conn is not None:
+           self.db_conn.add_jinx_call(
+               triggering_message_id=message_id,
+               conversation_id=conversation_id,
+               jinx_name=jinx_name,
+               jinx_inputs=inputs,
+               jinx_output=result,
+               status="success",
+               error_message=None,
+               duration_ms=None,
+               npc_name=self.name,
+               team_name=team_name,
+           )
+       return result
+
+   def check_llm_command(self,
+                         command, 
+                         messages=None,
+                         context=None,
+                         team=None,
+                         stream=False):
+       """Check if a command is for the LLM"""
+       if context is None:
+           context = self.shared_context
+       
+       if team:
+           self._current_team = team
+       
+       actions = get_npc_action_space(npc=self, team=team)
+       
+       return npy.llm_funcs.check_llm_command(
+           command,
+           model=self.model,
+           provider=self.provider,
+           npc=self,
+           team=team,
+           messages=self.memory if messages is None else messages,
+           context=context,
+           stream=stream,
+           actions=actions  
+       )
+   
+   def handle_agent_pass(self, 
+                         npc_to_pass,
+                         command, 
+                         messages=None, 
+                         context=None, 
+                         shared_context=None, 
+                         stream=False,
+                         team=None):  
+       """Pass a command to another NPC"""
+       print('handling agent pass')
+       if isinstance(npc_to_pass, NPC):
+           target_npc = npc_to_pass
+       else:
+           return {"error": "Invalid NPC to pass command to"}
+       
+       if shared_context is not None:
+           self.shared_context.update(shared_context)
+           target_npc.shared_context.update(shared_context)
+           
+       updated_command = (
+           command
+           + "\n\n"
+           + f"NOTE: THIS COMMAND HAS BEEN PASSED FROM {self.name} TO YOU, {target_npc.name}.\n"
+           + "PLEASE CHOOSE ONE OF THE OTHER OPTIONS WHEN RESPONDING."
+       )
+
+       result = target_npc.check_llm_command(
+           updated_command,
+           messages=messages,
+           context=target_npc.shared_context,
+           team=team, 
+           stream=stream
+       )
+       if isinstance(result, dict):
+           result['npc_name'] = target_npc.name
+           result['passed_from'] = self.name
+       
+       return result    
+
+   def to_dict(self):
+       """Convert NPC to dictionary representation"""
+       jinx_rep = [] 
+       if self.jinxs is not None:
+           jinx_rep = [ jinx.to_dict() if isinstance(jinx, Jinx) else jinx for jinx in self.jinxs]
+       return {
+           "name": self.name,
+           "primary_directive": self.primary_directive,
+           "model": self.model,
+           "provider": self.provider,
+           "api_url": self.api_url,
+           "api_key": self.api_key,
+           "jinxs": jinx_rep, 
+           "use_global_jinxs": self.use_global_jinxs
+       }
+       
+   def save(self, directory=None):
+       """Save NPC to file"""
+       if directory is None:
+           directory = self.npc_directory
+           
+       ensure_dirs_exist(directory)
+       npc_path = os.path.join(directory, f"{self.name}.npc")
+       
+       return write_yaml_file(npc_path, self.to_dict())
+   
+   def __str__(self):
+       """String representation of NPC"""
+       str_rep = f"NPC: {self.name}\nDirective: {self.primary_directive}\nModel: {self.model}\nProvider: {self.provider}\nAPI URL: {self.api_url}\n"
+       if self.jinxs:
+           str_rep += "Jinxs:\n"
+           for jinx in self.jinxs:
+               str_rep += f"  - {jinx.jinx_name}\n"
+       else:
+           str_rep += "No jinxs available.\n"
+       return str_rep
 
 
 
@@ -1037,429 +1233,427 @@ def execute_jinx_command(
 
 
 class Team:
-    def __init__(self, 
-                 team_path=None, 
-                 npcs=None, 
-                 forenpc=None,
-                 jinxs=None,                   
-                 db_conn=None, 
-                 model = None, 
-                 provider = None):
-        """
-        Initialize an NPC team from directory or list of NPCs
-        
-        Args:
-            team_path: Path to team directory
-            npcs: List of NPC objects
-            db_conn: Database connection
-        """
-        self.model = model
-        self.provider = provider
-        
-        self.npcs = {}
-        self.sub_teams = {}
-        self.jinxs_dict = jinxs or {}
-        self.db_conn = db_conn
-        self.team_path = os.path.expanduser(team_path) if team_path else None
-        self.databases = []
-        self.mcp_servers = []
-        if forenpc is not None:
-            self.forenpc = forenpc
-        else:
-            self.forenpc  = npcs[0] if npcs else None
-        
-        if team_path:
-            self.name = os.path.basename(os.path.abspath(team_path))
-        else:
-            self.name = "custom_team"
-        self.context = ''
-        self.shared_context = {
-            "intermediate_results": {},
-            "dataframes": {},
-            "memories": {},          
-            "execution_history": [],   
-            "npc_messages": {}                 
-            }
-                
-        if team_path:
+   def __init__(self, 
+                team_path=None, 
+                npcs=None, 
+                forenpc=None,
+                jinxs=None,                   
+                db_conn=None, 
+                model = None, 
+                provider = None):
+       """
+       Initialize an NPC team from directory or list of NPCs
+       
+       Args:
+           team_path: Path to team directory
+           npcs: List of NPC objects
+           db_conn: Database connection
+       """
+       self.model = model
+       self.provider = provider
+       
+       self.npcs = {}
+       self.sub_teams = {}
+       self.jinxs_dict = jinxs or {}
+       self.db_conn = db_conn
+       self.team_path = os.path.expanduser(team_path) if team_path else None
+       self.databases = []
+       self.mcp_servers = []
+       if forenpc is not None:
+           self.forenpc = forenpc
+       else:
+           self.forenpc  = npcs[0] if npcs else None
+       
+       if team_path:
+           self.name = os.path.basename(os.path.abspath(team_path))
+       else:
+           self.name = "custom_team"
+       self.context = ''
+       self.shared_context = {
+           "intermediate_results": {},
+           "dataframes": {},
+           "memories": {},          
+           "execution_history": [],   
+           "npc_messages": {}                 
+           }
+               
+       if team_path:
+           self._load_from_directory()
+           
+       elif npcs:
+           for npc in npcs:
+               self.npcs[npc.name] = npc
 
-            self._load_from_directory()
-            
-        elif npcs:
-            for npc in npcs:
-                self.npcs[npc.name] = npc
-            
+       self.jinja_env = Environment(undefined=SilentUndefined)
+       
+       if db_conn is not None:
+           init_db_tables()
 
-        
-        self.jinja_env = Environment(undefined=SilentUndefined)
-        
-            
-        if db_conn is not None:
-            init_db_tables()
-            
-        
-    def _load_from_directory(self):
-        """Load team from directory"""
-        if not os.path.exists(self.team_path):
-            raise ValueError(f"Team directory not found: {self.team_path}")
-        
-        
+   def update_context(self, messages: list):
+       """Update team context based on recent conversation patterns"""
+       if len(messages) < 10:
+           return
+           
+       summary = breathe(
+           messages=messages[-10:], 
+           npc=self.forenpc
+       )
+       characterization = summary.get('output')
+       
+       if characterization:
+           team_ctx_path = os.path.join(self.team_path, "team.ctx")
+           
+           if os.path.exists(team_ctx_path):
+               with open(team_ctx_path, 'r') as f:
+                   ctx_data = yaml.safe_load(f) or {}
+           else:
+               ctx_data = {}
+               
+           current_context = ctx_data.get('context', '')
+           
+           prompt = f"""Based on this characterization: {characterization},
+           suggest changes to the team's context.
+           Current Context: "{current_context}".
+           Respond with JSON: {{"suggestion": "Your sentence."}}"""
+           
+           response = get_llm_response(
+               prompt=prompt,
+               npc=self.forenpc,
+               format="json"
+           )
+           suggestion = response.get("response", {}).get("suggestion")
+           
+           if suggestion:
+               new_context = (current_context + " " + suggestion).strip()
+               user_approval = input(f"Update context to: {new_context}? [y/N]: ").strip().lower()
+               if user_approval == 'y':
+                   ctx_data['context'] = new_context
+                   self.context = new_context
+                   with open(team_ctx_path, 'w') as f:
+                       yaml.dump(ctx_data, f)
+           
+   def _load_from_directory(self):
+       """Load team from directory"""
+       if not os.path.exists(self.team_path):
+           raise ValueError(f"Team directory not found: {self.team_path}")
+       
+       for filename in os.listdir(self.team_path):
+           if filename.endswith(".npc"):
+               npc_path = os.path.join(self.team_path, filename)
+               npc = NPC(npc_path, db_conn=self.db_conn)
+               self.npcs[npc.name] = npc
+                   
+       self.context = self._load_team_context()
+       
+       jinxs_dir = os.path.join(self.team_path, "jinxs")
+       if os.path.exists(jinxs_dir):
+           for jinx in load_jinxs_from_directory(jinxs_dir):
+               self.jinxs_dict[jinx.jinx_name] = jinx
+       
+       self._load_sub_teams()
 
-        for filename in os.listdir(self.team_path):
-            if filename.endswith(".npc"):
-                try:
-                    npc_path = os.path.join(self.team_path, filename)
-                    npc = NPC(npc_path, db_conn=self.db_conn)
-                    self.npcs[npc.name] = npc
-                    
-                except Exception as e:
-                    print(f"Error loading NPC {filename}: {e}")
-        self.context = self._load_team_context()
+   def _load_team_context(self):
+       """Load team context from .ctx file"""
+       for fname in os.listdir(self.team_path):
+           if fname.endswith('.ctx'):
+               ctx_data = load_yaml_file(os.path.join(self.team_path, fname))                
+               if ctx_data is not None:
+                   if 'model' in ctx_data:
+                       self.model = ctx_data['model']
+                   else:
+                       self.model = None
+                   if 'provider' in ctx_data:
+                       self.provider = ctx_data['provider']
+                   else:
+                       self.provider = None
+                   if 'api_url' in ctx_data:
+                       self.api_url = ctx_data['api_url']
+                   else:
+                       self.api_url = None
+                   if 'env' in ctx_data:
+                       self.env = ctx_data['env']
+                   else:
+                       self.env = None
+                       
+                   if 'mcp_servers' in ctx_data:
+                       self.mcp_servers = ctx_data['mcp_servers']
+                   else:
+                       self.mcp_servers = []
+                   if 'databases' in ctx_data:
+                       self.databases = ctx_data['databases']
+                   else:
+                       self.databases = []
+                   if 'context' in ctx_data:
+                       self.context = ctx_data['context']
+                   else:
+                       self.context = ''
 
-        
-        jinxs_dir = os.path.join(self.team_path, "jinxs")
-        if os.path.exists(jinxs_dir):
-            for jinx in load_jinxs_from_directory(jinxs_dir):
-                self.jinxs_dict[jinx.jinx_name] = jinx
-        
-        
-        self._load_sub_teams()
+                   if 'preferences' in ctx_data:
+                       self.preferences = ctx_data['preferences']
+                   else:
+                       self.preferences = []
+                   if 'forenpc' in ctx_data:
+                       self.forenpc = self.npcs[ctx_data['forenpc']]
+                   else:
+                       self.forenpc = self.npcs[list(self.npcs.keys())[0]] if self.npcs else None
+                   for key, item in ctx_data.items():
+                       if key not in ['name', 'mcp_servers', 'databases', 'context']:
+                           self.shared_context[key] = item
+               return ctx_data
+       return {}
+       
+   def _load_sub_teams(self):
+       """Load sub-teams from subdirectories"""
+       for item in os.listdir(self.team_path):
+           item_path = os.path.join(self.team_path, item)
+           if (os.path.isdir(item_path) and 
+               not item.startswith('.') and 
+               item != "jinxs"):
+               
+               if any(f.endswith(".npc") for f in os.listdir(item_path) 
+                     if os.path.isfile(os.path.join(item_path, f))):
+                   sub_team = Team(team_path=item_path, db_conn=self.db_conn)
+                   self.sub_teams[item] = sub_team
+       
+   def get_forenpc(self):
+       """
+       Get the forenpc (coordinator) for this team.
+       The forenpc is set only if explicitly defined in the context.
+               
+       """
+       if isinstance(self.forenpc, NPC):
+           return self.forenpc
+       if hasattr(self, 'context') and self.context and 'forenpc' in self.context:
+           forenpc_ref = self.context['forenpc']
+           
+           if '{{ref(' in forenpc_ref:
+               match = re.search(r"{{\s*ref\('([^']+)'\)\s*}}", forenpc_ref)
+               if match:
+                   forenpc_name = match.group(1)
+                   if forenpc_name in self.npcs:
+                       return self.npcs[forenpc_name]
+           elif forenpc_ref in self.npcs:
+               return self.npcs[forenpc_ref]
+       else:
+           forenpc_model=self.context.get('model', 'llama3.2'),
+           forenpc_provider=self.context.get('provider', 'ollama'),
+           forenpc_api_key=self.context.get('api_key', None),
+           forenpc_api_url=self.context.get('api_url', None)
+           
+           forenpc = NPC(name='forenpc', 
+                         primary_directive="""You are the forenpc of the team, coordinating activities 
+                                               between NPCs on the team, verifying that results from 
+                                               NPCs are high quality and can help to adequately answer 
+                                               user requests.""", 
+                           model=forenpc_model,
+                           provider=forenpc_provider,
+                           api_key=forenpc_api_key,
+                           api_url=forenpc_api_url,                            
+                                               )
+           self.forenpc = forenpc
+           self.npcs[forenpc.name] = forenpc
+           return forenpc
+       return None
 
+   def get_npc(self, npc_ref):
+       """Get NPC by name or reference with hierarchical lookup capability"""
+       if isinstance(npc_ref, NPC):
+           return npc_ref
+       elif isinstance(npc_ref, str):
+           if npc_ref in self.npcs:
+               return self.npcs[npc_ref]
+           
+           for sub_team_name, sub_team in self.sub_teams.items():
+               if npc_ref in sub_team.npcs:
+                   return sub_team.npcs[npc_ref]
+               
+               result = sub_team.get_npc(npc_ref)
+               if result:
+                   return result
+           
+           return None
+       else:
+           return None
 
+   def orchestrate(self, request):
+       """Orchestrate a request through the team"""
+       forenpc = self.get_forenpc()
+       if not forenpc:
+           return {"error": "No forenpc available to coordinate the team"}
+       
+       log_entry(
+           self.name,
+           "orchestration_start",
+           {"request": request}
+       )
+       
+       result = forenpc.check_llm_command(request,
+           context=getattr(self, 'context', {}),
+           team = self, 
+       )
+       
+       while True:
+           completion_prompt= "" 
+           if isinstance(result, dict):
+               self.shared_context["execution_history"].append(result)
+               
+               if result.get("messages") and result.get("npc_name"):
+                   if result["npc_name"] not in self.shared_context["npc_messages"]:
+                       self.shared_context["npc_messages"][result["npc_name"]] = []
+                   self.shared_context["npc_messages"][result["npc_name"]].extend(
+                       result["messages"]
+                   )
+               
+               completion_prompt += f"""Context:
+                   User request '{request}', previous agent
+                   
+                   previous agent returned:
+                   {result.get('output')}
 
-    def _load_team_context(self):
-        """Load team context from .ctx file"""
+                   
+               Instructions:
 
-                                
-        
-        for fname in os.listdir(self.team_path):
-            if fname.endswith('.ctx'):
-                
-                ctx_data = load_yaml_file(os.path.join(self.team_path, fname))                
-                if ctx_data is not None:
-                    if 'model' in ctx_data:
-                        self.model = ctx_data['model']
-                    else:
-                        self.model = None
-                    if 'provider' in ctx_data:
-                        self.provider = ctx_data['provider']
-                    else:
-                        self.provider = None
-                    if 'api_url' in ctx_data:
-                        self.api_url = ctx_data['api_url']
-                    else:
-                        self.api_url = None
-                    if 'env' in ctx_data:
-                        self.env = ctx_data['env']
-                    else:
-                        self.env = None
-                        
-                    if 'mcp_servers' in ctx_data:
-                        self.mcp_servers = ctx_data['mcp_servers']
-                    else:
-                        self.mcp_servers = []
-                    if 'databases' in ctx_data:
-                        self.databases = ctx_data['databases']
-                    else:
-                        self.databases = []
-                    if 'context' in ctx_data:
-                        self.context = ctx_data['context']
-                    else:
-                        self.context = ''
+                   Check whether the response is relevant to the user's request.
 
-                    if 'preferences' in ctx_data:
-                        self.preferences = ctx_data['preferences']
-                    else:
-                        self.preferences = []
-                    if 'forenpc' in ctx_data:
-                        self.forenpc = self.npcs[ctx_data['forenpc']]
-                    else:
-                        self.forenpc = self.npcs[list(self.npcs.keys())[0]] if self.npcs else None
-                    for key, item in ctx_data.items():
-                        if key not in ['name', 'mcp_servers', 'databases', 'context']:
-                            self.shared_context[key] = item
-                return ctx_data
-        return {}
-        
-    def _load_sub_teams(self):
-        """Load sub-teams from subdirectories"""
-        for item in os.listdir(self.team_path):
-            item_path = os.path.join(self.team_path, item)
-            if (os.path.isdir(item_path) and 
-                not item.startswith('.') and 
-                item != "jinxs"):
-                
-                
-                if any(f.endswith(".npc") for f in os.listdir(item_path) 
-                      if os.path.isfile(os.path.join(item_path, f))):
-                    try:
-                        sub_team = Team(team_path=item_path, db_conn=self.db_conn)
-                        self.sub_teams[item] = sub_team
-                    except Exception as e:
-                        print(f"Error loading sub-team {item}: {e}")
-        
-    def get_forenpc(self):
-        """
-        Get the forenpc (coordinator) for this team.
-        The forenpc is set only if explicitly defined in the context.
-                
-        """
-        if isinstance(self.forenpc, NPC):
-            return self.forenpc
-        if hasattr(self, 'context') and self.context and 'forenpc' in self.context:
-            forenpc_ref = self.context['forenpc']
-            
-            
-            if '{{ref(' in forenpc_ref:
-                
-                match = re.search(r"{{\s*ref\('([^']+)'\)\s*}}", forenpc_ref)
-                if match:
-                    forenpc_name = match.group(1)
-                    if forenpc_name in self.npcs:
-                        return self.npcs[forenpc_name]
-            elif forenpc_ref in self.npcs:
-                return self.npcs[forenpc_ref]
-        else:
-            forenpc_model=self.context.get('model', 'llama3.2'),
-            forenpc_provider=self.context.get('provider', 'ollama'),
-            forenpc_api_key=self.context.get('api_key', None),
-            forenpc_api_url=self.context.get('api_url', None)
-            
-            forenpc = NPC(name='forenpc', 
-                          primary_directive="""You are the forenpc of the team, coordinating activities 
-                                                between NPCs on the team, verifying that results from 
-                                                NPCs are high quality and can help to adequately answer 
-                                                user requests.""", 
-                            model=forenpc_model,
-                            provider=forenpc_provider,
-                            api_key=forenpc_api_key,
-                            api_url=forenpc_api_url,                            
-                                                )
-            self.forenpc = forenpc
-            self.npcs[forenpc.name] = forenpc
-            return forenpc
-        return None
-    def get_npc(self, npc_ref):
-        """Get NPC by name or reference with hierarchical lookup capability"""
-        if isinstance(npc_ref, NPC):
-            return npc_ref
-        elif isinstance(npc_ref, str):
-            
-            if npc_ref in self.npcs:
-                return self.npcs[npc_ref]
-            
-            
-            for sub_team_name, sub_team in self.sub_teams.items():
-                if npc_ref in sub_team.npcs:
-                    return sub_team.npcs[npc_ref]
-                
-                result = sub_team.get_npc(npc_ref)
-                if result:
-                    return result
-            
-            return None
-        else:
-            return None
+               """
+               if self.npcs is None or len(self.npcs) == 0:
+                   completion_prompt += f"""
+                   The team has no members, so the forenpc must handle the request alone.
+                   """
+               else:
+                   completion_prompt += f"""
+                   
+                   These are all the members of the team: {', '.join(self.npcs.keys())}
 
-    def orchestrate(self, request):
-        """Orchestrate a request through the team"""
-        forenpc = self.get_forenpc()
-        if not forenpc:
-            return {"error": "No forenpc available to coordinate the team"}
-        
-        
-        log_entry(
-            self.name,
-            "orchestration_start",
-            {"request": request}
-        )
-        
-        
-        result = forenpc.check_llm_command(request,
-            context=getattr(self, 'context', {}),
-            team = self, 
-        )
-        
-        
-        while True:
-            
-            completion_prompt= "" 
-            if isinstance(result, dict):
-                self.shared_context["execution_history"].append(result)
-                
-                
-                if result.get("messages") and result.get("npc_name"):
-                    if result["npc_name"] not in self.shared_context["npc_messages"]:
-                        self.shared_context["npc_messages"][result["npc_name"]] = []
-                    self.shared_context["npc_messages"][result["npc_name"]].extend(
-                        result["messages"]
-                    )
-                
-                completion_prompt += f"""Context:
-                    User request '{request}', previous agent
-                    
-                    previous agent returned:
-                    {result.get('output')}
+                   Therefore, if you are trying to evaluate whether a request was fulfilled relevantly,
+                   consider that requests are made to the forenpc: {forenpc.name}
+                   and that the forenpc must pass those along to the other npcs. 
+                   """
+               completion_prompt += f"""
 
-                    
-                Instructions:
+               Mainly concern yourself with ensuring there are no
+               glaring errors nor fundamental mishaps in the response.
+               Do not consider stylistic hiccups as the answers being
+               irrelevant. By providing responses back to for the user to
+               comment on, they can can more efficiently iterate and resolve any issues by 
+               prompting more clearly.
+               natural language itself is very fuzzy so there will always be some level
+               of misunderstanding, but as long as the response is clearly relevant 
+               to the input request and along the user's intended direction,
+               it is considered relevant.
+                              
 
-                    Check whether the response is relevant to the user's request.
+               If there is enough information to begin a fruitful conversation with the user, 
+               please consider the request relevant so that we do not
+               arbritarily stall business logic which is more efficiently
+               determined by iterations than through unnecessary pedantry.
 
-                """
-                if self.npcs is None or len(self.npcs) == 0:
-                    completion_prompt += f"""
-                    The team has no members, so the forenpc must handle the request alone.
-                    """
-                else:
-                    completion_prompt += f"""
-                    
-                    These are all the members of the team: {', '.join(self.npcs.keys())}
+               It is more important to get a response to the user
+               than to account for all edge cases, so as long as the response more or less tackles the
+               initial problem to first order, consider it relevant.
 
-                    Therefore, if you are trying to evaluate whether a request was fulfilled relevantly,
-                    consider that requests are made to the forenpc: {forenpc.name}
-                    and that the forenpc must pass those along to the other npcs. 
-                    """
-                completion_prompt += f"""
+               Return a JSON object with:
+                   -'relevant' with boolean value
+                   -'explanation' for irrelevance with quoted citations in your explanation noting why it is irrelevant to user input must be a single string.
+               Return only the JSON object."""
+           
+           completion_check = npy.llm_funcs.get_llm_response(
+               completion_prompt, 
+               model=forenpc.model,
+               provider=forenpc.provider,
+               api_key=forenpc.api_key,
+               api_url=forenpc.api_url,
+               npc=forenpc,
+               format="json"
+           )
+           
+           if isinstance(completion_check.get("response"), dict):
+               complete = completion_check["response"].get("relevant", False)
+               explanation = completion_check["response"].get("explanation", "")
+           else:
+               complete = False
+               explanation = "Could not determine completion status"
+           
+           if complete:
+               debrief = npy.llm_funcs.get_llm_response(
+                   f"""Context:
+                   Original request: {request}
+                   Execution history: {self.shared_context['execution_history']}
 
-                Mainly concern yourself with ensuring there are no
-                glaring errors nor fundamental mishaps in the response.
-                Do not consider stylistic hiccups as the answers being
-                irrelevant. By providing responses back to for the user to
-                comment on, they can can more efficiently iterate and resolve any issues by 
-                prompting more clearly.
-                natural language itself is very fuzzy so there will always be some level
-                of misunderstanding, but as long as the response is clearly relevant 
-                to the input request and along the user's intended direction,
-                it is considered relevant.
-                               
-
-                If there is enough information to begin a fruitful conversation with the user, 
-                please consider the request relevant so that we do not
-                arbritarily stall business logic which is more efficiently
-                determined by iterations than through unnecessary pedantry.
-
-                It is more important to get a response to the user
-                than to account for all edge cases, so as long as the response more or less tackles the
-                initial problem to first order, consider it relevant.
-
-                Return a JSON object with:
-                    -'relevant' with boolean value
-                    -'explanation' for irrelevance with quoted citations in your explanation noting why it is irrelevant to user input must be a single string.
-                Return only the JSON object."""
-            
-            completion_check = npy.llm_funcs.get_llm_response(
-                completion_prompt, 
-                model=forenpc.model,
-                provider=forenpc.provider,
-                api_key=forenpc.api_key,
-                api_url=forenpc.api_url,
-                npc=forenpc,
-                format="json"
-            )
-            
-            if isinstance(completion_check.get("response"), dict):
-                complete = completion_check["response"].get("relevant", False)
-                explanation = completion_check["response"].get("explanation", "")
-            else:
-                
-                complete = False
-                explanation = "Could not determine completion status"
-            
-            
-            
-            if complete:
-                
-                debrief = npy.llm_funcs.get_llm_response(
-                    f"""Context:
-                    Original request: {request}
-                    Execution history: {self.shared_context['execution_history']}
-
-                    Instructions:
-                    Provide summary of actions taken and recommendations.
-                    Return a JSON object with:
-                    - 'summary': Overview of what was accomplished
-                    - 'recommendations': Suggested next steps
-                    Return only the JSON object.""",
-                    model=forenpc.model,
-                    provider=forenpc.provider,
-                    api_key=forenpc.api_key,
-                    api_url=forenpc.api_url,
-                    npc=forenpc,
-                    format="json"
-                )
-                
-                
-                return {
-                    "debrief": debrief.get("response"),
-                    "output": result.get("output"),
-                    "execution_history": self.shared_context["execution_history"],
-                }
-            else:
-                
-                updated_request = (
-                    request
-                    + "\n\nThe request has not yet been fully completed. "
-                    + explanation
-                    + "\nPlease address only the remaining parts of the request."
-                )
-                print('updating request', updated_request)
-
-                
-                
-                result = forenpc.check_llm_command(
-                    updated_request,
-                    context=getattr(self, 'context', {}),
-                    stream = False,
-                    team = self
-                    
-                )
-                
-    def to_dict(self):
-        """Convert team to dictionary representation"""
-        return {
-            "name": self.name,
-            "npcs": {name: npc.to_dict() for name, npc in self.npcs.items()},
-            "sub_teams": {name: team.to_dict() for name, team in self.sub_teams.items()},
-            "jinxs": {name: jinx.to_dict() for name, jinx in self.jinxs.items()},
-            "context": getattr(self, 'context', {})
-        }
-    
-    def save(self, directory=None):
-        """Save team to directory"""
-        if directory is None:
-            directory = self.team_path
-            
-        if not directory:
-            raise ValueError("No directory specified for saving team")
-            
-        
-        ensure_dirs_exist(directory)
-        
-        
-        if hasattr(self, 'context') and self.context:
-            ctx_path = os.path.join(directory, "team.ctx")
-            write_yaml_file(ctx_path, self.context)
-            
-        
-        for npc in self.npcs.values():
-            npc.save(directory)
-            
-        
-        jinxs_dir = os.path.join(directory, "jinxs")
-        ensure_dirs_exist(jinxs_dir)
-        
-        
-        for jinx in self.jinxs.values():
-            jinx.save(jinxs_dir)
-            
-        
-        for team_name, team in self.sub_teams.items():
-            team_dir = os.path.join(directory, team_name)
-            team.save(team_dir)
-            
-        return True
-
+                   Instructions:
+                   Provide summary of actions taken and recommendations.
+                   Return a JSON object with:
+                   - 'summary': Overview of what was accomplished
+                   - 'recommendations': Suggested next steps
+                   Return only the JSON object.""",
+                   model=forenpc.model,
+                   provider=forenpc.provider,
+                   api_key=forenpc.api_key,
+                   api_url=forenpc.api_url,
+                   npc=forenpc,
+                   format="json"
+               )
+               
+               return {
+                   "debrief": debrief.get("response"),
+                   "output": result.get("output"),
+                   "execution_history": self.shared_context["execution_history"],
+               }
+           else:
+               updated_request = (
+                   request
+                   + "\n\nThe request has not yet been fully completed. "
+                   + explanation
+                   + "\nPlease address only the remaining parts of the request."
+               )
+               print('updating request', updated_request)
+               
+               result = forenpc.check_llm_command(
+                   updated_request,
+                   context=getattr(self, 'context', {}),
+                   stream = False,
+                   team = self
+                   
+               )
+               
+   def to_dict(self):
+       """Convert team to dictionary representation"""
+       return {
+           "name": self.name,
+           "npcs": {name: npc.to_dict() for name, npc in self.npcs.items()},
+           "sub_teams": {name: team.to_dict() for name, team in self.sub_teams.items()},
+           "jinxs": {name: jinx.to_dict() for name, jinx in self.jinxs.items()},
+           "context": getattr(self, 'context', {})
+       }
+   
+   def save(self, directory=None):
+       """Save team to directory"""
+       if directory is None:
+           directory = self.team_path
+           
+       if not directory:
+           raise ValueError("No directory specified for saving team")
+           
+       ensure_dirs_exist(directory)
+       
+       if hasattr(self, 'context') and self.context:
+           ctx_path = os.path.join(directory, "team.ctx")
+           write_yaml_file(ctx_path, self.context)
+           
+       for npc in self.npcs.values():
+           npc.save(directory)
+           
+       jinxs_dir = os.path.join(directory, "jinxs")
+       ensure_dirs_exist(jinxs_dir)
+       
+       for jinx in self.jinxs.values():
+           jinx.save(jinxs_dir)
+           
+       for team_name, team in self.sub_teams.items():
+           team_dir = os.path.join(directory, team_name)
+           team.save(team_dir)
+           
+       return True
 class Pipeline:
     def __init__(self, pipeline_data=None, pipeline_path=None, npc_team=None):
         """Initialize a pipeline from data or file path"""
