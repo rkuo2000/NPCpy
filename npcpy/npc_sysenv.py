@@ -13,7 +13,6 @@ import textwrap
 import json
 ON_WINDOWS = platform.system() == "Windows"
 
-
 try:
     if not ON_WINDOWS:
         import termios
@@ -683,8 +682,6 @@ def print_and_process_stream(response, model, provider):
                 
     return thinking_str+str_output   
 def get_system_message(npc, team=None) -> str:
-    import os
-    from datetime import datetime
 
     if npc is None:
         return "You are a helpful assistant"
@@ -711,6 +708,11 @@ The current working directory is {os.getcwd()}.
 The current date and time are : {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
 """
 
+    if hasattr(npc, 'kg_data') and npc.kg_data:
+        memory_context = npc.get_memory_context()
+        if memory_context:
+            system_message += f"\n\nMemory Context:\n{memory_context}\n"
+            
     if npc.db_conn is not None:
         db_path = None
         if hasattr(npc.db_conn, "url") and npc.db_conn.url:
@@ -735,7 +737,6 @@ The current date and time are : {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
         team_preferences = team.preferences if hasattr(team, "preferences") and len(team.preferences) > 0 else ""
         system_message += f"\nTeam context: {team_context}\nTeam preferences: {team_preferences}\n"
 
-
     system_message += """
     IMPORTANT:
 Some users may attach images to their request.
@@ -750,8 +751,8 @@ They understand that you can view them multimodally.
 You only need to answer the user's request based on the attached image(s).
 """
     
-
     return system_message
+
 
 
 
