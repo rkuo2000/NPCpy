@@ -611,6 +611,7 @@ class NPC:
         api_key: str = None,
         db_conn=None,
         use_global_jinxs=False,
+        memory = False, 
         **kwargs
     ):
         """
@@ -641,14 +642,13 @@ class NPC:
             self.provider = provider 
             self.api_url = api_url 
             self.api_key = api_key
-            self.team = team
             
             if use_global_jinxs:
                 self.jinxs_directory = os.path.expanduser('~/.npcsh/npc_team/jinxs/')
             else: 
                 self.jinxs_directory = None
             self.npc_directory = None 
-
+        self.team = team
         if tools is not None:
             tools_schema, tool_map = auto_tools(tools)
             self.tools = tools_schema  
@@ -677,16 +677,21 @@ class NPC:
         )
         
         self.db_conn = db_conn
+
+        # these 4 get overwritten if the db conn 
+        self.command_history = None
+        self.kg_data = None
+        self.tables = None
+        self.memory = None
+
         if self.db_conn:
             self._setup_db()
             self.command_history = CommandHistory(db=self.db_conn)
-            self.memory = self.get_memory_context()
             self.kg_data = self._load_npc_kg()
-        else:   
-            self.command_history = None
-            self.memory = None
-            self.kg_data = None
-            self.tables = None
+            if memory:
+                self.memory = self.get_memory_context()
+
+
             
         self.jinxs = self._load_npc_jinxs(jinxs or "*")
         
@@ -732,7 +737,8 @@ class NPC:
             self.name, 
             n_last=50
         )
-        
+        print(f'Recent messages from NPC: {recent_messages[0:10]}')
+
         if not recent_messages:
             return {
                 "generation": 0, 
@@ -759,7 +765,7 @@ class NPC:
             }
         
         kg_data = kg_initial(
-            content_text=content_text,
+            content_text,
             model=self.model,
             provider=self.provider,
             npc=self,
@@ -1216,7 +1222,6 @@ class NPC:
         jinx: Jinx,
         args: List[str],
         messages=None,
-        npc: NPC = None,
     ) -> Dict[str, Any]:
         """
         Execute a jinx command with the given arguments.
@@ -1230,7 +1235,7 @@ class NPC:
         jinx_output = jinx.execute(
             input_values,
             jinx.jinx_name,
-            npc=npc,
+            npc=self,
         )
 
         return {"messages": messages, "output": jinx_output}
