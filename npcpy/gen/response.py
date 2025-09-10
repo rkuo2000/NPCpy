@@ -772,7 +772,7 @@ def process_tool_calls(response_dict, tool_map, model, provider, messages, strea
             
             result["messages"].append({
                 "role": "assistant",
-                "content": f'The results of the tool call for {tool_namee} with {arguments} are as follows:' +tool_result_str
+                "content": f'The results of the tool call for {tool_name} with {arguments} are as follows:' +tool_result_str
             })
     
     return result
