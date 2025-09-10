@@ -1774,6 +1774,8 @@ def zoom_in(facts,
             provider=None, 
             npc=None,
             context: str = None, 
+            attempt_number: int = 1,
+            n_tries=3,            
             **kwargs):
     """Infer new implied facts from existing facts"""
     valid_facts = []
@@ -1794,16 +1796,16 @@ def zoom_in(facts,
     {facts_text}
 
     What other facts can be reasonably inferred from these?
-
+    """ +"""
     Respond with JSON:
-    {{
+    {
         "implied_facts": [
-            {{
+            {
                 "statement": "new implied fact",
                 "inferred_from": ["which facts this comes from"]
-            }}
+            }
         ]
-    }}
+    }
     """
     
     response = get_llm_response(prompt, 
@@ -1813,7 +1815,18 @@ def zoom_in(facts,
                                 context=context,
                                 npc=npc,
                                 **kwargs)
-    return response["response"].get("implied_facts", [])
+
+    facts =  response.get("response", {}).get("implied_facts", [])
+    if len(facts) == 0:
+        return zoom_in(valid_facts, 
+                       model=model, 
+                       provider=provider, 
+                       npc=npc,
+                       context=context,
+                       attempt_number=attempt_number+1,
+                       n_tries=n_tries,
+                       **kwargs)
+    return facts
 def generate_groups(facts, 
                     model=None,
                     provider=None,
