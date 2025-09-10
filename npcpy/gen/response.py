@@ -742,8 +742,10 @@ def process_tool_calls(response_dict, tool_map, model, provider, messages, strea
             if isinstance(arguments_str, str):
                 sanitized_args = arguments_str.replace("'", '"')
                 arguments = json.loads(sanitized_args)
+                print('arguments, x', arguments)
             else:
                 arguments = arguments_str
+                print('arguments, y', arguments)
         except json.JSONDecodeError:
             if isinstance(arguments_str, str) and ":" in arguments_str:
                 try:
