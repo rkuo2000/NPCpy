@@ -680,7 +680,7 @@ class NPC:
         if self.db_conn:
             self._setup_db()
             self.command_history = CommandHistory(db=self.db_conn)
-            self.memory = self._load_npc_memory()
+            self.memory = self.get_memory_context()
             self.kg_data = self._load_npc_kg()
         else:   
             self.command_history = None
