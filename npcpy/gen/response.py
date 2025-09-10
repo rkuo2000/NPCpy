@@ -802,7 +802,7 @@ def process_tool_calls(response_dict, tool_map, model, provider, messages, strea
                 "arguments": arguments,
                 "result": serializable_result
             })
-            
+            '''
             result["messages"].append({
                 "role": "assistant",
                 "content": None,
@@ -823,5 +823,6 @@ def process_tool_calls(response_dict, tool_map, model, provider, messages, strea
                 "tool_call_id": tool_id,
                 "content": tool_result_str
             })
+            '''
     
     return result
