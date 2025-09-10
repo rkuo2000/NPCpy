@@ -649,10 +649,7 @@ def get_litellm_response(
             for msg in processed_result["messages"]:
                 if msg.get('role') == 'assistant' and 'tool_calls' in msg:
                     continue  
-                
-                elif msg.get('role') == 'tool':
-                    continue  
-                
+                                
                 else:
                     clean_messages.append(msg)
             
@@ -772,25 +769,10 @@ def process_tool_calls(response_dict, tool_map, model, provider, messages, strea
                 "result": serializable_result
             })
             
-            result["messages"].append({
-                "role": "assistant",
-                "content": None,
-                "tool_calls": [
-                    {
-                        "id": tool_id,
-                        "type": "function",
-                        "function": {
-                            "name": tool_name,
-                            "arguments": arguments
-                        }
-                    }
-                ]
-            })
             
             result["messages"].append({
-                "role": "tool",
-                "tool_call_id": tool_id,
-                "content": tool_result_str
+                "role": "assistant",
+                "content": f'The results of the tool call for {tool_namee} with {arguments} are as follows:' +tool_result_str
             })
     
     return result
