@@ -738,27 +738,41 @@ def process_tool_calls(response_dict, tool_map, model, provider, messages, strea
 
         try:
             if isinstance(arguments_str, str):
-                sanitized_args = arguments_str.replace("'", '"')
-                arguments = json.loads(sanitized_args)
+                fixed_str = arguments_str.strip()
+                
+                if fixed_str.startswith("'") and fixed_str.endswith("'"):
+                    fixed_str = '"' + fixed_str[1:-1] + '"'
+                
+                import re
+                fixed_str = re.sub(r"'([^']*)':", r'"\1":', fixed_str)
+                fixed_str = re.sub(r":\s*'([^']*)'", r': "\1"', fixed_str)
+                
+                arguments = json.loads(fixed_str)
             else:
                 arguments = arguments_str
-        except json.JSONDecodeError:
-            if isinstance(arguments_str, str) and ":" in arguments_str:
+        except json.JSONDecodeError as e:
+            print(f"JSON decode error for arguments_str: {arguments_str}")
+            print(f"Error: {e}")
+            
+            if isinstance(arguments_str, str) and (":" in arguments_str or "=" in arguments_str):
+                arguments = {}
                 try:
-                    clean_str = arguments_str.strip('{}').replace("'", '"')
-                    pairs = [pair.strip() for pair in clean_str.split(',')]
-                    arguments = {}
-                    for pair in pairs:
-                        if ':' in pair:
-                            key, value = pair.split(':', 1)
-                            key = key.strip().strip('"')
-                            value = value.strip().strip('"')
-                            arguments[key] = value
+                    clean_str = arguments_str.strip('{}()[]')
+                    if ":" in clean_str:
+                        pairs = clean_str.split(',')
+                        for pair in pairs:
+                            if ':' in pair:
+                                key, value = pair.split(':', 1)
+                                key = key.strip().strip('\'"')
+                                value = value.strip().strip('\'"')
+                                arguments[key] = value
+                    else:
+                        arguments = {"query": arguments_str.strip('\'"')}
                 except:
                     arguments = {"raw_arguments": arguments_str}
             else:
                 arguments = {"raw_arguments": arguments_str}
-                        
+            
         if tool_name in tool_map:
             tool_result = None
             tool_result_str = ""
