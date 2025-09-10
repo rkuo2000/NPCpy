@@ -190,13 +190,14 @@ def find_similar_groups(
     return response["group_list"]
 
 
-def kg_initial(content_text=None,  
+def kg_initial(content,  
                model=None,
                provider=None,
                npc=None, 
                context='', 
                facts=None, 
-               generation=None):
+               generation=None, 
+               verbose=True,):
 
     if generation is None:
         CURRENT_GENERATION = 0
@@ -206,34 +207,99 @@ def kg_initial(content_text=None,
     print(f"--- Running KG Structuring Process (Generation: {CURRENT_GENERATION}) ---")
 
     if facts is None:
-        if not content_text:
+        if not content:
             raise ValueError("kg_initial requires either content_text or a list of facts.")
         print("  - Mode: Deriving new facts from text content...")
-        facts = get_facts(content_text, model=model, provider=provider, npc=npc, context=context)
-        for fact in facts:
+        all_facts = []
+        print(len(content))
+        if len(content)>10000:
+            # randomly sub sample 10000 characters
+            starting_point = random.randint(0, len(content)-10000)
+        
+            content_to_sample = content[starting_point:starting_point+10000]
+
+            for n in range(len(content)//10000):
+                print(n)
+                print(starting_point)
+                print(content_to_sample[0:1000])
+                facts = get_facts(content_to_sample,
+                                model=model, 
+                                provider=provider, 
+                                npc=npc, 
+                                context=context)
+                if verbose:
+                    print(f"    - Extracted {len(facts)} facts from segment {n+1}")
+                    print(facts)
+                all_facts.extend(facts)
+        else:
+            print(content[0:1000]   )
+            all_facts = get_facts(content, 
+                                  model=model, 
+                                  provider=provider, 
+                                  npc=npc, 
+                                  context=context)
+            if verbose:
+                print(f"    - Extracted {len(all_facts)} facts from content")
+                print(all_facts)            
+        for fact in all_facts:
+            
             fact['generation'] = CURRENT_GENERATION
     else:
         print(f"  - Mode: Building structure from {len(facts)} pre-existing facts...")
 
     print("  - Inferring implied facts (zooming in)...")
-    implied_facts = zoom_in(facts, model=model, provider=provider, npc=npc, context=context)
-    for fact in implied_facts:
+    all_implied_facts = []
+    if len(all_facts) > 20:
+        # sub sample facts randomly to generate zoomed in facts
+        sampled_facts = random.sample(all_facts, k=20)
+        for n in range(len(all_facts) // 20):
+            implied_facts = zoom_in(sampled_facts, 
+                                    model=model, 
+                                    provider=provider,
+                                npc=npc, 
+                                context=context)
+            all_implied_facts.extend(implied_facts)
+            if verbose:
+                print(f"    - Inferred {len(implied_facts)} implied facts from sample {n+1}")
+                print(implied_facts)
+    else:
+        implied_facts = zoom_in(all_facts, 
+                                model=model, 
+                                provider=provider,
+                                npc=npc, 
+                                context=context)
+        print(implied_facts)
+
+        all_implied_facts.extend(implied_facts)
+
+        if verbose:
+            print(f"    - Inferred {len(implied_facts)} implied facts from all facts")
+            print(implied_facts)
+    for fact in all_implied_facts:
         fact['generation'] = CURRENT_GENERATION
-    
-    all_facts = facts + implied_facts
-    
+
+    all_facts = all_facts + all_implied_facts
+
     print("  - Generating concepts from all facts...")
-    concepts = generate_groups(all_facts, model=model, provider=provider, npc=npc, context=context)
+    concepts = generate_groups(all_facts, 
+                               model=model, 
+                               provider=provider, 
+                               npc=npc, 
+                               context=context)
     for concept in concepts:
         concept['generation'] = CURRENT_GENERATION
-        
+    
+    if verbose:
+        print(f"    - Generated {len(concepts)} concepts")
+        print(concepts)
     print("  - Linking facts to concepts...")
     fact_to_concept_links = defaultdict(list)
     concept_names = [c['name'] for c in concepts if c and 'name' in c]
     for fact in all_facts:
 
         fact_to_concept_links[fact['statement']] = get_related_concepts_multi(fact['statement'], "fact", concept_names, model, provider, npc, context)
-        print(fact_to_concept_links[fact['statement']])
+        if verbose:
+            print(fact_to_concept_links[fact['statement']])
     print("  - Linking facts to other facts...")
     fact_to_fact_links = []
     fact_statements = [f['statement'] for f in all_facts]
@@ -250,7 +316,8 @@ def kg_initial(content_text=None,
             for related_stmt in related_fact_stmts:
 
                 fact_to_fact_links.append((fact['statement'], related_stmt))
-                print(fact['statement'], related_stmt)
+                if verbose:
+                    print(fact['statement'], related_stmt)
 
     return {
         "generation": CURRENT_GENERATION, 
@@ -284,7 +351,8 @@ def kg_evolve_incremental(existing_kg,
 
     newly_added_concepts = []
     concept_links = list(existing_kg.get('concept_links', []))
-    fact_to_concept_links = defaultdict(list, existing_kg.get('fact_to_concept_links', {}))
+    fact_to_concept_links = defaultdict(list, 
+                                        existing_kg.get('fact_to_concept_links', {}))
     fact_to_fact_links = list(existing_kg.get('fact_to_fact_links', []))
 
     existing_facts = existing_kg.get('facts', [])
@@ -292,23 +360,35 @@ def kg_evolve_incremental(existing_kg,
     existing_concept_names = {c['name'] for c in existing_concepts}
     existing_fact_statements = [f['statement'] for f in existing_facts]
     all_concept_names = list(existing_concept_names)
+    all_new_facts = []
+    if len(new_content_text) > 10000:
+        starting_point = random.randint(0, len(new_content_text)-10000)
+        for n in range(len(new_content_text)//10000):
+            content_to_sample = new_content_text[n*10000:(n+1)*10000]
+            facts = get_facts(content_to_sample, 
+                            model=model,
+                            provider=provider,
+                            npc = npc, 
+                            context=context)
+            all_new_facts.extend(facts)
+    else:
+        
+        all_new_facts = get_facts(new_content_text, 
+                            model=model,
+                            provider=provider,
+                            npc = npc, 
+                            context=context)
 
 
-    new_facts = get_facts(new_content_text, 
-                          model=model,
-                          provider=provider,
-                          npc = npc, 
-                          context=context)
-
-    for fact in new_facts: 
+    for fact in all_new_facts: 
         fact['generation'] = next_gen
-    
-    final_facts = existing_facts + new_facts
-    
+
+    final_facts = existing_facts + all_new_facts
+
     if get_concepts:
         print('generating groups...')
 
-        candidate_concepts = generate_groups(new_facts, 
+        candidate_concepts = generate_groups(all_new_facts, 
                                             model = model, 
                                             provider = provider, 
                                             npc=npc, 
@@ -340,7 +420,7 @@ def kg_evolve_incremental(existing_kg,
 
         if link_concepts_facts:
             print('linking facts and concepts...')
-            for fact in new_facts:
+            for fact in all_new_facts:
                 fact_to_concept_links[fact['statement']] = get_related_concepts_multi(fact['statement'], 
                                                                                     "fact", 
                                                                                     all_concept_names, 
@@ -353,8 +433,12 @@ def kg_evolve_incremental(existing_kg,
     if link_facts_facts:
         print('linking facts and facts...')
 
-        for new_fact in new_facts:
-            related_fact_stmts = get_related_facts_llm(new_fact['statement'], existing_fact_statements, model, provider, context)
+        for new_fact in all_new_facts:
+            related_fact_stmts = get_related_facts_llm(new_fact['statement'], 
+                                                       existing_fact_statements, 
+                                                       model,
+                                                       provider, 
+                                                       context)
             for related_stmt in related_fact_stmts:
                 fact_to_fact_links.append((new_fact['statement'], related_stmt))
                 
@@ -372,7 +456,12 @@ def kg_evolve_incremental(existing_kg,
 
 
 
-def kg_sleep_process(existing_kg, model=None, provider=None, npc=None, context='', operations_config=None):
+def kg_sleep_process(existing_kg, 
+                     model=None, 
+                     provider=None, 
+                     npc=None, 
+                     context='', 
+                     operations_config=None):
     current_gen = existing_kg.get('generation', 0)
     next_gen = current_gen + 1
     print(f"\n--- SLEEPING (Evolving Knowledge): Gen {current_gen} -> Gen {next_gen} ---")
