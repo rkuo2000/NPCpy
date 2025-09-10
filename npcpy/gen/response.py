@@ -740,8 +740,7 @@ def process_tool_calls(response_dict, tool_map, model, provider, messages, strea
 
         try:
             if isinstance(arguments_str, str):
-                sanitized_args = arguments_str.replace("'", '"')
-                arguments = json.loads(sanitized_args)
+                arguments = json.loads(arguments_str)
                 print('arguments, x', arguments)
             else:
                 arguments = arguments_str
@@ -775,7 +774,8 @@ def process_tool_calls(response_dict, tool_map, model, provider, messages, strea
             arg_dict = {}            
             for key, item in arguments.items():
                 arg_dict[f"{key.strip()}"] = f"{item.strip()}"
-            tool_result = tool_map[tool_name](**arguments)
+            print(arg_dict)
+            tool_result = tool_map[tool_name](**arg_dict)
             print('Executed Tool Result:', tool_result)
             
             #except Exception as e:
