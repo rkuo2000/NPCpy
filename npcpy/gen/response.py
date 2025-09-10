@@ -236,6 +236,10 @@ def get_ollama_response(
 
     if tools:
         api_params["tools"] = tools
+        if tool_choice:
+            options["tool_choice"] = tool_choice
+
+
     if think is not None:
         api_params['think'] = think
 
@@ -258,9 +262,6 @@ def get_ollama_response(
             "user",
         ]:
             options[key] = value
-    if tool_choice:
-        options["tool_choice"] = tool_choice
-
 
     result = {
         "response": None,
@@ -392,6 +393,8 @@ def get_ollama_response(
                     result["error"] = f"Invalid JSON response: {response_content}"
         
         return result
+    
+import time 
 
 
 def get_litellm_response(
@@ -641,48 +644,64 @@ def get_litellm_response(
         if stream:
             print("Making final streaming call with processed tools")
             
+
+            clean_messages = []
+            for msg in processed_result["messages"]:
+                if msg.get('role') == 'assistant' and 'tool_calls' in msg:
+                    continue  
+                                
+                else:
+                    clean_messages.append(msg)
+            
             final_api_params = api_params.copy()
-            final_api_params["messages"] = processed_result["messages"]
+            final_api_params["messages"] = clean_messages
             final_api_params["stream"] = True
+
+
+            final_api_params = api_params.copy()
+            final_api_params["messages"] = clean_messages
+            final_api_params["stream"] = True
+            if "tools" in final_api_params:
+                del final_api_params["tools"]
+            if "tool_choice" in final_api_params:
+                del final_api_params["tool_choice"]
+
+            final_stream = completion(**final_api_params)
+
             
             final_stream = completion(**final_api_params)
             processed_result["response"] = final_stream
             
         return processed_result
-    
-    
+        
+        
     else:
         llm_response = resp.choices[0].message.content
-        result["response"] = llm_response
         result["messages"].append({"role": "assistant", "content": llm_response})
         
         if stream:
+            def string_chunk_generator():
+                chunk_size = 1
+                for i, char in enumerate(llm_response):
+                    yield type('MockChunk', (), {
+                        'id': f'mock-chunk-{i}',
+                        'object': 'chat.completion.chunk',
+                        'created': int(time.time()),
+                        'model': model or 'unknown',
+                        'choices': [type('Choice', (), {
+                            'index': 0,
+                            'delta': type('Delta', (), {
+                                'content': char,
+                                'role': 'assistant' if i == 0 else None
+                            })(),
+                            'finish_reason': 'stop' if i == len(llm_response) - 1 else None
+                        })()]
+                    })()
             
-            stream_api_params = api_params.copy()
-            stream_api_params["stream"] = True
-            final_stream = completion(**stream_api_params)
-            result["response"] = final_stream
+            result["response"] = string_chunk_generator()
         else:
-            
-            if format == "json":
-                try:
-                    if isinstance(llm_response, str):
-                        if llm_response.startswith("```json"):
-                            llm_response = llm_response.replace("```json", "").replace("```", "").strip()
-                        parsed_json = json.loads(llm_response)
-                        
-                        if "json" in parsed_json:
-                            result["response"] = parsed_json["json"]
-                        else:
-                            result["response"] = parsed_json
-                        
-                except (json.JSONDecodeError, TypeError) as e:
-                    print(f"JSON parsing error: {str(e)}")
-                    print(f"Raw response: {llm_response}")
-                    result["error"] = "Invalid JSON response"
-
-        return result
-
+            result["response"] = llm_response
+    return result            
 def process_tool_calls(response_dict, tool_map, model, provider, messages, stream=False):
     result = response_dict.copy()
     result["tool_results"] = []
@@ -731,7 +750,7 @@ def process_tool_calls(response_dict, tool_map, model, provider, messages, strea
                 tool_result = tool_map[tool_name](**arguments)
                 print('Executed Tool Result:', tool_result)
             except Exception as e:
-                tool_result = f"Error executing tool '{tool_name}': {str(e)}"
+                tool_result = f"Error executing tool '{tool_name}': {str(e)}. Tool map is : {tool_map}"
 
             try:
                 tool_result_str = json.dumps(tool_result, default=str)
@@ -750,25 +769,10 @@ def process_tool_calls(response_dict, tool_map, model, provider, messages, strea
                 "result": serializable_result
             })
             
-            result["messages"].append({
-                "role": "assistant",
-                "content": None,
-                "tool_calls": [
-                    {
-                        "id": tool_id,
-                        "type": "function",
-                        "function": {
-                            "name": tool_name,
-                            "arguments": arguments
-                        }
-                    }
-                ]
-            })
             
             result["messages"].append({
-                "role": "tool",
-                "tool_call_id": tool_id,
-                "content": tool_result_str
+                "role": "assistant",
+                "content": f'The results of the tool call for {tool_name} with {arguments} are as follows:' +tool_result_str
             })
     
     return result

@@ -115,7 +115,7 @@ def get_locally_available_models(project_directory, airplane_mode=False):
                     for model in models.data:
                         available_models[model.id] = 'anthropic'
                             
-                except (ImportError, anthropic.APIError, concurrent.futures.TimeoutError, Exception) as e:
+                except (ImportError, concurrent.futures.TimeoutError, Exception) as e:
                     logging.info(f"Anthropic models not indexed or timed out: {e}")
 
             if "OPENAI_API_KEY" in env_vars or os.environ.get("OPENAI_API_KEY"):

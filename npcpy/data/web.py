@@ -49,7 +49,10 @@ def search_perplexity(
     top_p: float = 0.9,
 ):
     if api_key is None:
-        api_key = os.environ["PERPLEXITY_API_KEY"]
+        api_key = os.environ.get("PERPLEXITY_API_KEY")
+        if api_key is None: 
+            raise 
+        
     
     url = "https://api.perplexity.ai/chat/completions"
     payload = {
@@ -72,12 +75,16 @@ def search_perplexity(
     }
 
     
-    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    headers = {"Authorization": f"Bearer {api_key}", 
+               "Content-Type": "application/json"}
 
     
-    response = requests.post(url, json=payload, headers=headers)
-    response = json.loads(response.text)
+    response = requests.post(url,
+                             json=payload,
+                             headers=headers)
     
+    response = response.json()
+
     return [response["choices"][0]["message"]["content"], response["citations"]]
 
 
