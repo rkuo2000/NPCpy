@@ -1,3 +1,4 @@
+from ast import arg
 from typing import Any, Dict, List, Union
 from pydantic import BaseModel
 from npcpy.data.image import compress_image
@@ -736,55 +737,47 @@ def process_tool_calls(response_dict, tool_map, model, provider, messages, strea
             else:
                 continue
 
+
         try:
             if isinstance(arguments_str, str):
-                fixed_str = arguments_str.strip()
-                
-                if fixed_str.startswith("'") and fixed_str.endswith("'"):
-                    fixed_str = '"' + fixed_str[1:-1] + '"'
-                
-                import re
-                fixed_str = re.sub(r"'([^']*)':", r'"\1":', fixed_str)
-                fixed_str = re.sub(r":\s*'([^']*)'", r': "\1"', fixed_str)
-                
-                arguments = json.loads(fixed_str)
+                sanitized_args = arguments_str.replace("'", '"')
+                arguments = json.loads(sanitized_args)
             else:
                 arguments = arguments_str
-        except json.JSONDecodeError as e:
-            print(f"JSON decode error for arguments_str: {arguments_str}")
-            print(f"Error: {e}")
-            
-            if isinstance(arguments_str, str) and (":" in arguments_str or "=" in arguments_str):
-                arguments = {}
+        except json.JSONDecodeError:
+            if isinstance(arguments_str, str) and ":" in arguments_str:
                 try:
-                    clean_str = arguments_str.strip('{}()[]')
-                    if ":" in clean_str:
-                        pairs = clean_str.split(',')
-                        for pair in pairs:
-                            if ':' in pair:
-                                key, value = pair.split(':', 1)
-                                key = key.strip().strip('\'"')
-                                value = value.strip().strip('\'"')
-                                arguments[key] = value
-                    else:
-                        arguments = {"query": arguments_str.strip('\'"')}
+                    clean_str = arguments_str.strip('{}').replace("'", '"')
+                    pairs = [pair.strip() for pair in clean_str.split(',')]
+                    arguments = {}
+                    for pair in pairs:
+                        if ':' in pair:
+                            key, value = pair.split(':', 1)
+                            key = key.strip().strip('"')
+                            value = value.strip().strip('"')
+                            arguments[key] = value
                 except:
                     arguments = {"raw_arguments": arguments_str}
             else:
                 arguments = {"raw_arguments": arguments_str}
-            
+                        
         if tool_name in tool_map:
             tool_result = None
             tool_result_str = ""
             serializable_result = None
 
-            try:
-                print(tool_map[tool_name])
-                print('Executing tool:', tool_name, 'with arguments:', arguments)
-                tool_result = tool_map[tool_name](**arguments)
-                print('Executed Tool Result:', tool_result)
-            except Exception as e:
-                tool_result = f"Error executing tool '{tool_name}': {str(e)}. Tool map is : {tool_map}"
+            #try:
+            print(tool_map[tool_name])
+            print('Executing tool:', tool_name, 'with arguments:', arguments)
+
+            arg_dict = {}            
+            for key, item in arguments.items():
+                arg_dict[f"{key.strip()}"] = f"{item.strip()}"
+            tool_result = tool_map[tool_name](**arguments)
+            print('Executed Tool Result:', tool_result)
+            
+            #except Exception as e:
+            #    tool_result = f"Error executing tool '{tool_name}': {str(e)}. Tool map is : {tool_map}"
 
             try:
                 tool_result_str = json.dumps(tool_result, default=str)
@@ -802,7 +795,7 @@ def process_tool_calls(response_dict, tool_map, model, provider, messages, strea
                 "arguments": arguments,
                 "result": serializable_result
             })
-            '''
+            
             result["messages"].append({
                 "role": "assistant",
                 "content": None,
@@ -823,6 +816,5 @@ def process_tool_calls(response_dict, tool_map, model, provider, messages, strea
                 "tool_call_id": tool_id,
                 "content": tool_result_str
             })
-            '''
     
     return result
