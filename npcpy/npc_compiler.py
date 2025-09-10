@@ -771,7 +771,7 @@ class NPC:
             npc=self,
             context=getattr(self, 'shared_context', {})
         )
-        
+        self.kg_data = kg_data
         self._save_kg()
         return kg_data
 
