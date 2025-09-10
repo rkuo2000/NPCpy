@@ -737,11 +737,28 @@ def process_tool_calls(response_dict, tool_map, model, provider, messages, strea
                 continue
 
         try:
-            arguments = json.loads(arguments_str) if isinstance(arguments_str, str) else arguments_str
+            if isinstance(arguments_str, str):
+                sanitized_args = arguments_str.replace("'", '"')
+                arguments = json.loads(sanitized_args)
+            else:
+                arguments = arguments_str
         except json.JSONDecodeError:
-            arguments = {"raw_arguments": arguments_str}
-        
-        
+            if isinstance(arguments_str, str) and ":" in arguments_str:
+                try:
+                    clean_str = arguments_str.strip('{}').replace("'", '"')
+                    pairs = [pair.strip() for pair in clean_str.split(',')]
+                    arguments = {}
+                    for pair in pairs:
+                        if ':' in pair:
+                            key, value = pair.split(':', 1)
+                            key = key.strip().strip('"')
+                            value = value.strip().strip('"')
+                            arguments[key] = value
+                except:
+                    arguments = {"raw_arguments": arguments_str}
+            else:
+                arguments = {"raw_arguments": arguments_str}
+                        
         if tool_name in tool_map:
             tool_result = None
             tool_result_str = ""
