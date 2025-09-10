@@ -1,4 +1,3 @@
-from ast import arg
 from typing import Any, Dict, List, Union
 from pydantic import BaseModel
 from npcpy.data.image import compress_image
@@ -737,49 +736,24 @@ def process_tool_calls(response_dict, tool_map, model, provider, messages, strea
             else:
                 continue
 
-
         try:
-            if isinstance(arguments_str, str):
-                arguments = json.loads(arguments_str)
-                print('arguments, x', arguments)
-            else:
-                arguments = arguments_str
-                print('arguments, y', arguments)
+            arguments = json.loads(arguments_str) if isinstance(arguments_str, str) else arguments_str
         except json.JSONDecodeError:
-            if isinstance(arguments_str, str) and ":" in arguments_str:
-                try:
-                    clean_str = arguments_str.strip('{}').replace("'", '"')
-                    pairs = [pair.strip() for pair in clean_str.split(',')]
-                    arguments = {}
-                    for pair in pairs:
-                        if ':' in pair:
-                            key, value = pair.split(':', 1)
-                            key = key.strip().strip('"')
-                            value = value.strip().strip('"')
-                            arguments[key] = value
-                except:
-                    arguments = {"raw_arguments": arguments_str}
-            else:
-                arguments = {"raw_arguments": arguments_str}
-                        
+            arguments = {"raw_arguments": arguments_str}
+        
+        
         if tool_name in tool_map:
             tool_result = None
             tool_result_str = ""
             serializable_result = None
 
-            #try:
-            print(tool_map[tool_name])
-            print('Executing tool:', tool_name, 'with arguments:', arguments)
-
-            arg_dict = {}            
-            for key, item in arguments.items():
-                arg_dict[f"{key.strip()}"] = f"{item.strip()}"
-            print(arg_dict)
-            tool_result = tool_map[tool_name](**arg_dict)
-            print('Executed Tool Result:', tool_result)
-            
-            #except Exception as e:
-            #    tool_result = f"Error executing tool '{tool_name}': {str(e)}. Tool map is : {tool_map}"
+            try:
+                print(tool_map[tool_name])
+                print('Executing tool:', tool_name, 'with arguments:', arguments)
+                tool_result = tool_map[tool_name](**arguments)
+                print('Executed Tool Result:', tool_result)
+            except Exception as e:
+                tool_result = f"Error executing tool '{tool_name}': {str(e)}. Tool map is : {tool_map}"
 
             try:
                 tool_result_str = json.dumps(tool_result, default=str)
