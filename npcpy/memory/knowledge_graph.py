@@ -22,7 +22,8 @@ from npcpy.llm_funcs import (
     remove_idempotent_groups,
     zoom_in, 
     )
-from npcpy.npc_compiler import NPC
+
+from npcpy.memory.command_history import load_kg_from_db, save_kg_to_db
 
 def safe_kuzu_execute(conn, query, error_message="Kuzu query failed"):
     """Execute a Kuzu query with proper error handling"""
@@ -1049,3 +1050,271 @@ def save_facts_to_graph_db(
                 continue
 
         print(f"Completed batch {i//batch_size + 1}")
+
+
+
+def kg_add_fact(
+   engine, 
+   fact_text: str, 
+   npc=None, 
+   team=None,
+   model=None,
+   provider=None
+):
+   """Add a new fact to the knowledge graph"""
+   directory_path = os.getcwd()
+   team_name = getattr(team, 'name', 'default_team') if team else 'default_team'
+   npc_name = npc.name if npc else 'default_npc'
+   
+   kg_data = load_kg_from_db(engine, team_name, npc_name, directory_path)
+   
+   new_fact = {
+       "statement": fact_text,
+       "source_text": fact_text,
+       "type": "manual",
+       "generation": kg_data.get('generation', 0),
+       "origin": "manual_add"
+   }
+   
+   kg_data['facts'].append(new_fact)
+   save_kg_to_db(engine, kg_data, team_name, npc_name, directory_path)
+   
+   return f"Added fact: {fact_text}"
+
+def kg_search_facts(
+   engine,
+   query: str, 
+   npc=None, 
+   team=None,
+   model=None,
+   provider=None
+):
+   """Search facts in the knowledge graph"""
+   directory_path = os.getcwd()
+   team_name = getattr(team, 'name', 'default_team') if team else 'default_team'
+   npc_name = npc.name if npc else 'default_npc'
+   
+   kg_data = load_kg_from_db(engine, team_name, npc_name, directory_path)
+   
+   matching_facts = []
+   for fact in kg_data.get('facts', []):
+       if query.lower() in fact['statement'].lower():
+           matching_facts.append(fact['statement'])
+   
+   return matching_facts
+
+def kg_remove_fact(
+   engine,
+   fact_text: str, 
+   npc=None, 
+   team=None,
+   model=None,
+   provider=None
+):
+   """Remove a fact from the knowledge graph"""
+   directory_path = os.getcwd()
+   team_name = getattr(team, 'name', 'default_team') if team else 'default_team'
+   npc_name = npc.name if npc else 'default_npc'
+   
+   kg_data = load_kg_from_db(engine, team_name, npc_name, directory_path)
+   
+   original_count = len(kg_data.get('facts', []))
+   kg_data['facts'] = [f for f in kg_data.get('facts', []) if f['statement'] != fact_text]
+   removed_count = original_count - len(kg_data['facts'])
+   
+   if removed_count > 0:
+       save_kg_to_db(engine, kg_data, team_name, npc_name, directory_path)
+       return f"Removed {removed_count} matching fact(s)"
+   
+   return "No matching facts found"
+
+def kg_list_concepts(
+   engine,
+   npc=None, 
+   team=None,
+   model=None,
+   provider=None
+):
+   """List all concepts in the knowledge graph"""
+   directory_path = os.getcwd()
+   team_name = getattr(team, 'name', 'default_team') if team else 'default_team'
+   npc_name = npc.name if npc else 'default_npc'
+   
+   kg_data = load_kg_from_db(engine, team_name, npc_name, directory_path)
+   
+   concepts = [c['name'] for c in kg_data.get('concepts', [])]
+   return concepts
+
+def kg_get_facts_for_concept(
+   engine,
+   concept_name: str, 
+   npc=None, 
+   team=None,
+   model=None,
+   provider=None
+):
+   """Get all facts linked to a specific concept"""
+   directory_path = os.getcwd()
+   team_name = getattr(team, 'name', 'default_team') if team else 'default_team'
+   npc_name = npc.name if npc else 'default_npc'
+   
+   kg_data = load_kg_from_db(engine, team_name, npc_name, directory_path)
+   
+   fact_to_concept_links = kg_data.get('fact_to_concept_links', {})
+   linked_facts = []
+   
+   for fact_statement, linked_concepts in fact_to_concept_links.items():
+       if concept_name in linked_concepts:
+           linked_facts.append(fact_statement)
+   
+   return linked_facts
+
+def kg_add_concept(
+   engine,
+   concept_name: str, 
+   concept_description: str,
+   npc=None, 
+   team=None,
+   model=None,
+   provider=None
+):
+   """Add a new concept to the knowledge graph"""
+   directory_path = os.getcwd()
+   team_name = getattr(team, 'name', 'default_team') if team else 'default_team'
+   npc_name = npc.name if npc else 'default_npc'
+   
+   kg_data = load_kg_from_db(engine, team_name, npc_name, directory_path)
+   
+   new_concept = {
+       "name": concept_name,
+       "description": concept_description,
+       "generation": kg_data.get('generation', 0)
+   }
+   
+   kg_data['concepts'].append(new_concept)
+   save_kg_to_db(engine, kg_data, team_name, npc_name, directory_path)
+   
+   return f"Added concept: {concept_name}"
+
+def kg_remove_concept(
+   engine,
+   concept_name: str, 
+   npc=None, 
+   team=None,
+   model=None,
+   provider=None
+):
+   """Remove a concept from the knowledge graph"""
+   directory_path = os.getcwd()
+   team_name = getattr(team, 'name', 'default_team') if team else 'default_team'
+   npc_name = npc.name if npc else 'default_npc'
+   
+   kg_data = load_kg_from_db(engine, team_name, npc_name, directory_path)
+   
+   original_count = len(kg_data.get('concepts', []))
+   kg_data['concepts'] = [c for c in kg_data.get('concepts', []) if c['name'] != concept_name]
+   removed_count = original_count - len(kg_data['concepts'])
+   
+   if removed_count > 0:
+       save_kg_to_db(engine, kg_data, team_name, npc_name, directory_path)
+       return f"Removed concept: {concept_name}"
+   
+   return "Concept not found"
+
+def kg_link_fact_to_concept(
+   engine,
+   fact_text: str,
+   concept_name: str, 
+   npc=None, 
+   team=None,
+   model=None,
+   provider=None
+):
+   """Link a fact to a concept in the knowledge graph"""
+   directory_path = os.getcwd()
+   team_name = getattr(team, 'name', 'default_team') if team else 'default_team'
+   npc_name = npc.name if npc else 'default_npc'
+   
+   kg_data = load_kg_from_db(engine, team_name, npc_name, directory_path)
+   
+   fact_to_concept_links = kg_data.get('fact_to_concept_links', {})
+   
+   if fact_text not in fact_to_concept_links:
+       fact_to_concept_links[fact_text] = []
+   
+   if concept_name not in fact_to_concept_links[fact_text]:
+       fact_to_concept_links[fact_text].append(concept_name)
+       kg_data['fact_to_concept_links'] = fact_to_concept_links
+       save_kg_to_db(engine, kg_data, team_name, npc_name, directory_path)
+       return f"Linked fact '{fact_text}' to concept '{concept_name}'"
+   
+   return "Fact already linked to concept"
+
+def kg_get_all_facts(
+   engine,
+   npc=None, 
+   team=None,
+   model=None,
+   provider=None
+):
+   """Get all facts from the knowledge graph"""
+   directory_path = os.getcwd()
+   team_name = getattr(team, 'name', 'default_team') if team else 'default_team'
+   npc_name = npc.name if npc else 'default_npc'
+   
+   kg_data = load_kg_from_db(engine, team_name, npc_name, directory_path)
+   
+   facts = [f['statement'] for f in kg_data.get('facts', [])]
+   return facts
+
+def kg_get_stats(
+   engine,
+   npc=None, 
+   team=None,
+   model=None,
+   provider=None
+):
+   """Get statistics about the knowledge graph"""
+   directory_path = os.getcwd()
+   team_name = getattr(team, 'name', 'default_team') if team else 'default_team'
+   npc_name = npc.name if npc else 'default_npc'
+   
+   kg_data = load_kg_from_db(engine, team_name, npc_name, directory_path)
+   
+   return {
+       "total_facts": len(kg_data.get('facts', [])),
+       "total_concepts": len(kg_data.get('concepts', [])),
+       "total_fact_concept_links": len(kg_data.get('fact_to_concept_links', {})),
+       "generation": kg_data.get('generation', 0)
+   }
+
+def kg_evolve_knowledge(
+   engine,
+   content_text: str,
+   npc=None, 
+   team=None,
+   model=None,
+   provider=None
+):
+   """Evolve the knowledge graph with new content"""
+   directory_path = os.getcwd()
+   team_name = getattr(team, 'name', 'default_team') if team else 'default_team'
+   npc_name = npc.name if npc else 'default_npc'
+   
+   kg_data = load_kg_from_db(engine, team_name, npc_name, directory_path)
+   
+   evolved_kg, _ = kg_evolve_incremental(
+       existing_kg=kg_data,
+       new_content_text=content_text,
+       model=npc.model if npc else model,
+       provider=npc.provider if npc else provider,
+       npc=npc,
+       get_concepts=True,
+       link_concepts_facts=False,
+       link_concepts_concepts=False,
+       link_facts_facts=False
+   )
+   
+   save_kg_to_db(engine, evolved_kg, team_name, npc_name, directory_path)
+   
+   return "Knowledge graph evolved with new content"
