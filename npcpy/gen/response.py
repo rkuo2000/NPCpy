@@ -552,6 +552,17 @@ def get_litellm_response(
         provider = "openai"
     
     
+    if provider =='enpisi' and api_url is None:
+        api_params['api_base'] = 'https://api.enpisi.com'
+        if api_key is None:
+            api_key = os.environ.get('NPC_STUDIO_LICENSE')
+            api_params['api_key'] = api_key
+            print(api_key)
+        if '-npc' in model: 
+            model = model.split('-npc')[0]
+        provider = "openai"
+
+    print(model, provider)
     if isinstance(format, BaseModel):
         api_params["response_format"] = format
     if model is None:
