@@ -11,6 +11,8 @@ import sys
 from typing import Dict, List
 import textwrap
 import json
+
+from fastapi import requests
 ON_WINDOWS = platform.system() == "Windows"
 
 try:
@@ -97,7 +99,23 @@ def get_locally_available_models(project_directory, airplane_mode=False):
     if not airplane_mode:
         timeout_seconds = 3.5
         
+
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            if 'NPC_STUDIO_LICENSE' in env_vars or os.environ.get('NPC_STUDIO_LICENSE'):
+                try:
+                    api_url = 'https://api.enpisi.com'
+                    headers = {
+                        'Authorization': f"Bearer {env_vars.get('NPC_STUDIO_LICENSE') or os.environ.get('NPC_STUDIO_LICENSE')}",
+                        'Content-Type': 'application/json'
+                    }
+                    import requests
+                    response = requests.get(f"{api_url}/models", headers=headers)
+                    print(response)
+                    return response.json()
+                    
+
+                except Exception as e:
+                    logging.error(f"Error fetching NPC Studio models: {e}")
 
             if "ANTHROPIC_API_KEY" in env_vars or os.environ.get("ANTHROPIC_API_KEY"):
                 try:
