@@ -6,6 +6,7 @@ import threading
 import uuid
 import sys 
 import traceback
+import glob
 
 
 from flask_cors import CORS
@@ -631,7 +632,7 @@ def get_models():
             text_only = (
                 "(text only)"
                 if p == "ollama"
-                and m in ["llama3.2", "deepseek-v3", "phi4"]
+                and m in ["llama3.2", "deepseek-v3", "phi4", "gemma3:1b"]
                 else ""
             )
             
@@ -980,14 +981,16 @@ def api_get_last_used_in_conversation():
 def get_ctx_path(is_global, current_path=None):
     """Determines the path to the .ctx file."""
     if is_global:
-        
-        
-        return os.path.join(os.path.expanduser("~/.npcsh/npc_team/"), "npcsh.ctx")
+        ctx_dir = os.path.join(os.path.expanduser("~/.npcsh/npc_team/"))
+        ctx_files = glob.glob(os.path.join(ctx_dir, "*.ctx"))
+        return ctx_files[0] if ctx_files else None
     else:
         if not current_path:
             return None
         
-        return os.path.join(current_path, "npc_team", "team.ctx")
+        ctx_dir = os.path.join(current_path, "npc_team")
+        ctx_files = glob.glob(os.path.join(ctx_dir, "*.ctx"))
+        return ctx_files[0] if ctx_files else None
 
 
 def read_ctx_file(file_path):
