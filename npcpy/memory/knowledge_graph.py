@@ -424,10 +424,10 @@ def kg_evolve_incremental(existing_kg,
                 fact_to_concept_links[fact['statement']] = get_related_concepts_multi(fact['statement'], 
                                                                                     "fact", 
                                                                                     all_concept_names, 
-                                                                                    model, 
-                                                                                    provider,
-                                                                                    npc,  
-                                                                                    context)
+                                                                                    model = model,
+                                                                                    provider=provider,
+                                                                                    npc = npc, 
+                                                                                    context= context)
     else:
         final_concepts = existing_concepts
     if link_facts_facts:
@@ -436,9 +436,10 @@ def kg_evolve_incremental(existing_kg,
         for new_fact in all_new_facts:
             related_fact_stmts = get_related_facts_llm(new_fact['statement'], 
                                                        existing_fact_statements, 
-                                                       model,
-                                                       provider, 
-                                                       context)
+                                                       model = model,
+                                                       provider = provider,
+                                                       npc = npc, 
+                                                       context=context)
             for related_stmt in related_fact_stmts:
                 fact_to_fact_links.append((new_fact['statement'], related_stmt))
                 
