@@ -498,16 +498,40 @@ def load_jinxs_from_directory(directory):
     return jinxs
 
 def get_npc_action_space(npc=None, team=None):
-    """Get action space for NPC including agent pass if team is available"""
+    """Get action space for NPC including memory search, db query, and core capabilities"""
     actions = DEFAULT_ACTION_SPACE.copy()
     
-    
+    if npc:
+        core_tools = [
+            npc.think_step_by_step,
+            npc.write_code
+        ]
+        
+        if npc.command_history:
+            core_tools.extend([
+                npc.search_my_conversations,
+                npc.search_my_memories
+            ])
+        
+        if npc.db_conn:
+            core_tools.append(npc.query_database)
+        
+        if hasattr(npc, 'tools') and npc.tools:
+            tools_schema, tool_map = auto_tools(core_tools)
+            actions.update({
+                f"use_{tool.__name__}": {
+                    "description": extract_function_info(tool).get('description'),
+                    "handler": tool,
+                    "context": lambda **_: f"Available as automated capability",
+                    "output_keys": {"result": {"description": "Tool execution result", "type": "string"}}
+                }
+                for tool in core_tools
+            })
+        
     if team and hasattr(team, 'npcs') and len(team.npcs) > 1:
         available_npcs = [name for name in team.npcs.keys() if name != (npc.name if npc else None)]
         
-        
         def team_aware_handler(command, extracted_data, **kwargs):
-            
             if 'team' not in kwargs or kwargs['team'] is None:
                 kwargs['team'] = team
             return agent_pass_handler(command, extracted_data, **kwargs)
@@ -1045,7 +1069,7 @@ class NPC:
         
         self.jinxs_dict = {jinx.jinx_name: jinx for jinx in npc_jinxs}
         return npc_jinxs
-    
+        
     def get_llm_response(self, 
                             request,
                             jinxs= None,
@@ -1055,16 +1079,31 @@ class NPC:
                             messages: Optional[List[Dict[str, str]]] = None,
                             auto_process_tool_calls: bool = True,
                             **kwargs):
-        """Get a response from the LLM"""
+        """Get a response from the LLM with automatic tool integration"""
         
-        if tools is None:
-            if self.tools is not None:
-                tools = self.tools
-                tool_map = self.tool_map
+        if tools is None and tool_map is None and tool_choice is None:
+            core_tools = [
+                self.think_step_by_step,
+                self.write_code
+            ]
+            
+            if self.command_history:
+                core_tools.extend([
+                    self.search_my_conversations,
+                    self.search_my_memories
+                ])
+            
+            if self.db_conn:
+                core_tools.append(self.query_database)
+            
+            if hasattr(self, 'tools') and self.tools:
+                core_tools.extend([func for func in self.tool_map.values() if callable(func)])
+            
+            if core_tools:
+                tools, tool_map = auto_tools(core_tools)
+        
         if tool_choice is None and tools:
             tool_choice = "auto"
-
-
 
         response = npy.llm_funcs.get_llm_response(
             request, 
@@ -1082,6 +1121,202 @@ class NPC:
         
         return response
     
+
+
+    def search_my_conversations(self, query: str, limit: int = 5) -> str:
+        """Search through this NPC's conversation history for relevant information"""
+        if not self.command_history:
+            return "No conversation history available"
+        
+        results = self.command_history.search_conversations(query)
+        
+        if not results:
+            return f"No conversations found matching '{query}'"
+        
+        formatted_results = []
+        for result in results[:limit]:
+            timestamp = result.get('timestamp', 'Unknown time')
+            content = result.get('content', '')[:200] + ('...' if len(result.get('content', '')) > 200 else '')
+            formatted_results.append(f"[{timestamp}] {content}")
+        
+        return f"Found {len(results)} conversations matching '{query}':\n" + "\n".join(formatted_results)
+
+    def search_my_memories(self, query: str, limit: int = 10) -> str:
+        """Search through this NPC's knowledge graph memories for relevant facts and concepts"""
+        if not self.kg_data:
+            return "No memories available"
+        
+        query_lower = query.lower()
+        relevant_facts = []
+        relevant_concepts = []
+        
+        for fact in self.kg_data.get('facts', []):
+            if query_lower in fact.get('statement', '').lower():
+                relevant_facts.append(fact['statement'])
+        
+        for concept in self.kg_data.get('concepts', []):
+            if query_lower in concept.get('name', '').lower():
+                relevant_concepts.append(concept['name'])
+        
+        result_parts = []
+        if relevant_facts:
+            result_parts.append(f"Relevant memories: {'; '.join(relevant_facts[:limit])}")
+        if relevant_concepts:
+            result_parts.append(f"Related concepts: {', '.join(relevant_concepts[:limit])}")
+        
+        return "\n".join(result_parts) if result_parts else f"No memories found matching '{query}'"
+
+    def query_database(self, sql_query: str) -> str:
+        """Execute a SQL query against the available database"""
+        if not self.db_conn:
+            return "No database connection available"
+        
+        try:
+            with self.db_conn.connect() as conn:
+                result = conn.execute(text(sql_query))
+                rows = result.fetchall()
+                
+                if not rows:
+                    return "Query executed successfully but returned no results"
+                
+                columns = result.keys()
+                formatted_rows = []
+                for row in rows[:20]:  
+                    row_dict = dict(zip(columns, row))
+                    formatted_rows.append(str(row_dict))
+                
+                return f"Query results ({len(rows)} total rows, showing first 20):\n" + "\n".join(formatted_rows)
+        
+        except Exception as e:
+            return f"Database query error: {str(e)}"
+
+    def think_step_by_step(self, problem: str) -> str:
+        """Think through a problem step by step using chain of thought reasoning"""
+        thinking_prompt = f"""Think through this problem step by step:
+
+    {problem}
+
+    Break down your reasoning into clear steps:
+    1. First, I need to understand...
+    2. Then, I should consider...
+    3. Next, I need to...
+    4. Finally, I can conclude...
+
+    Provide your step-by-step analysis:"""
+        
+        response = self.get_llm_response(thinking_prompt, tool_choice = False)
+        return response.get('response', 'Unable to process thinking request')
+
+    def write_code(self, task_description: str, language: str = "python", show=True) -> str:
+        """Generate and execute code for a specific task, returning the result"""
+        if language.lower() != "python":
+            # For non-Python languages, just generate the code
+            code_prompt = f"""Write {language} code for the following task:
+    {task_description}
+
+    Provide clean, working code with brief explanations for key parts:"""
+            
+            response = self.get_llm_response(code_prompt, tool_choice=False )
+            return response.get('response', 'Unable to generate code')
+        
+        # For Python, generate and execute the code
+        code_prompt = f"""Write Python code for the following task:
+    {task_description}
+
+    Requirements:
+    - Provide executable Python code
+    - Store the final result in a variable called 'output'
+    - Include any necessary imports
+    - Handle errors gracefully
+    - The code should be ready to execute without modification
+
+    Example format:
+    ```python
+    import pandas as pd
+    # Your code here
+    result = some_calculation()
+    output = f"Task completed successfully: {{result}}"
+    """
+        response = self.get_llm_response(code_prompt, tool_choice= False)
+        generated_code = response.get('response', '')
+
+        # Clean the code (remove markdown formatting if present)
+        if '```python' in generated_code:
+            code_lines = generated_code.split('\n')
+            start_idx = None
+            end_idx = None
+    
+            for i, line in enumerate(code_lines):
+                if '```python' in line:
+                    start_idx = i + 1
+                elif '```' in line and start_idx is not None:
+                    end_idx = i
+                    break
+        
+            if start_idx is not None:
+                if end_idx is not None:
+                    generated_code = '\n'.join(code_lines[start_idx:end_idx])
+                else:
+                    generated_code = '\n'.join(code_lines[start_idx:])
+
+        try:
+            # Set up execution environment
+            exec_globals = {
+                "__builtins__": __builtins__,
+                "npc": self,
+                "context": self.shared_context,
+                "pd": pd,
+                "plt": plt,
+                "np": np,
+                "os": os,
+                "re": re,
+                "json": json,
+                "Path": pathlib.Path,
+                "fnmatch": fnmatch,
+                "pathlib": pathlib,
+                "subprocess": subprocess,
+                "datetime": datetime,
+                "hashlib": hashlib,
+                "sqlite3": sqlite3,
+                "yaml": yaml,
+                "random": random,
+                "math": math,
+            }
+            
+            exec_locals = {}
+            
+            # Execute the generated code
+            exec(generated_code, exec_globals, exec_locals)
+            
+            if show:
+                print('Executing code', generated_code)
+            
+            # Get the output
+            if "output" in exec_locals:
+                result = exec_locals["output"]
+                # Update shared context with any new variables
+                self.shared_context.update({k: v for k, v in exec_locals.items() 
+                                        if not k.startswith('_') and not callable(v)})
+                return f"Code executed successfully. Result: {result}"
+            else:
+                # If no explicit output, return the last meaningful variable or confirmation
+                meaningful_vars = {k: v for k, v in exec_locals.items() 
+                                if not k.startswith('_') and not callable(v)}
+                
+                self.shared_context.update(meaningful_vars)
+                
+                if meaningful_vars:
+                    last_var = list(meaningful_vars.items())[-1]
+                    return f"Code executed successfully. Last result: {last_var[0]} = {last_var[1]}"
+                else:
+                    return "Code executed successfully (no explicit output generated)"
+                    
+        except Exception as e:
+            error_msg = f"Error executing code: {str(e)}\n\nGenerated code was:\n{generated_code}"
+            return error_msg
+
+
+
     def create_planning_state(self, goal: str) -> Dict[str, Any]:
         """Create initial planning state for a goal"""
         return {
@@ -1095,6 +1330,7 @@ class NPC:
             "current_subtodo_index": 0,
             "context_summary": ""
         }
+
 
     def generate_todos(self, user_goal: str, planning_state: Dict[str, Any], additional_context: str = "") -> List[Dict[str, Any]]:
         """Generate high-level todos for a goal"""
@@ -1119,7 +1355,7 @@ class NPC:
         }}
         """
         
-        response = self.get_llm_response(prompt, format="json")
+        response = self.get_llm_response(prompt, format="json", tool_choice=False)
         todos_data = response.get("response", {}).get("todos", [])
         return todos_data
 
@@ -1137,7 +1373,7 @@ class NPC:
         Return JSON: {{"should_break_down": true/false, "reason": "explanation"}}
         """
         
-        response = self.get_llm_response(prompt, format="json")
+        response = self.get_llm_response(prompt, format="json", tool_choice=False)
         result = response.get("response", {})
         return result.get("should_break_down", False)
 

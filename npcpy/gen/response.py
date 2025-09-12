@@ -149,6 +149,7 @@ def get_ollama_response(
     Generates a response using the Ollama API, supporting both streaming and non-streaming.
     """
 
+    options = {}
 
     image_paths = []
     if images:
@@ -248,7 +249,6 @@ def get_ollama_response(
     elif isinstance(format, str) and format == "json" and not stream:
         api_params["format"] = "json"
 
-    options = {}
     for key, value in kwargs.items():
         if key in [
             "stop", 
