@@ -15,6 +15,8 @@ from npcpy.gen.response import get_litellm_response
 from npcpy.gen.image_gen import generate_image
 from npcpy.gen.video_gen import generate_video_diffusers, generate_video_veo3
 
+from datetime import datetime 
+
 def gen_image(
     prompt: str,
     model: str = None,
@@ -24,6 +26,8 @@ def gen_image(
     width: int = 1024,
     n_images: int=1, 
     input_images: List[Union[str, bytes, PIL.Image.Image]] = None,
+    save = False, 
+    filename = '',
 ):
     """This function generates an image using the specified provider and model.
     Args:
@@ -48,7 +52,7 @@ def gen_image(
         if npc.api_url is not None:
             api_url = npc.api_url
 
-    image = generate_image(
+    images = generate_image(
         prompt=prompt,
         model=model,
         provider=provider,
@@ -58,7 +62,14 @@ def gen_image(
         n_images=n_images, 
         
     )
-    return image
+    if save:
+        if len(filename) == 0 :
+            todays_date = datetime.now().strftime("%Y-%m-%d")
+            filename = 'vixynt_gen'
+        for i, image in enumerate(images):
+            
+            image.save(filename+'_'+str(i)+'.png')
+    return images
 
 
 def gen_video(

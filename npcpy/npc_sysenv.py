@@ -113,7 +113,6 @@ def get_locally_available_models(project_directory, airplane_mode=False):
                         }
                         import requests
                         response = requests.get(f"{api_url}/models", headers=headers)
-                        print(response)
                         return [model['id'] for model in response.json().get('data','')]
                     for model in fetch_enpisi_models():
                         available_models[model+'-npc'] = 'enpisi'

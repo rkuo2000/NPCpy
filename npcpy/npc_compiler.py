@@ -1082,6 +1082,188 @@ class NPC:
         
         return response
     
+    def create_planning_state(self, goal: str) -> Dict[str, Any]:
+        """Create initial planning state for a goal"""
+        return {
+            "goal": goal,
+            "todos": [],
+            "constraints": [],
+            "facts": [],
+            "mistakes": [],
+            "successes": [],
+            "current_todo_index": 0,
+            "current_subtodo_index": 0,
+            "context_summary": ""
+        }
+
+    def generate_todos(self, user_goal: str, planning_state: Dict[str, Any], additional_context: str = "") -> List[Dict[str, Any]]:
+        """Generate high-level todos for a goal"""
+        prompt = f"""
+        You are a high-level project planner. Structure tasks logically:
+        1. Understand current state
+        2. Make required changes 
+        3. Verify changes work
+
+        User goal: {user_goal}
+        {additional_context}
+        
+        Generate 3-5 todos to accomplish this goal. Use specific actionable language.
+        Each todo should be independent where possible and focused on a single component.
+        
+        Return JSON:
+        {{
+            "todos": [
+                {{"description": "todo description", "estimated_complexity": "simple|medium|complex"}},
+                ...
+            ]
+        }}
+        """
+        
+        response = self.get_llm_response(prompt, format="json")
+        todos_data = response.get("response", {}).get("todos", [])
+        return todos_data
+
+    def should_break_down_todo(self, todo: Dict[str, Any]) -> bool:
+        """Ask LLM if a todo needs breakdown"""
+        prompt = f"""
+        Todo: {todo['description']}
+        Complexity: {todo.get('estimated_complexity', 'unknown')}
+        
+        Should this be broken into smaller steps? Consider:
+        - Is it complex enough to warrant breakdown?
+        - Would breakdown make execution clearer?
+        - Are there multiple distinct steps?
+        
+        Return JSON: {{"should_break_down": true/false, "reason": "explanation"}}
+        """
+        
+        response = self.get_llm_response(prompt, format="json")
+        result = response.get("response", {})
+        return result.get("should_break_down", False)
+
+    def generate_subtodos(self, todo: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Generate atomic subtodos for a complex todo"""
+        prompt = f"""
+        Parent todo: {todo['description']}
+        
+        Break this into atomic, executable subtodos. Each should be:
+        - A single, concrete action
+        - Executable in one step
+        - Clear and unambiguous
+        
+        Return JSON:
+        {{
+            "subtodos": [
+                {{"description": "subtodo description", "type": "action|verification|analysis"}},
+                ...
+            ]
+        }}
+        """
+        
+        response = self.get_llm_response(prompt, format="json")
+        return response.get("response", {}).get("subtodos", [])
+
+    def execute_planning_item(self, item: Dict[str, Any], planning_state: Dict[str, Any], context: str = "") -> Dict[str, Any]:
+        """Execute a single planning item (todo or subtodo)"""
+        context_summary = self.get_planning_context_summary(planning_state)
+        
+        command = f"""
+        Current context:
+        {context_summary}
+        {context}
+        
+        Execute this task: {item['description']}
+        
+        Constraints to follow:
+        {chr(10).join([f"- {c}" for c in planning_state.get('constraints', [])])}
+        """
+        
+        result = self.check_llm_command(
+            command,
+            context=self.shared_context,
+            stream=False
+        )
+        
+        return result
+
+    def get_planning_context_summary(self, planning_state: Dict[str, Any]) -> str:
+        """Get lightweight context for planning prompts"""
+        context = []
+        facts = planning_state.get('facts', [])
+        mistakes = planning_state.get('mistakes', [])
+        successes = planning_state.get('successes', [])
+        
+        if facts:
+            context.append(f"Facts: {'; '.join(facts[:5])}")
+        if mistakes:
+            context.append(f"Recent mistakes: {'; '.join(mistakes[-3:])}")
+        if successes:
+            context.append(f"Recent successes: {'; '.join(successes[-3:])}")
+        return "\n".join(context)
+
+    def compress_planning_state(self, planning_state: Dict[str, Any]) -> str:
+        """Compress planning state to string for storage/transfer"""
+        compressed = {
+            "goal": planning_state.get("goal", ""),
+            "progress": f"{len(planning_state.get('successes', []))}/{len(planning_state.get('todos', []))} todos completed",
+            "context": self.get_planning_context_summary(planning_state),
+            "current_focus": planning_state.get('todos', [{}])[planning_state.get('current_todo_index', 0)].get('description', 'No current task')
+        }
+        return json.dumps(compressed, indent=2)
+
+    def decompress_planning_state(self, compressed_state: str) -> Dict[str, Any]:
+        """Restore planning state from compressed string"""
+        try:
+            data = json.loads(compressed_state)
+            return {
+                "goal": data.get("goal", ""),
+                "todos": [],
+                "constraints": [],
+                "facts": [],
+                "mistakes": [],
+                "successes": [],
+                "current_todo_index": 0,
+                "current_subtodo_index": 0,
+                "compressed_context": data.get("context", "")
+            }
+        except json.JSONDecodeError:
+            return self.create_planning_state("")
+
+    def run_planning_loop(self, user_goal: str, interactive: bool = True) -> Dict[str, Any]:
+        """Run the full planning loop for a goal"""
+        planning_state = self.create_planning_state(user_goal)
+        
+        todos = self.generate_todos(user_goal, planning_state)
+        planning_state["todos"] = todos
+        
+        for i, todo in enumerate(todos):
+            planning_state["current_todo_index"] = i
+            
+            if self.should_break_down_todo(todo):
+                subtodos = self.generate_subtodos(todo)
+                
+                for j, subtodo in enumerate(subtodos):
+                    planning_state["current_subtodo_index"] = j
+                    result = self.execute_planning_item(subtodo, planning_state)
+                    
+                    if result.get("output"):
+                        planning_state["successes"].append(f"Completed: {subtodo['description']}")
+                    else:
+                        planning_state["mistakes"].append(f"Failed: {subtodo['description']}")
+            else:
+                result = self.execute_planning_item(todo, planning_state)
+                
+                if result.get("output"):
+                    planning_state["successes"].append(f"Completed: {todo['description']}")
+                else:
+                    planning_state["mistakes"].append(f"Failed: {todo['description']}")
+        
+        return {
+            "planning_state": planning_state,
+            "compressed_state": self.compress_planning_state(planning_state),
+            "summary": f"Completed {len(planning_state['successes'])} tasks for goal: {user_goal}"
+        }
+    
     def execute_jinx(self, jinx_name, inputs, conversation_id=None, message_id=None, team_name=None):
         """Execute a jinx by name"""
         
