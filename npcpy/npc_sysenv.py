@@ -12,7 +12,8 @@ from typing import Dict, List
 import textwrap
 import json
 
-from fastapi import requests
+
+import requests
 ON_WINDOWS = platform.system() == "Windows"
 
 try:
