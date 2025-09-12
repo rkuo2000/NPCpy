@@ -1202,12 +1202,19 @@ class NPC:
         return "\n".join(context)
 
     def compress_planning_state(self, planning_state: Dict[str, Any]) -> str:
-        """Compress planning state to string for storage/transfer"""
+        todos = planning_state.get('todos', [])
+        current_index = planning_state.get('current_todo_index', 0)
+        
+        if todos and current_index < len(todos):
+            current_focus = todos[current_index].get('description', 'No current task')
+        else:
+            current_focus = 'No current task'
+        
         compressed = {
             "goal": planning_state.get("goal", ""),
-            "progress": f"{len(planning_state.get('successes', []))}/{len(planning_state.get('todos', []))} todos completed",
+            "progress": f"{len(planning_state.get('successes', []))}/{len(todos)} todos completed",
             "context": self.get_planning_context_summary(planning_state),
-            "current_focus": planning_state.get('todos', [{}])[planning_state.get('current_todo_index', 0)].get('description', 'No current task')
+            "current_focus": current_focus
         }
         return json.dumps(compressed, indent=2)
 
