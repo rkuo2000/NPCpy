@@ -1202,7 +1202,12 @@ class NPC:
     3. Next, I need to...
     4. Finally, I can conclude...
 
-    Provide your step-by-step analysis:"""
+    Provide your step-by-step analysis.
+    Do not under any circumstances ask for feedback from a user. These thoughts are part of an agentic tool that is letting the agent
+    break down a problem by thinking it through. they will review the results and use them accordingly. 
+
+    
+    """
         
         response = self.get_llm_response(thinking_prompt, tool_choice = False)
         return response.get('response', 'Unable to process thinking request')
@@ -1437,12 +1442,36 @@ class NPC:
             context.append(f"Recent successes: {'; '.join(successes[-3:])}")
         return "\n".join(context)
 
-    def compress_planning_state(self, planning_state: Dict[str, Any]) -> str:
+
+    def compress_planning_state(self, messages):
+        if isinstance(messages, list):
+            from npcpy.llm_funcs import breathe, get_facts
+            
+            conversation_summary = breathe(messages=messages, npc=self)
+            summary_data = conversation_summary.get('output', '')
+            
+            conversation_text = "\n".join([msg['content'] for msg in messages])
+            extracted_facts = get_facts(conversation_text, model=self.model, provider=self.provider, npc=self)
+            
+            user_inputs = [msg['content'] for msg in messages if msg.get('role') == 'user']
+            assistant_outputs = [msg['content'] for msg in messages if msg.get('role') == 'assistant']
+            
+            planning_state = {
+                "goal": summary_data,
+                "facts": [fact['statement'] if isinstance(fact, dict) else str(fact) for fact in extracted_facts[-10:]],
+                "successes": [output[:100] for output in assistant_outputs[-5:]],
+                "mistakes": [],
+                "todos": user_inputs[-3:],
+                "constraints": []
+            }
+        else:
+            planning_state = messages
+        
         todos = planning_state.get('todos', [])
         current_index = planning_state.get('current_todo_index', 0)
         
         if todos and current_index < len(todos):
-            current_focus = todos[current_index].get('description', 'No current task')
+            current_focus = todos[current_index].get('description', todos[current_index]) if isinstance(todos[current_index], dict) else str(todos[current_index])
         else:
             current_focus = 'No current task'
         

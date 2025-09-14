@@ -320,7 +320,7 @@ def get_ollama_response(
     
     
     if message.get('tool_calls'):
-        print("Found tool calls, processing automatically:", message['tool_calls'])
+
         
         result["tool_calls"] = message['tool_calls']
         
@@ -340,7 +340,7 @@ def get_ollama_response(
         
         
         if stream:
-            print("Making final streaming call with processed tools")
+
             
             
             final_messages = processed_result["messages"]
@@ -557,12 +557,10 @@ def get_litellm_response(
         if api_key is None:
             api_key = os.environ.get('NPC_STUDIO_LICENSE')
             api_params['api_key'] = api_key
-            print(api_key)
         if '-npc' in model: 
             model = model.split('-npc')[0]
         provider = "openai"
 
-    print(model, provider)
     if isinstance(format, BaseModel):
         api_params["response_format"] = format
     if model is None:
@@ -639,7 +637,7 @@ def get_litellm_response(
     has_tool_calls = hasattr(resp.choices[0].message, 'tool_calls') and resp.choices[0].message.tool_calls
     
     if has_tool_calls:
-        print("Found tool calls in LiteLLM, processing automatically:", resp.choices[0].message.tool_calls)
+
         
         result["tool_calls"] = resp.choices[0].message.tool_calls
         
@@ -653,7 +651,7 @@ def get_litellm_response(
         
         
         if stream:
-            print("Making final streaming call with processed tools")
+
             
 
             clean_messages = []
@@ -756,10 +754,7 @@ def process_tool_calls(response_dict, tool_map, model, provider, messages, strea
             serializable_result = None
 
             try:
-                print(tool_map[tool_name])
-                print('Executing tool:', tool_name, 'with arguments:', arguments)
                 tool_result = tool_map[tool_name](**arguments)
-                print('Executed Tool Result:', tool_result)
             except Exception as e:
                 tool_result = f"Error executing tool '{tool_name}': {str(e)}. Tool map is : {tool_map}"
 

@@ -425,32 +425,10 @@ def process_response_chunk(text_chunk):
 
 
 def process_text_for_tts(text):
-    text = re.sub(r"[*<>{}()\[\]&%
+    text = re.sub(r"[*<>{}()\[\]&%")
     text = text.strip()
     text = re.sub(r"(\w)\.(\w)\.", r"\1 \2 ", text)
     text = re.sub(r"([.!?])(\w)", r"\1 \2", text)
     return text
 
 
-"""
-
-To use this code, you'll need to have the following dependencies installed:
-
-```bash
-pip install numpy torch torchaudio faster-whisper pygame pyaudio gtts ollama
-```
-
-And optionally FFmpeg for audio speed adjustment:
-```bash
-
-sudo apt-get install ffmpeg
-
-
-brew install ffmpeg
-
-
-choco install ffmpeg
-```
-
-
-"""
