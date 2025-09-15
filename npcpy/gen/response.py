@@ -14,6 +14,7 @@ except OSError:
     
     print("Ollama is not installed or not available. Please install it to use this feature.")
 try:
+    import litellm
     from litellm import completion
 except ImportError:
     pass
@@ -413,6 +414,7 @@ def get_litellm_response(
     stream: bool = False,
     attachments: List[str] = None,
     auto_process_tool_calls: bool = False, 
+    include_usage: bool = False,
     **kwargs,
 ) -> Dict[str, Any]:
     result = {
@@ -546,6 +548,10 @@ def get_litellm_response(
     
 
     api_params = {"messages": result["messages"]}
+
+    if include_usage:
+      litellm.include_cost_in_streaming_usage = True
+      api_params['stream_options'] = {"include_usage": True}
 
     if api_url is not None and (provider == "openai-like" or provider == "openai"):
         api_params["api_base"] = api_url
