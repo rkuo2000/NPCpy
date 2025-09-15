@@ -1778,6 +1778,7 @@ def stream():
         
         try:
             from npcsh.corca import execute_command_corca, create_corca_state_and_mcp_client, MCPClientNPC
+            from npcsh._state import initial_state as state
         except ImportError:
             
             print("ERROR: npcsh.corca or MCPClientNPC not found. Corca mode is disabled.", file=sys.stderr)
