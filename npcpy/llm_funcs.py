@@ -154,6 +154,7 @@ def get_llm_response(
     context=None,    
     stream: bool = False,
     attachments: List[str] = None,
+    include_usage: bool = False,
     **kwargs,
 ):
     """This function generates a response using the specified provider and model.
@@ -231,6 +232,7 @@ def get_llm_response(
         images=images,
         attachments=attachments,
         stream=stream,
+        include_usage=include_usage,
         **kwargs,
     )
     return response
