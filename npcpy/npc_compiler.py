@@ -1215,7 +1215,7 @@ class NPC:
     def write_code(self, task_description: str, language: str = "python", show=True) -> str:
         """Generate and execute code for a specific task, returning the result"""
         if language.lower() != "python":
-            # For non-Python languages, just generate the code
+            
             code_prompt = f"""Write {language} code for the following task:
     {task_description}
 
@@ -1224,7 +1224,7 @@ class NPC:
             response = self.get_llm_response(code_prompt, tool_choice=False )
             return response.get('response', 'Unable to generate code')
         
-        # For Python, generate and execute the code
+        
         code_prompt = f"""Write Python code for the following task:
     {task_description}
 
@@ -1245,7 +1245,7 @@ class NPC:
         response = self.get_llm_response(code_prompt, tool_choice= False)
         generated_code = response.get('response', '')
 
-        # Clean the code (remove markdown formatting if present)
+        
         if '```python' in generated_code:
             code_lines = generated_code.split('\n')
             start_idx = None
@@ -1265,7 +1265,7 @@ class NPC:
                     generated_code = '\n'.join(code_lines[start_idx:])
 
         try:
-            # Set up execution environment
+            
             exec_globals = {
                 "__builtins__": __builtins__,
                 "npc": self,
@@ -1290,21 +1290,21 @@ class NPC:
             
             exec_locals = {}
             
-            # Execute the generated code
+            
             exec(generated_code, exec_globals, exec_locals)
             
             if show:
                 print('Executing code', generated_code)
             
-            # Get the output
+            
             if "output" in exec_locals:
                 result = exec_locals["output"]
-                # Update shared context with any new variables
+                
                 self.shared_context.update({k: v for k, v in exec_locals.items() 
                                         if not k.startswith('_') and not callable(v)})
                 return f"Code executed successfully. Result: {result}"
             else:
-                # If no explicit output, return the last meaningful variable or confirmation
+                
                 meaningful_vars = {k: v for k, v in exec_locals.items() 
                                 if not k.startswith('_') and not callable(v)}
                 

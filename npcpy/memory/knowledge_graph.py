@@ -329,9 +329,9 @@ def kg_initial(content,
     }
 
 
-
 def kg_evolve_incremental(existing_kg, 
-                          new_content_text, 
+                          new_content_text=None,
+                          new_facts=None, 
                           model = None, 
                           provider=None, 
                           npc=None, 
@@ -340,14 +340,11 @@ def kg_evolve_incremental(existing_kg,
                           link_concepts_facts = False, 
                           link_concepts_concepts=False, 
                           link_facts_facts = False, 
-                          
                           ):
 
     current_gen = existing_kg.get('generation', 0)
     next_gen = current_gen + 1
     print(f"\n--- ABSORBING INFO: Gen {current_gen} -> Gen {next_gen} ---")
-
-    print('extracting facts...')
 
     newly_added_concepts = []
     concept_links = list(existing_kg.get('concept_links', []))
@@ -360,25 +357,33 @@ def kg_evolve_incremental(existing_kg,
     existing_concept_names = {c['name'] for c in existing_concepts}
     existing_fact_statements = [f['statement'] for f in existing_facts]
     all_concept_names = list(existing_concept_names)
+    
     all_new_facts = []
-    if len(new_content_text) > 10000:
-        starting_point = random.randint(0, len(new_content_text)-10000)
-        for n in range(len(new_content_text)//10000):
-            content_to_sample = new_content_text[n*10000:(n+1)*10000]
-            facts = get_facts(content_to_sample, 
-                            model=model,
-                            provider=provider,
-                            npc = npc, 
-                            context=context)
-            all_new_facts.extend(facts)
+    
+    if new_facts:
+        all_new_facts = new_facts
+        print(f'using pre-approved facts: {len(all_new_facts)}')
+    elif new_content_text:
+        print('extracting facts from content...')
+        if len(new_content_text) > 10000:
+            starting_point = random.randint(0, len(new_content_text)-10000)
+            for n in range(len(new_content_text)//10000):
+                content_to_sample = new_content_text[n*10000:(n+1)*10000]
+                facts = get_facts(content_to_sample, 
+                                model=model,
+                                provider=provider,
+                                npc = npc, 
+                                context=context)
+                all_new_facts.extend(facts)
+        else:
+            all_new_facts = get_facts(new_content_text, 
+                                model=model,
+                                provider=provider,
+                                npc = npc, 
+                                context=context)
     else:
-        
-        all_new_facts = get_facts(new_content_text, 
-                            model=model,
-                            provider=provider,
-                            npc = npc, 
-                            context=context)
-
+        print("No new content or facts provided")
+        return existing_kg, {}
 
     for fact in all_new_facts: 
         fact['generation'] = next_gen
@@ -412,7 +417,6 @@ def kg_evolve_incremental(existing_kg,
                                                             context)
                 for related_name in related_concepts:
                     if related_name != cand_name: 
-                        
                         concept_links.append((cand_name, related_name))
             all_concept_names.append(cand_name)
 

@@ -8,7 +8,7 @@ import numpy as np
 
 try:
     import sqlalchemy
-    from sqlalchemy import create_engine, text, MetaData, Table, Column, Integer, String, Text, DateTime, LargeBinary, ForeignKey, Boolean
+    from sqlalchemy import create_engine, text, MetaData, Table, Column, Integer, String, Text, DateTime, LargeBinary, ForeignKey, Boolean, func
     from sqlalchemy.engine import Engine, Connection as SQLAlchemyConnection
     from sqlalchemy.exc import SQLAlchemyError
     from sqlalchemy.sql import select, insert, update, delete
@@ -477,6 +477,22 @@ class CommandHistory:
             Column('duration_ms', Integer)
         )
         
+        Table('memory_lifecycle', metadata,
+            Column('id', Integer, primary_key=True, autoincrement=True),
+            Column('message_id', String(50), nullable=False),
+            Column('conversation_id', String(100), nullable=False),
+            Column('npc', String(100), nullable=False),
+            Column('team', String(100), nullable=False),
+            Column('directory_path', Text, nullable=False),
+            Column('timestamp', String(50), nullable=False),
+            Column('initial_memory', Text, nullable=False),
+            Column('final_memory', Text),
+            Column('status', String(50), nullable=False),
+            Column('model', String(100)),
+            Column('provider', String(100)),
+            Column('created_at', DateTime, default=func.now())
+        )
+                
         
         metadata.create_all(self.engine, checkfirst=True)
         
@@ -580,6 +596,119 @@ class CommandHistory:
 
         return message_id
 
+    def add_memory_to_database(self, message_id: str, conversation_id: str, npc: str, team: str, 
+                            directory_path: str, initial_memory: str, status: str, 
+                            model: str = None, provider: str = None, final_memory: str = None):
+        """Store a memory entry in the database"""
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        stmt = """
+            INSERT INTO memory_lifecycle 
+            (message_id, conversation_id, npc, team, directory_path, datetime, 
+            initial_memory, final_memory, status, model, provider)
+            VALUES (:message_id, :conversation_id, :npc, :team, :directory_path, 
+                    :datetime, :initial_memory, :final_memory, :status, :model, :provider)
+        """
+        
+        params = {
+            "message_id": message_id, "conversation_id": conversation_id,
+            "npc": npc, "team": team, "directory_path": directory_path,
+            "datetime": timestamp, "initial_memory": initial_memory,
+            "final_memory": final_memory, "status": status,
+            "model": model, "provider": provider
+        }
+        
+        return self._execute_returning_id(stmt, params)
+
+    def search_memory(self, query: str, npc: str = None, team: str = None, 
+                    directory_path: str = None, status_filter: str = None, limit: int = 10):
+        """Search memories with hierarchical scope"""
+        conditions = ["LOWER(initial_memory) LIKE LOWER(:query) OR LOWER(final_memory) LIKE LOWER(:query)"]
+        params = {"query": f"%{query}%"}
+        
+        if status_filter:
+            conditions.append("status = :status")
+            params["status"] = status_filter
+        
+        
+        order_parts = []
+        if npc:
+            order_parts.append(f"CASE WHEN npc = '{npc}' THEN 1 ELSE 2 END")
+        if team:
+            order_parts.append(f"CASE WHEN team = '{team}' THEN 1 ELSE 2 END")
+        if directory_path:
+            order_parts.append(f"CASE WHEN directory_path = '{directory_path}' THEN 1 ELSE 2 END")
+        
+        order_clause = ", ".join(order_parts) + ", created_at DESC" if order_parts else "created_at DESC"
+        
+        stmt = f"""
+            SELECT * FROM memory_lifecycle 
+            WHERE {' AND '.join(conditions)}
+            ORDER BY {order_clause}
+            LIMIT :limit
+        """
+        params["limit"] = limit
+        
+        return self._fetch_all(stmt, params)
+
+    def get_memory_examples_for_context(self, npc: str, team: str, directory_path: str,
+                                    n_approved: int = 10, n_rejected: int = 10):
+        """Get recent approved and rejected memories for learning context"""
+        
+        approved_stmt = """
+            SELECT initial_memory, final_memory, status FROM memory_lifecycle
+            WHERE status IN ('human-approved', 'model-approved')
+            ORDER BY 
+                CASE WHEN npc = :npc AND team = :team AND directory_path = :path THEN 1
+                    WHEN npc = :npc AND team = :team THEN 2  
+                    WHEN team = :team THEN 3
+                    ELSE 4 END,
+                created_at DESC
+            LIMIT :n_approved
+        """
+        
+        rejected_stmt = """
+            SELECT initial_memory, status FROM memory_lifecycle
+            WHERE status IN ('human-rejected', 'model-rejected')
+            ORDER BY 
+                CASE WHEN npc = :npc AND team = :team AND directory_path = :path THEN 1
+                    WHEN npc = :npc AND team = :team THEN 2
+                    WHEN team = :team THEN 3  
+                    ELSE 4 END,
+                created_at DESC
+            LIMIT :n_rejected
+        """
+        
+        params = {"npc": npc, "team": team, "path": directory_path, 
+                "n_approved": n_approved, "n_rejected": n_rejected}
+        
+        approved = self._fetch_all(approved_stmt, params)
+        rejected = self._fetch_all(rejected_stmt, params)
+        
+        return {"approved": approved, "rejected": rejected}
+
+    def get_pending_memories(self, limit: int = 50):
+        """Get memories pending human approval"""
+        stmt = """
+            SELECT * FROM memory_lifecycle 
+            WHERE status = 'pending_approval'
+            ORDER BY created_at ASC
+            LIMIT :limit
+        """
+        return self._fetch_all(stmt, {"limit": limit})
+
+    def update_memory_status(self, memory_id: int, new_status: str, final_memory: str = None):
+        """Update memory status and optionally final_memory"""
+        stmt = """
+            UPDATE memory_lifecycle 
+            SET status = :status, final_memory = :final_memory
+            WHERE id = :memory_id
+        """
+        params = {"status": new_status, "final_memory": final_memory, "memory_id": memory_id}
+        
+        with self.engine.begin() as conn:
+            conn.execute(text(stmt), params)
+            
     def add_attachment(self, message_id, name, attachment_type, data, size, file_path=None):
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         stmt = """

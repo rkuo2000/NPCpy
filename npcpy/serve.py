@@ -2023,6 +2023,28 @@ def stream():
 
 
 
+@app.route("/api/memory/approve", methods=["POST"])
+def approve_memories():
+    try:
+        data = request.json
+        approvals = data.get("approvals", [])
+        
+        command_history = CommandHistory(app.config.get('DB_PATH'))
+        
+        for approval in approvals:
+            command_history.update_memory_status(
+                approval['memory_id'],
+                approval['decision'],
+                approval.get('final_memory')
+            )
+        
+        return jsonify({"success": True, "processed": len(approvals)})
+        
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+
 
 @app.route("/api/execute", methods=["POST"])
 def execute():
@@ -2166,10 +2188,10 @@ def execute():
         dot_count = 0
         interrupted = False
         tool_call_data = {"id": None, "function_name": None, "arguments": ""}
+        memory_data = None
 
         try:
-            for response_chunk in response_gen['output']:
-                
+            for response_chunk in stream_response.get('response', stream_response.get('output')):
                 with cancellation_lock:
                     if cancellation_flags.get(current_stream_id, False):
                         print(f"Cancellation flag triggered for {current_stream_id}. Breaking loop.")
@@ -2179,28 +2201,7 @@ def execute():
                 print('.', end="", flush=True)
                 dot_count += 1
                 
-                chunk_content = ""
-                if isinstance(response_chunk, dict) and response_chunk.get("role") == "decision":
-                    
-                    chunk_data = {
-                        "id": None, "object": None, "created": None, "model": model,
-                        "choices": [
-                                {
-                                    "index": 0, 
-                                    "delta": 
-                                        {
-                                            "content": response_chunk.get('content', ''), 
-                                            "role": "assistant"
-                                            }, 
-                                    "finish_reason": None
-                                }
-                                     ]
-                    }
-                    complete_response.append(response_chunk.get('content', ''))
-                    yield f"data: {json.dumps(chunk_data)}\n\n"
-                    continue
-                    
-                elif "hf.co" in model or provider == 'ollama':
+                if "hf.co" in model or provider == 'ollama':
                     chunk_content = response_chunk["message"]["content"] if "message" in response_chunk and "content" in response_chunk["message"] else ""
                     if "message" in response_chunk and "tool_calls" in response_chunk["message"]:
                         for tool_call in response_chunk["message"]["tool_calls"]:
@@ -2210,46 +2211,41 @@ def execute():
                                 if "name" in tool_call["function"]:
                                     tool_call_data["function_name"] = tool_call["function"]["name"]
                                 if "arguments" in tool_call["function"]:
-                                    tool_call_data["arguments"] += tool_call["function"]["arguments"]
+                                    arg_val = tool_call["function"]["arguments"]
+                                    if isinstance(arg_val, dict):
+                                        arg_val = json.dumps(arg_val)
+                                    tool_call_data["arguments"] += arg_val
                     if chunk_content:
                         complete_response.append(chunk_content)
                     chunk_data = {
                         "id": None, "object": None, "created": response_chunk["created_at"], "model": response_chunk["model"],
                         "choices": [{"index": 0, "delta": {"content": chunk_content, "role": response_chunk["message"]["role"]}, "finish_reason": response_chunk.get("done_reason")}]
                     }
+                    yield f"data: {json.dumps(chunk_data)}\n\n"
                 else:
                     chunk_content = ""
                     reasoning_content = ""
-                    if not isinstance(response_chunk, str):
-                        for choice in response_chunk.choices:
-                            if hasattr(choice.delta, "tool_calls") and choice.delta.tool_calls:
-                                for tool_call in choice.delta.tool_calls:
-                                    if tool_call.id:
-                                        tool_call_data["id"] = tool_call.id
-                                    if tool_call.function:
-                                        if hasattr(tool_call.function, "name") and tool_call.function.name:
-                                            tool_call_data["function_name"] = tool_call.function.name
-                                        if hasattr(tool_call.function, "arguments") and tool_call.function.arguments:
-                                            tool_call_data["arguments"] += tool_call.function.arguments
-                        for choice in response_chunk.choices:
-                            if hasattr(choice.delta, "reasoning_content"):
-                                reasoning_content += choice.delta.reasoning_content
-                        chunk_content = "".join(choice.delta.content for choice in response_chunk.choices if choice.delta.content is not None)
-                        if chunk_content:
-                            complete_response.append(chunk_content)
-                        chunk_data = {
-                            "id": response_chunk.id, "object": response_chunk.object, "created": response_chunk.created, "model": response_chunk.model,
-                            "choices": [{"index": choice.index, "delta": {"content": choice.delta.content, "role": choice.delta.role, "reasoning_content": reasoning_content if hasattr(choice.delta, "reasoning_content") else None}, "finish_reason": choice.finish_reason} for choice in response_chunk.choices]
-                        }
-                    else: 
-                        chunk_content = response_chunk
+                    for choice in response_chunk.choices:
+                        if hasattr(choice.delta, "tool_calls") and choice.delta.tool_calls:
+                            for tool_call in choice.delta.tool_calls:
+                                if tool_call.id:
+                                    tool_call_data["id"] = tool_call.id
+                                if tool_call.function:
+                                    if hasattr(tool_call.function, "name") and tool_call.function.name:
+                                        tool_call_data["function_name"] = tool_call.function.name
+                                    if hasattr(tool_call.function, "arguments") and tool_call.function.arguments:
+                                        tool_call_data["arguments"] += tool_call.function.arguments
+                    for choice in response_chunk.choices:
+                        if hasattr(choice.delta, "reasoning_content"):
+                            reasoning_content += choice.delta.reasoning_content
+                    chunk_content = "".join(choice.delta.content for choice in response_chunk.choices if choice.delta.content is not None)
+                    if chunk_content:
                         complete_response.append(chunk_content)
-                        chunk_data = {
-                            "id": None, "object": None, "created": None, "model": model,
-                            "choices": [{"index": 0, "delta": {"content": chunk_content, "role": "assistant"}, "finish_reason": None}]
-                        }
-
-                yield f"data: {json.dumps(chunk_data)}\n\n"
+                    chunk_data = {
+                        "id": response_chunk.id, "object": response_chunk.object, "created": response_chunk.created, "model": response_chunk.model,
+                        "choices": [{"index": choice.index, "delta": {"content": choice.delta.content, "role": choice.delta.role, "reasoning_content": reasoning_content if hasattr(choice.delta, "reasoning_content") else None}, "finish_reason": choice.finish_reason} for choice in response_chunk.choices]
+                    }
+                    yield f"data: {json.dumps(chunk_data)}\n\n"
 
         except Exception as e:
             print(f"\nAn exception occurred during streaming for {current_stream_id}: {e}")
@@ -2261,19 +2257,81 @@ def execute():
             print('\r' + ' ' * dot_count*2 + '\r', end="", flush=True)
 
             final_response_text = ''.join(complete_response)
+            
+            conversation_turn_text = f"User: {commandstr}\nAssistant: {final_response_text}"
+            
+            try:
+                memory_examples = command_history.get_memory_examples_for_context(
+                    npc=npc_name,
+                    team=team,
+                    directory_path=current_path
+                )
+                
+                memory_context = format_memory_context(memory_examples)
+                
+                facts = get_facts(
+                    conversation_turn_text,
+                    model=npc_object.model if npc_object else model,
+                    provider=npc_object.provider if npc_object else provider,
+                    npc=npc_object,
+                    context=memory_context
+                )
+                
+                if facts:
+                    memories_for_approval = []
+                    for i, fact in enumerate(facts):
+                        memory_id = command_history.add_memory_to_database(
+                            message_id=f"{conversation_id}_{datetime.now().strftime('%H%M%S')}_{i}",
+                            conversation_id=conversation_id,
+                            npc=npc_name or "default",
+                            team=team or "default",
+                            directory_path=current_path or "/",
+                            initial_memory=fact['statement'],
+                            status="pending_approval",
+                            model=npc_object.model if npc_object else model,
+                            provider=npc_object.provider if npc_object else provider
+                        )
+                        
+                        memories_for_approval.append({
+                            "memory_id": memory_id,
+                            "content": fact['statement'],
+                            "context": f"Type: {fact.get('type', 'unknown')}, Source: {fact.get('source_text', '')}",
+                            "npc": npc_name or "default"
+                        })
+                    
+                    memory_data = {
+                        "type": "memory_approval",
+                        "memories": memories_for_approval,
+                        "conversation_id": conversation_id
+                    }
+                    
+            except Exception as e:
+                print(f"Memory generation error: {e}")
+
+            if memory_data:
+                yield f"data: {json.dumps(memory_data)}\n\n"
+
             yield f"data: {json.dumps({'type': 'message_stop'})}\n\n"
             
             npc_name_to_save = npc_object.name if npc_object else ''
             save_conversation_message(
-                command_history, conversation_id, "assistant", final_response_text,
-                wd=current_path, model=model, provider=provider,
-                npc=npc_name_to_save, team=team, message_id=message_id,
+                command_history, 
+                conversation_id, 
+                "assistant", 
+                final_response_text,
+                wd=current_path, 
+                model=model, 
+                provider=provider,
+                npc=npc_name_to_save, 
+                team=team, 
+                message_id=message_id,
             )
 
             with cancellation_lock:
                 if current_stream_id in cancellation_flags:
                     del cancellation_flags[current_stream_id]
                     print(f"Cleaned up cancellation flag for stream ID: {current_stream_id}")
+
 
 
     return Response(event_stream(stream_id), mimetype="text/event-stream")
