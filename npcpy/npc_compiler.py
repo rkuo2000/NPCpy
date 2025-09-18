@@ -26,7 +26,7 @@ from npcpy.npc_sysenv import (
     get_system_message, 
 
     )
-from npcpy.memory.command_history import CommandHistory
+from npcpy.memory.command_history import CommandHistory, generate_message_id
 
 class SilentUndefined(Undefined):
     def _fail_with_undefined_error(self, *args, **kwargs):
@@ -498,7 +498,7 @@ def load_jinxs_from_directory(directory):
     return jinxs
 
 def get_npc_action_space(npc=None, team=None):
-    """Get action space for NPC including memory search, db query, and core capabilities"""
+    """Get action space for NPC including memory CRUD and core capabilities"""
     actions = DEFAULT_ACTION_SPACE.copy()
     
     if npc:
@@ -510,24 +510,35 @@ def get_npc_action_space(npc=None, team=None):
         if npc.command_history:
             core_tools.extend([
                 npc.search_my_conversations,
-                npc.search_my_memories
+                npc.search_my_memories,
+                npc.create_memory,
+                npc.read_memory,
+                npc.update_memory,
+                npc.delete_memory,
+                npc.search_memories,
+                npc.get_all_memories,
+                npc.archive_old_memories,
+                npc.get_memory_stats
             ])
         
         if npc.db_conn:
             core_tools.append(npc.query_database)
         
         if hasattr(npc, 'tools') and npc.tools:
+            core_tools.extend([func for func in npc.tool_map.values() if callable(func)])
+        
+        if core_tools:
             tools_schema, tool_map = auto_tools(core_tools)
             actions.update({
                 f"use_{tool.__name__}": {
-                    "description": extract_function_info(tool).get('description'),
+                    "description": f"Use {tool.__name__} capability",
                     "handler": tool,
                     "context": lambda **_: f"Available as automated capability",
                     "output_keys": {"result": {"description": "Tool execution result", "type": "string"}}
                 }
                 for tool in core_tools
             })
-        
+    
     if team and hasattr(team, 'npcs') and len(team.npcs) > 1:
         available_npcs = [name for name in team.npcs.keys() if name != (npc.name if npc else None)]
         
@@ -537,13 +548,11 @@ def get_npc_action_space(npc=None, team=None):
             return agent_pass_handler(command, extracted_data, **kwargs)
         
         actions["pass_to_npc"] = {
-            "description": "Pass the request to another NPC in the team - BUT ONLY if the task truly requires their specific expertise and you cannot handle it yourself",
+            "description": "Pass request to another NPC - only when task requires their specific expertise",
             "handler": team_aware_handler,
             "context": lambda npc=npc, team=team, **_: (
-                f"Use this SPARINGLY when the request absolutely requires another team member's expertise. "
                 f"Available NPCs: {', '.join(available_npcs)}. "
-                f"IMPORTANT: If you can handle the task yourself with your {npc.name if npc else 'current'} skills, DO NOT pass it. "
-                f"Only pass when you genuinely cannot complete the task due to lack of domain expertise."
+                f"Only pass when you genuinely cannot complete the task."
             ),
             "output_keys": {
                 "target_npc": {
@@ -554,8 +563,6 @@ def get_npc_action_space(npc=None, team=None):
         }
     
     return actions
-
-
 
 
 def extract_jinx_inputs(args: List[str], jinx: Jinx) -> Dict[str, Any]:
@@ -1074,14 +1081,14 @@ class NPC:
         
     def get_llm_response(self, 
                             request,
-                            jinxs= None,
+                            jinxs=None,
                             tools=None,
-                            tool_map= None,
+                            tool_map=None,
                             tool_choice=None, 
-                            messages: Optional[List[Dict[str, str]]] = None,
-                            auto_process_tool_calls: bool = True,
+                            messages=None,
+                            auto_process_tool_calls=True,
                             **kwargs):
-        """Get a response from the LLM with automatic tool integration"""
+        """Get response from LLM with automatic tool integration including memory CRUD"""
         
         if tools is None and tool_map is None and tool_choice is None:
             core_tools = [
@@ -1092,7 +1099,15 @@ class NPC:
             if self.command_history:
                 core_tools.extend([
                     self.search_my_conversations,
-                    self.search_my_memories
+                    self.search_my_memories,
+                    self.create_memory,
+                    self.read_memory, 
+                    self.update_memory,
+                    self.delete_memory,
+                    self.search_memories,
+                    self.get_all_memories,
+                    self.archive_old_memories,
+                    self.get_memory_stats
                 ])
             
             if self.db_conn:
@@ -1122,6 +1137,7 @@ class NPC:
         )        
         
         return response
+
     
 
 
@@ -1674,7 +1690,7 @@ class NPC:
 
 
 
-    def execute_jinx_command(
+    def execute_jinx_command(self, 
         jinx: Jinx,
         args: List[str],
         messages=None,
@@ -1695,6 +1711,159 @@ class NPC:
         )
 
         return {"messages": messages, "output": jinx_output}
+    def create_memory(self, content: str, memory_type: str = "observation") -> Optional[int]:
+        """Create a new memory entry"""
+        if not self.command_history:
+            return None
+        
+        message_id = generate_message_id()
+        conversation_id = self.command_history.get_most_recent_conversation_id()
+        conversation_id = conversation_id.get('conversation_id') if conversation_id else 'direct_memory'
+        
+        team_name = getattr(self.team, 'name', 'default_team') if self.team else 'default_team'
+        directory_path = os.getcwd()
+        
+        return self.command_history.add_memory_to_database(
+            message_id=message_id,
+            conversation_id=conversation_id,
+            npc=self.name,
+            team=team_name,
+            directory_path=directory_path,
+            initial_memory=content,
+            status='active',
+            model=self.model,
+            provider=self.provider
+        )
+
+    def read_memory(self, memory_id: int) -> Optional[Dict[str, Any]]:
+        """Read a specific memory by ID"""
+        if not self.command_history:
+            return None
+        
+        stmt = "SELECT * FROM memory_lifecycle WHERE id = :memory_id"
+        return self.command_history._fetch_one(stmt, {"memory_id": memory_id})
+
+    def update_memory(self, memory_id: int, new_content: str = None, status: str = None) -> bool:
+        """Update memory content or status"""
+        if not self.command_history:
+            return False
+        
+        updates = []
+        params = {"memory_id": memory_id}
+        
+        if new_content is not None:
+            updates.append("final_memory = :final_memory")
+            params["final_memory"] = new_content
+        
+        if status is not None:
+            updates.append("status = :status") 
+            params["status"] = status
+        
+        if not updates:
+            return False
+        
+        stmt = f"UPDATE memory_lifecycle SET {', '.join(updates)} WHERE id = :memory_id"
+        
+        try:
+            with self.command_history.engine.begin() as conn:
+                conn.execute(text(stmt), params)
+            return True
+        except Exception as e:
+            print(f"Error updating memory {memory_id}: {e}")
+            return False
+
+    def delete_memory(self, memory_id: int) -> bool:
+        """Delete a memory by ID"""
+        if not self.command_history:
+            return False
+        
+        stmt = "DELETE FROM memory_lifecycle WHERE id = :memory_id AND npc = :npc"
+        
+        try:
+            with self.command_history.engine.begin() as conn:
+                result = conn.execute(text(stmt), {"memory_id": memory_id, "npc": self.name})
+                return result.rowcount > 0
+        except Exception as e:
+            print(f"Error deleting memory {memory_id}: {e}")
+            return False
+
+    def search_memories(self, query: str, limit: int = 10, status_filter: str = None) -> List[Dict[str, Any]]:
+        """Search memories with optional status filtering"""
+        if not self.command_history:
+            return []
+        
+        team_name = getattr(self.team, 'name', 'default_team') if self.team else 'default_team'
+        directory_path = os.getcwd()
+        
+        return self.command_history.search_memory(
+            query=query,
+            npc=self.name,
+            team=team_name,
+            directory_path=directory_path,
+            status_filter=status_filter,
+            limit=limit
+        )
+
+    def get_all_memories(self, limit: int = 50, status_filter: str = None) -> List[Dict[str, Any]]:
+        """Get all memories for this NPC with optional status filtering"""
+        if not self.command_history:
+            return []
+        
+        if limit is None:
+            limit = 50
+        
+        conditions = ["npc = :npc"]
+        params = {"npc": self.name, "limit": limit}
+        
+        if status_filter:
+            conditions.append("status = :status")
+            params["status"] = status_filter
+        
+        stmt = f"""
+            SELECT * FROM memory_lifecycle 
+            WHERE {' AND '.join(conditions)}
+            ORDER BY created_at DESC 
+            LIMIT :limit
+            """
+        
+        return self.command_history._fetch_all(stmt, params)
+
+
+    def archive_old_memories(self, days_old: int = 30) -> int:
+        """Archive memories older than specified days"""
+        if not self.command_history:
+            return 0
+        
+        stmt = """
+            UPDATE memory_lifecycle 
+            SET status = 'archived' 
+            WHERE npc = :npc 
+            AND status = 'active'
+            AND datetime(created_at) < datetime('now', '-{} days')
+        """.format(days_old)
+        
+        try:
+            with self.command_history.engine.begin() as conn:
+                result = conn.execute(text(stmt), {"npc": self.name})
+                return result.rowcount
+        except Exception as e:
+            print(f"Error archiving memories: {e}")
+            return 0
+
+    def get_memory_stats(self) -> Dict[str, int]:
+        """Get memory statistics for this NPC"""
+        if not self.command_history:
+            return {}
+        
+        stmt = """
+            SELECT status, COUNT(*) as count
+            FROM memory_lifecycle 
+            WHERE npc = :npc
+            GROUP BY status
+        """
+        
+        results = self.command_history._fetch_all(stmt, {"npc": self.name})
+        return {row['status']: row['count'] for row in results}
 
 
 class Team:

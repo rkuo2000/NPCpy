@@ -1,7 +1,10 @@
 import torch
 import torch.nn as nn
-from transformers import AutoTokenizer, AutoModelForSequenceClassification, Trainer, TrainingArguments
-from torch.utils.data import Dataset
+try:
+    from transformers import AutoTokenizer, AutoModelForSequenceClassification, Trainer, TrainingArguments
+    from torch.utils.data import Dataset
+except:
+    pass 
 import json
 from typing import List, Dict, Tuple
 import random
