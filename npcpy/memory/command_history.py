@@ -604,16 +604,16 @@ class CommandHistory:
         
         stmt = """
             INSERT INTO memory_lifecycle 
-            (message_id, conversation_id, npc, team, directory_path, datetime, 
+            (message_id, conversation_id, npc, team, directory_path, timestamp, 
             initial_memory, final_memory, status, model, provider)
             VALUES (:message_id, :conversation_id, :npc, :team, :directory_path, 
-                    :datetime, :initial_memory, :final_memory, :status, :model, :provider)
+                    :timestamp, :initial_memory, :final_memory, :status, :model, :provider)
         """
         
         params = {
             "message_id": message_id, "conversation_id": conversation_id,
             "npc": npc, "team": team, "directory_path": directory_path,
-            "datetime": timestamp, "initial_memory": initial_memory,
+            "timestamp": timestamp, "initial_memory": initial_memory,
             "final_memory": final_memory, "status": status,
             "model": model, "provider": provider
         }

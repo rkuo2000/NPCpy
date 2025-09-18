@@ -359,6 +359,7 @@ def kg_evolve_incremental(existing_kg,
     all_concept_names = list(existing_concept_names)
     
     all_new_facts = []
+    print(npc, npc.model, npc.provider)
     
     if new_facts:
         all_new_facts = new_facts
@@ -375,12 +376,14 @@ def kg_evolve_incremental(existing_kg,
                                 npc = npc, 
                                 context=context)
                 all_new_facts.extend(facts)
+                print(facts)
         else:
             all_new_facts = get_facts(new_content_text, 
                                 model=model,
                                 provider=provider,
                                 npc = npc, 
                                 context=context)
+            print(all_new_facts)
     else:
         print("No new content or facts provided")
         return existing_kg, {}
@@ -398,6 +401,7 @@ def kg_evolve_incremental(existing_kg,
                                             provider = provider, 
                                             npc=npc, 
                                             context=context)
+        print(candidate_concepts)
         print('checking group uniqueness')
         for cand_concept in candidate_concepts:
             cand_name = cand_concept['name']

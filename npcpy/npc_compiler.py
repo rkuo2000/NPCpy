@@ -746,7 +746,9 @@ class NPC:
             npc_name=self.name,
             directory_path=directory_path
         )
-        
+        print('# of facts: ', len(kg_data['facts']))
+        print('# of facts: ', len(kg_data['concepts']))
+
         if not kg_data.get('facts') and not kg_data.get('concepts'):
             return self._initialize_kg_from_history()
         
