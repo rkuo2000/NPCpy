@@ -1,8 +1,8 @@
-import torch
-import torch.nn as nn
 try:
-    from transformers import AutoTokenizer, AutoModelForSequenceClassification, Trainer, TrainingArguments
     from torch.utils.data import Dataset
+    import torch
+    import torch.nn as nn
+    from transformers import AutoTokenizer, AutoModelForSequenceClassification, Trainer, TrainingArguments
 except:
     pass 
 import json
