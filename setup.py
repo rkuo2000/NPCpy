@@ -66,6 +66,7 @@ local_requirements = [
     "chromadb",
     "diffusers",
     "torch",
+    "datasets", 
 ]
 
 
