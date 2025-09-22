@@ -193,9 +193,9 @@ def get_llm_response(
     else:
         provider = "ollama"
         if images is not None or attachments is not None:
-            model = "llava:7b"
+            model = "llama3.2-vision"
         else:
-            model = "llama3.2"
+            model = "gpt-oss"
             
     if npc is not None:
         
